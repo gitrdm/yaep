@@ -440,40 +440,47 @@ yylex (void)
       {
 	const char *id_start = tok_start;
 	int id_byte_len;
-	
-	/* The first code point is already verified to be alphabetic or '_' */
-	while ((cp = yaep_utf8_next(&curr_ch)) != YAEP_CODEPOINT_EOS &&
-	       cp != YAEP_CODEPOINT_INVALID)
-	  {
-	    if (!yaep_utf8_isalnum(cp) && cp != '_')
-	      break;
-	  }
-	
-	/* Back up if we consumed a non-identifier character */
-	if (cp != YAEP_CODEPOINT_EOS && cp != YAEP_CODEPOINT_INVALID)
-	  {
-	    /* We need to back up curr_ch to before this code point.
-	     * Since we don't know the byte length, re-parse from id_start. */
-	    const char *p = id_start;
-	    const char *last_good = id_start;
-	    while (p < curr_ch)
-	      {
-		yaep_codepoint_t test_cp = yaep_utf8_next(&p);
-		if (test_cp == YAEP_CODEPOINT_EOS || test_cp == YAEP_CODEPOINT_INVALID)
-		  break;
-		if (p >= curr_ch)
-		  break;
-		if (!yaep_utf8_isalnum(test_cp) && test_cp != '_')
-		  break;
-		last_good = p;
-	      }
-	    curr_ch = last_good;
-	  }
-	
-	/* Copy the identifier bytes into the token buffer */
+
+	/*
+	 * Iterate with `yaep_utf8_next_with_len` which returns the decoded
+	 * code point and the number of bytes consumed.  This lets the lexer
+	 * advance and remember byte boundaries without reparsing from the
+	 * token start.  The previous implementation re-parsed from
+	 * `id_start` to back up when a non-identifier character was found;
+	 * that was correct but redundant and costlier.  Using the _with_len
+	 * helper makes the code simpler and more efficient while preserving
+	 * exact byte-level semantics.
+	 */
+	{
+	  const char *p = curr_ch;
+	  const char *last_good = id_start; /* last pointer just after a valid cp */
+	  size_t bytes_len = 0;
+	  yaep_codepoint_t test_cp;
+
+	  /* The first code point was already validated as a start character; mark it */
+	  last_good = curr_ch;
+
+	  while ((test_cp = yaep_utf8_next_with_len(&p, &bytes_len)) != YAEP_CODEPOINT_EOS &&
+	         test_cp != YAEP_CODEPOINT_INVALID)
+	    {
+	      if (!yaep_utf8_isalnum(test_cp) && test_cp != '_')
+	        break;
+	      /* Advance last_good to the byte position after this code point */
+	      last_good = p;
+	    }
+
+		/* Set curr_ch to the last byte position that is still part of the identifier */
+		curr_ch = last_good;
+		}
+
+		/* Now compute byte length for copying */
 	id_byte_len = curr_ch - id_start;
 	for (int i = 0; i < id_byte_len; i++)
-	  OS_TOP_ADD_BYTE (stoks, id_start[i]);
+	  /* Ensure bytes are treated as unsigned when stored: avoid
+	     platform-dependent sign-extension later during hashing or
+	     byte-wise operations. Store each source byte as an
+	     unsigned char value. */
+	  OS_TOP_ADD_BYTE (stoks, (unsigned char) id_start[i]);
 	OS_TOP_ADD_BYTE (stoks, '\0');
 	yylval.ref = OS_TOP_BEGIN (stoks);
 	

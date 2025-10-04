@@ -11,6 +11,9 @@
 int main(int argc, char **argv) {
     struct grammar *g = yaep_create_grammar();
     if (!g) return 1;
+    /* Avoid unused-parameter warnings from test harness */
+    (void)argc;
+    (void)argv;
 
     /* Create a very long description containing repeated non-BMP char U+1F600 (emoji) */
     const char *smile = "\xF0\x9F\x98\x80"; /* U+1F600 */
@@ -32,6 +35,8 @@ int main(int argc, char **argv) {
     /* Intentionally call parse with a malformed grammar to force an error
        and cause yaep_error to format a long message. */
     int rc = yaep_parse_grammar(g, 1, desc);
+    /* rc is intentionally unused besides forcing parse side-effects */
+    (void)rc;
 
     /* We expect an error; ensure error_message is valid UTF-8 by checking
        it is NUL-terminated and does not contain lone continuation bytes.
