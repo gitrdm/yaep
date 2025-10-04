@@ -131,6 +131,21 @@ add_executable( test_truncate_edge test_truncate_edge.c )
 target_link_libraries( test_truncate_edge yaep_static )
 add_test( NAME yaep-test-truncate-edge COMMAND test_truncate_edge )
 
+# Longer truncation stress test
+add_executable( test_truncate_long test_truncate_long.c )
+target_link_libraries( test_truncate_long yaep_static )
+add_test( NAME yaep-test-truncate-long COMMAND test_truncate_long )
+
+# NFC canonicalization cases
+add_executable( test_nfc_cases test_nfc_cases.c )
+target_link_libraries( test_nfc_cases yaep_static )
+add_test( NAME yaep-test-nfc-cases COMMAND test_nfc_cases )
+
+# Hash stability tests
+add_executable( test_hash_stability test_hash_stability.c )
+target_link_libraries( test_hash_stability yaep_static )
+add_test( NAME yaep-test-hash-stability COMMAND test_hash_stability )
+
 # Already defined grammar
 add_executable( test07 test07.c )
 target_link_libraries( test07 yaep_static )

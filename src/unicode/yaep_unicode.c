@@ -415,28 +415,49 @@ yaep_utf8_truncate_safe(const char *src, char *dst, size_t dst_size)
     return 0;
   }
 
-  /* We may have cut a multi-byte sequence in the middle. Back up to the
-   * last valid code point start. UTF-8 start bytes are: 0xxxxxxx,
-   * 110xxxxx, 1110xxxx, 11110xxx (i.e. bytes not in 0x80..0xBF). */
-  size_t i = max_copy;
-  /* Move `i` backwards over any UTF-8 continuation bytes. After the
-   * loop `i` points to the index immediately after the start byte of
-   * the (possibly truncated) sequence. The actual start index of the
-   * last whole code point is therefore `i - 1` (when i > 0). */
-  while (i > 0 && ((unsigned char)dst[i-1] & 0xC0) == 0x80)
-    i--;
+  /* We may have cut a multi-byte sequence. We want to find the last
+   * code point start index `start_idx` such that the entire code point
+   * fits within the first `max_copy` bytes. We prefer to append a
+   * 3-byte ASCII ellipsis "..." when an earlier code point start
+   * allows it; otherwise we NUL-terminate at the last whole code
+   * point boundary. If no whole code point fits at all, we fall back
+   * to writing "..." when dst_size >= 4 or an empty string otherwise. */
 
-  /* Convert `i` to the index of the start byte of the last whole code
-   * point that fits in the buffer. If the loop stopped immediately
-   * (no continuation bytes), this yields i-1 which is the last byte's
-   * index; in practice this branch is only used when the last byte is
-   * the start of a multi-byte sequence that was cut. */
-  if (i > 0)
-    i = i - 1;
+  size_t start_idx = (size_t)(-1);
+  size_t scan_pos = max_copy;
 
-  /* If we backed up zero bytes, just produce safe empty ellipsis */
-  if (i == 0) {
-    if (dst_size > 4) {
+  while (scan_pos > 0) {
+    /* Find candidate start byte by backing up over continuation bytes */
+    size_t st = scan_pos - 1;
+    while (st > 0 && (((unsigned char)dst[st] & 0xC0) == 0x80))
+      st--;
+
+    unsigned char first = (unsigned char)dst[st];
+    size_t seq_len = 1;
+    if ((first & 0x80) == 0x00) seq_len = 1;
+    else if ((first & 0xE0) == 0xC0) seq_len = 2;
+    else if ((first & 0xF0) == 0xE0) seq_len = 3;
+    else if ((first & 0xF8) == 0xF0) seq_len = 4;
+    else {
+      /* Invalid start byte; treat as no-fitting sequence and back up */
+      if (st == 0) break;
+      scan_pos = st;
+      continue;
+    }
+
+    if (st + seq_len <= max_copy) {
+      start_idx = st;
+      break;
+    }
+
+    if (st == 0) break;
+    /* Continue searching earlier in the buffer */
+    scan_pos = st;
+  }
+
+  /* If no code point fits entirely, put ellipsis when possible. */
+  if (start_idx == (size_t)(-1)) {
+    if (dst_size >= 4) {
       dst[0] = '.'; dst[1] = '.'; dst[2] = '.'; dst[3] = '\0';
     } else {
       dst[0] = '\0';
@@ -444,17 +465,30 @@ yaep_utf8_truncate_safe(const char *src, char *dst, size_t dst_size)
     return 0;
   }
 
-  /* Now `i` is the index of the first byte of the last whole code point
-   * that fits. Append ellipsis if space allows. */
+  /* Try to find the latest start index `s` <= start_idx such that
+   * s + ellipsis_len <= max_copy; this lets us append "..." and
+   * keep the result valid UTF-8. If not found, we'll NUL-terminate
+   * at start_idx. */
   size_t ellipsis_len = 3;
-  if (i + ellipsis_len <= max_copy) {
-    dst[i] = '.'; dst[i+1] = '.'; dst[i+2] = '.';
-    dst[i+3] = '\0';
-  } else {
-    /* Not enough room for ellipsis, just NUL terminate at i. */
-    dst[i] = '\0';
+  size_t s = start_idx;
+  while (1) {
+    if (s + ellipsis_len <= max_copy) {
+      /* We can write ellipsis starting at s */
+      dst[s] = '.'; dst[s+1] = '.'; dst[s+2] = '.'; dst[s+3] = '\0';
+      return 0;
+    }
+
+    /* Find previous code point start if any */
+    if (s == 0) break;
+    size_t prev = s - 1;
+    while (prev > 0 && (((unsigned char)dst[prev] & 0xC0) == 0x80))
+      prev--;
+    s = prev;
   }
 
+  /* No room for ellipsis at any earlier code point start; NUL-terminate
+   * at the last whole code point start. */
+  dst[start_idx] = '\0';
   return 0;
 }
 
