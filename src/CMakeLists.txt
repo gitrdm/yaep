@@ -32,6 +32,7 @@ add_custom_target( sgramm_c DEPENDS ${BISON_sgramm_OUTPUTS} ) # FIXME: yaep.c in
 # Now build libraries
 include_directories(
 	${CMAKE_CURRENT_BINARY_DIR}
+	${PROJECT_SOURCE_DIR}/third_party/utf8proc
 )
 
 # C
@@ -48,8 +49,10 @@ set( YAEP_LIB_SOURCES
 	vlobject.c
 	yaep.c
 )
+
 add_library( yaep_static STATIC ${YAEP_LIB_SOURCES} )
-add_dependencies( yaep_static sgramm_c ) # FIXME: yaep.c includes sgramm.c directly; would be cleaner if sgramm was its own object
+add_dependencies( yaep_static sgramm_c )
+target_link_libraries( yaep_static PUBLIC utf8proc )
 set_target_properties( yaep_static PROPERTIES OUTPUT_NAME ${YAEP_LIB_STATIC} )
 
 # C++
@@ -66,8 +69,10 @@ set( YAEPXX_LIB_SOURCES
 	vlobject.cpp
 	yaep.cpp
 )
+
 add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )
-add_dependencies( yaep++_static sgramm_c ) # FIXME: yaep.cpp includes sgramm.c via yaep.c; would be cleaner if sgramm was its own object
+add_dependencies( yaep++_static sgramm_c )
+target_link_libraries( yaep++_static PUBLIC utf8proc )
 set_target_properties( yaep++_static PROPERTIES OUTPUT_NAME ${YAEPXX_LIB_STATIC} )
 
 # Install
@@ -78,6 +83,9 @@ install( TARGETS yaep_static yaep++_static DESTINATION ${CMAKE_INSTALL_LIBDIR} )
 install( FILES ${YAEP_INCLUDE} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}" )
 
 # Build test binaries from the same sources
+
 add_executable( yaep_test ${YAEP_LIB_SOURCES} )
+target_link_libraries( yaep_test PRIVATE yaep_static utf8proc )
 add_executable( yaep++_test ${YAEPXX_LIB_SOURCES} )
+target_link_libraries( yaep++_test PRIVATE yaep++_static utf8proc )
 set_target_properties( yaep_test yaep++_test PROPERTIES COMPILE_FLAGS "-DYAEP_TEST -DYAEP_DEBUG" )

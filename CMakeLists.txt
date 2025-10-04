@@ -51,6 +51,9 @@ endif()
 
 include( GNUInstallDirs )
 
+
+# Add utf8proc as a third-party dependency
+add_subdirectory( third_party/utf8proc )
 add_subdirectory( src )
 add_subdirectory( test )
 add_subdirectory( doc )
