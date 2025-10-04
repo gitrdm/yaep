@@ -26,7 +26,7 @@
 #
 
 CXX = g++
-CXXFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG
+CXXFLAGS = -O3 -march=native -DNDEBUG -Ofast $(OPTIONS) -DNDEBUG
 
 srcdir = .
 top_srcdir = ../..
