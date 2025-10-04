@@ -28,7 +28,6 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
-#include <stdlib.h>
 #include "objstack.h"
 #include "hashtab.h"
 #include "ticker.h"
@@ -39,16 +38,13 @@ static const char *typedef_flag = NULL;
 static int after_struct_flag = 0;
 static int level = 0;
 
-static int get_lex (void);
-int yyerror (const char *msg);
-
 #include "test_common.c"
 
 #define yylex get_lex
 #include "y.tab.c"
 #undef yylex
 
-static int
+int
 get_lex (void)
 {
   if (curr == NULL)
@@ -104,8 +100,7 @@ static void store_lexs( YaepAllocator * alloc ) {
   }
 }
 
-int
-main (void)
+main()
 {
   ticker_t t;
   int code;
@@ -132,5 +127,6 @@ main (void)
   printf ("parse time %.2f\n", active_time (t));
 #endif
   yaep_alloc_del( alloc );
-  return code;
+  exit (code);
 }
+
