@@ -26,7 +26,7 @@
 #
 
 CC = gcc
-CFLAGS = -O3 -march=native -DNDEBUG -Ofast $(OPTIONS) -DNDEBUG 
+CFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG 
 
 srcdir = .
 top_srcdir = ../..

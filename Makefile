@@ -106,11 +106,11 @@ OPTIONS=-Isrc -I$(srcdir)/src \
 
 # C compiler and its flag used for compilation of C files.
 CC = gcc
-CFLAGS = -O3 -march=native -DNDEBUG -Ofast $(OPTIONS) -DNDEBUG 
+CFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG 
 
 # C++ compiler and its flag used for compilation of C++ files.
 CXX = g++
-CXXFLAGS = -O3 -march=native -DNDEBUG -Ofast $(OPTIONS) -DNDEBUG
+CXXFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG
 
 # Yacc
 YACC=bison -y

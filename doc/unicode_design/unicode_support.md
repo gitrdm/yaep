@@ -9,52 +9,62 @@ This note summarises the production-level guarantees YAEP now offers when parsin
 * **Character literals.** Character literals (`'…'`) now accept any single Unicode scalar value. The literal retains its original UTF-8 bytes for diagnostics while the parser stores the decoded code point exactly once, preventing stale byte-based hashes.
 * **Numeric literals.** Decimal numbers inside grammar descriptions accept any `Nd` code point. Literals must use digits from a single script; mixed-script numerals are rejected with a descriptive error to prevent subtle token-code mismatches.
 
-## Normalisation Policy
+## Normalisation policy
 
-YAEP deliberately treats byte sequences verbatim. Identifiers that differ only by Unicode normalisation form (e.g., NFC vs. NFD) are considered distinct symbols. This keeps the parser deterministic and avoids implicit data rewrites, but it means clients must decide how aggressively to normalise content.
+YAEP now performs NFC normalization of grammar symbol names at insertion time.
+When a grammar description is read, YAEP will attempt to normalise symbol
+names to NFC (using the bundled unicode wrapper). If normalization succeeds,
+the normalized form is used for hashing and internal comparisons; identifiers
+that are canonically equivalent therefore map to the same internal symbol.
 
-**Recommended workflow:**
+This makes grammars more robust in the presence of equivalent Unicode forms
+and reduces the need for callers to pre-normalize grammar text. However,
+client code still needs to ensure that runtime tokens (terminal attributes)
+match the normalized forms used by YAEP. In practice you can either:
 
-1. Normalise grammar descriptions to **NFC** (or a project-specific form) before passing them to YAEP.
-2. Apply the same normalisation to runtime tokens (terminal attributes) so that hash lookups and equality checks remain stable.
-3. If normalisation is undesirable, document the decision in your project so that tooling and reviewers know mixed forms are intentional.
+* Produce terminal attributes that are already NFC-normalized (recommended),
+  or
+* Use token codes instead of textual attributes so runtime matching is
+  independent of string normalization.
+
+Note: YAEP's normalization is conservative — if normalization fails during
+symbol insertion YAEP falls back to the original byte sequence rather than
+aborting grammar construction. If you require strict behaviour, validate and
+normalize inputs before calling YAEP's APIs.
+
+### Recommended workflow
+
+1. You may pass grammar descriptions to YAEP without pre-normalizing them; YAEP will normalize symbol names to NFC when reading the grammar.
+2. Ensure runtime tokens (terminal attributes) are normalized to NFC before being passed to the parser, or emit token codes to avoid string comparisons entirely.
+3. If you prefer to control normalization yourself, use YAEP's helper `yaep_utf8_normalize_nfc()` to obtain allocator-owned normalized strings.
 
 ### Sample helper (C API)
 
 ```c
-#include "utf8proc.h"
+#include "yaep_unicode.h" /* exposes yaep_utf8_normalize_nfc */
 
-static char *
-normalize_to_nfc (const char *input, YaepAllocator *alloc)
-{
-  utf8proc_uint8_t *output = NULL;
-  utf8proc_map ((const utf8proc_uint8_t *)input,
-                0,
-                &output,
-                UTF8PROC_STABLE | UTF8PROC_COMPOSE | UTF8PROC_COMPAT);
-  return (char *)output; /* caller frees via utf8proc_free */
+/* Normalize a NUL-terminated string to NFC into allocator-managed memory.
+ * On success returns pointer via *out (owned by allocator), and function
+ * returns 1. On failure *out is set to NULL and the function returns 0.
+ */
+char *maybe_norm = NULL;
+if (yaep_utf8_normalize_nfc(original, &maybe_norm, grammar->alloc) == 1) {
+    /* use maybe_norm (allocator-owned) as the canonical representation */
+} else {
+    /* fallback: use original */
 }
 ```
-
-Use the helper before invoking `yaep_parse_grammar` or before emitting terminal identifiers.
 
 ### Sample helper (C++ API)
 
 ```cpp
-#include <memory>
-#include "utf8proc.h"
-
-std::string normalize_to_nfc(const std::string &text) {
-  utf8proc_uint8_t *buffer = nullptr;
-  if (utf8proc_map(reinterpret_cast<const utf8proc_uint8_t *>(text.c_str()),
-                   0,
-                   &buffer,
-                   UTF8PROC_STABLE | UTF8PROC_COMPOSE | UTF8PROC_COMPAT) < 0) {
-    throw std::runtime_error("utf8proc_map failure");
+#include "yaep_unicode.h"
+std::string normalize_if_needed(const char *s, YaepAllocator *alloc) {
+  char *out = nullptr;
+  if (yaep_utf8_normalize_nfc(s, &out, alloc) == 1) {
+    return std::string(out); /* allocator still owns out; copy as needed */
   }
-  std::unique_ptr<utf8proc_uint8_t, decltype(&utf8proc_free)>
-    holder(buffer, utf8proc_free);
-  return std::string(reinterpret_cast<char *>(holder.get()));
+  return std::string(s);
 }
 ```
 
