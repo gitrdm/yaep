@@ -38,6 +38,12 @@
    yaep_read_grammar. */
 struct grammar;
 
+/* Per-parse context stored in grammar during a yaep_read_grammar call.
+   This holds values that must survive setjmp/longjmp and should not
+   live in automatic locals. The type is opaque here; definition lives
+   in the .c file. */
+struct parse_ctx;
+
 /* The following value is reserved to be designation of empty node for
    translation.  It should be positive number which is not intersected
    with symbol numbers. */
