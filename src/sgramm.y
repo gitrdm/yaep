@@ -387,6 +387,7 @@ yylex (void)
 int
 yyerror (const char *str)
 {
+  (void) str;
   yaep_error (YAEP_DESCRIPTION_SYNTAX_ERROR_CODE,
 	      "description syntax error on ln %d", ln);
   return 0;
@@ -522,10 +523,7 @@ sread_rule (const char ***rhs, const char **abs_node, int *anode_cost,
 }
 
 /* The following function parses grammar desrciption. */
-#ifdef __cplusplus
-static
-#endif
-  int
+int
 yaep_parse_grammar (struct grammar *g, int strict_p, const char *description)
 {
   int code;

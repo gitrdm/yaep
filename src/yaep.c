@@ -223,6 +223,7 @@ void yaep_free_grammar (struct grammar *g);
 
 /* Expand VLO to contain N_ELS integers.  Initilize the new elements
    as zero. Return TRUE if we really made an expansion.  */
+#ifdef TRANSITIVE_TRANSITION
 static int
 expand_int_vlo (vlo_t * vlo, int n_els)
 {
@@ -246,6 +247,7 @@ expand_int_vlo (vlo_t * vlo, int n_els)
   return TRUE;
 #endif
 }
+#endif /* #ifdef TRANSITIVE_TRANSITION */
 
 
 
@@ -904,7 +906,7 @@ INLINE
 static term_set_el_t *
 term_set_from_table (int num)
 {
-  assert (num < VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+  assert ((size_t)num < VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
 	  / sizeof (struct tab_term_set *));
   return ((struct tab_term_set **)
 	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo))[num]->set;
@@ -2093,6 +2095,7 @@ static void
 set_print (FILE * f, struct set *set, int set_dist, int nonstart_p,
 	   int lookahead_p)
 {
+  (void) set_dist;
   int i;
   int num, n_start_sits, n_sits, n_all_dists;
   struct sit **sits;
@@ -2120,7 +2123,7 @@ set_print (FILE * f, struct set *set, int set_dist, int nonstart_p,
       parent_indexes = set->core->parent_indexes;
       n_start_sits = set->core->n_start_sits;
     }
-  fprintf (f, "  Set core = %d\n", num);
+  fprintf (f, "  Set core = %d (dist = %d)\n", num, set_dist);
   for (i = 0; i < n_sits; i++)
     {
       fprintf (f, "    ");
@@ -5323,7 +5326,7 @@ prune_to_minimal (struct yaep_tree_node *node, int *cost)
 static void
 traverse_pruned_translation (struct yaep_tree_node *node)
 {
-  struct yaep_tree_node *child, *alt;
+  struct yaep_tree_node *child;
   hash_table_entry_t *entry;
   int i;
 
@@ -6303,6 +6306,10 @@ yaep_free_tree (struct yaep_tree_node *root, void (*parse_free) (void *),
 
 #ifdef YAEP_TEST
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* All parse_alloc memory is contained here. */
 #ifndef __cplusplus
 static os_t mem_os;
@@ -6431,7 +6438,7 @@ test_read_token (void **attr)
 
   ntok++;
   *attr = NULL;
-  if (ntok < sizeof (input))
+  if ((size_t)ntok < sizeof (input))
     return input[ntok - 1];
   else
     return -1;
@@ -6444,6 +6451,11 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_recovered_tok_num,
 		   void *start_recovered_tok_attr)
 {
+  /* Unused parameters - required by callback signature */
+  (void)err_tok_attr;
+  (void)start_ignored_tok_attr;
+  (void)start_recovered_tok_attr;
+  
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
   else
@@ -6551,6 +6563,7 @@ use_description (int argc, char **argv)
 }
 #endif
 
+#ifndef __cplusplus
 int
 main (int argc, char **argv)
 {
@@ -6566,5 +6579,10 @@ main (int argc, char **argv)
     use_functions (argc - 1, argv + 1);
   exit (0);
 }
+#endif /* #ifndef __cplusplus */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* #ifdef YAEP_TEST */
