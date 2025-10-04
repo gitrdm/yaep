@@ -207,12 +207,9 @@ struct grammar
   struct term_sets *term_sets_ptr;
   /* Allocator. */
   YaepAllocator *alloc;
-  /* Temporary per-parse context pointer.  When a read_grammar call is
-     active we may store a pointer to heap-backed parse context here
-     so no automatic local pointer needs to survive setjmp/longjmp.
-     This field is used internally only and set/reset by
-     `yaep_read_grammar`. */
-  struct parse_ctx *parse_ctx;
+  /* (no per-grammar parse_ctx field: use a per-call heap-backed
+    context allocated within yaep_read_grammar to support concurrent
+    parses on the same grammar.) */
 };
 
 /* The following variable value is the reference for the current
@@ -3488,13 +3485,13 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 {
   const char *name, *lhs, **rhs, *anode;
   struct symb *symb;
-  /* Ensure grammar->parse_ctx is available and zeroed. We store a
-     small heap-backed context there so values that must survive a
-     longjmp do not live in automatic locals. */
-  if (grammar->parse_ctx == NULL)
-    grammar->parse_ctx = (struct parse_ctx *) yaep_malloc (grammar->alloc, sizeof *(grammar->parse_ctx));
-  if (grammar->parse_ctx != NULL)
-    grammar->parse_ctx->start = NULL;
+  /* Allocate a small per-parse context on the heap so values that must
+     survive a longjmp do not live in automatic locals. This enables
+     concurrent parses of the same grammar: each call gets its own
+     context. */
+  struct parse_ctx *ctx = (struct parse_ctx *) yaep_malloc (g->alloc, sizeof *ctx);
+  if (ctx != NULL)
+    ctx->start = NULL;
   struct rule *rule;
   int anode_cost;
   int *transl;
@@ -3514,6 +3511,8 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   /* Local uses below will access grammar->parse_ctx->start */
   if ((code = setjmp (error_longjump_buff)) != 0)
     {
+      if (ctx != NULL)
+        yaep_free (g->alloc, ctx);
       return code;
     }
   if (!grammar->undefined_p)
@@ -3613,12 +3612,12 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 	yaep_error (YAEP_NEGATIVE_COST,
 		    "translation for `%s' has negative cost", lhs);
   if (grammar->axiom == NULL)
-    {
-    /* We made this here becuase we want that the start rule has
-       number 0. */
-    /* Add axiom and end marker. */
-    if (grammar->parse_ctx != NULL)
-      grammar->parse_ctx->start = symb;
+   {
+   /* We made this here becuase we want that the start rule has
+     number 0. */
+   /* Add axiom and end marker. */
+   if (ctx != NULL)
+    ctx->start = symb;
 	  grammar->axiom = symb_find_by_repr (AXIOM_NAME);
 	  if (grammar->axiom != NULL)
 	    yaep_error (YAEP_FIXED_NAME_USAGE,
@@ -3678,9 +3677,9 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
   if (grammar->axiom == NULL)
     yaep_error (YAEP_NO_RULES, "grammar does not contains rules");
-  assert (grammar->parse_ctx != NULL && grammar->parse_ctx->start != NULL);
+  assert (ctx != NULL && ctx->start != NULL);
   /* Adding axiom : error $eof if it is neccessary. */
-  for (rule = grammar->parse_ctx->start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
+  for (rule = ctx->start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
     if (rule->rhs[0] == grammar->term_error)
       break;
   if (rule == NULL)
@@ -3725,11 +3724,8 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
 #endif
   grammar->undefined_p = FALSE;
-  if (grammar->parse_ctx != NULL)
-    {
-      yaep_free (grammar->alloc, grammar->parse_ctx);
-      grammar->parse_ctx = NULL;
-    }
+  if (ctx != NULL)
+    yaep_free (g->alloc, ctx);
   return 0;
 }
 
