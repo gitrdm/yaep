@@ -273,10 +273,10 @@ configure:3978: checking lex output file root
 configure:3992: result: lex.yy
 configure:3997: checking lex library
 configure:4011: gcc -o conftest -O3 -march=native -DNDEBUG   conftest.c   >&5
-/usr/bin/ld: /tmp/cc74ySA5.o: in function `yylex':
+/usr/bin/ld: /tmp/cczR42Vj.o: in function `yylex':
 conftest.c:(.text+0x10f1): undefined reference to `yywrap'
 /usr/bin/ld: conftest.c:(.text+0x12a2): undefined reference to `yywrap'
-/usr/bin/ld: /tmp/cc74ySA5.o: in function `main':
+/usr/bin/ld: /tmp/cczR42Vj.o: in function `main':
 conftest.c:(.text.startup+0xd): undefined reference to `yywrap'
 collect2: error: ld returned 1 exit status
 configure:4011: $? = 1
