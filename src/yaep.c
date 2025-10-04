@@ -87,7 +87,7 @@
 #endif
 
 #ifndef YAEP_MAX_ERROR_MESSAGE_LENGTH
-#define YAEP_MAX_ERROR_MESSAGE_LENGTH 200
+#define YAEP_MAX_ERROR_MESSAGE_LENGTH 1024
 #endif
 
 /* Define if you don't want to use hash table: symb code -> code.  It
@@ -478,7 +478,28 @@ symb_add_term (const char *name, int code)
   struct symb symb, *result;
   hash_table_entry_t *repr_entry, *code_entry;
 
-  symb.repr = name;
+  /* Normalize symbol name to NFC before storing. This ensures that
+     canonically equivalent Unicode strings map to the same internal
+     representation. Normalization is performed using the central
+     unicode wrapper and the result is allocated via the grammar's
+     allocator to preserve ownership conventions. If normalization
+     fails for any reason, we fall back to the original input name.
+  */
+  char *norm_name = NULL;
+  if (grammar != NULL && grammar->alloc != NULL) {
+    if (yaep_utf8_normalize_nfc(name, &norm_name, grammar->alloc) != 1) {
+      /* Normalization failed; leave norm_name NULL and use original name */
+      norm_name = NULL;
+    }
+  } else {
+    /* No allocator available; attempt normalization but keep utf8proc malloc
+       ownership if it succeeds (safe, read-only use). */
+    if (yaep_utf8_normalize_nfc(name, &norm_name, NULL) != 1) {
+      norm_name = NULL;
+    }
+  }
+
+  symb.repr = norm_name != NULL ? norm_name : name;
   symb.term_p = TRUE;
   symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
   symb.u.term.code = code;
@@ -490,7 +511,19 @@ symb_add_term (const char *name, int code)
   code_entry =
     find_hash_table_entry (symbs_ptr->code_to_symb_tab, &symb, TRUE);
   assert (*code_entry == NULL);
-  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
+  /* Copy the chosen representation (normalized if available, otherwise
+    the original name) into the object-stack so the stored symbol's
+    repr pointer refers to the persistent bytes used for hashing and
+    comparisons. Using `name' here would incorrectly persist the
+    pre-normalized bytes when normalization occurred. */
+  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, symb.repr);
+  /* OS_TOP_ADD_STRING copies the bytes into the object-stack top, which
+    makes a persistent copy. If we normalized into allocator-managed memory
+    above, `name` points into allocator memory; OS_TOP_ADD_STRING will copy
+    those bytes into the OS and the allocator-owned normalized buffer may
+    be freed by the allocator at grammar teardown. If `norm_name` is NULL
+    (fallback to original `name`), we copy the original bytes instead.
+  */
   symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
@@ -500,6 +533,15 @@ symb_add_term (const char *name, int code)
   *code_entry = (hash_table_entry_t) result;
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   VLO_ADD_MEMORY (symbs_ptr->terms_vlo, &result, sizeof (struct symb *));
+
+  /* If we allocated a temporary normalized string but OS_TOP copied it
+     into persistent storage, we don't need the allocator copy any more.
+     The allocator will free it during grammar teardown; no action here.
+     If we used utf8proc's malloc (no allocator provided), free it now
+     because OS_TOP holds the persistent copy. */
+  if (norm_name != NULL && grammar != NULL && grammar->alloc == NULL) {
+    free(norm_name);
+  }
   return result;
 }
 
@@ -512,7 +554,20 @@ symb_add_nonterm (const char *name)
   struct symb symb, *result;
   hash_table_entry_t *entry;
 
-  symb.repr = name;
+  /* Normalize nonterminal name to NFC at insertion time (same rationale
+     as for terminals). Fall back to original `name' on failure. */
+  char *norm_name = NULL;
+  if (grammar != NULL && grammar->alloc != NULL) {
+    if (yaep_utf8_normalize_nfc(name, &norm_name, grammar->alloc) != 1) {
+      norm_name = NULL;
+    }
+  } else {
+    if (yaep_utf8_normalize_nfc(name, &norm_name, NULL) != 1) {
+      norm_name = NULL;
+    }
+  }
+
+  symb.repr = norm_name != NULL ? norm_name : name;
   symb.term_p = FALSE;
   symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
   symb.u.nonterm.rules = NULL;
@@ -520,7 +575,9 @@ symb_add_nonterm (const char *name)
   symb.u.nonterm.nonterm_num = symbs_ptr->n_nonterms++;
   entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
   assert (*entry == NULL);
-  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
+  /* Same rationale as for terminals: persist the actual representation
+    we used (normalized or original). */
+  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, symb.repr);
   symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
@@ -529,6 +586,10 @@ symb_add_nonterm (const char *name)
   *entry = (hash_table_entry_t) result;
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   VLO_ADD_MEMORY (symbs_ptr->nonterms_vlo, &result, sizeof (struct symb *));
+
+  if (norm_name != NULL && grammar != NULL && grammar->alloc == NULL) {
+    free(norm_name);
+  }
   return result;
 }
 
@@ -3030,9 +3091,44 @@ yaep_error (int code, const char *format, ...)
 
   grammar->error_code = code;
   va_start (arguments, format);
-  vsprintf (grammar->error_message, format, arguments);
-  va_end (arguments);
-  assert (strlen (grammar->error_message) < YAEP_MAX_ERROR_MESSAGE_LENGTH);
+  /* Format into a temporary buffer first. This avoids partial writes
+     into the grammar->error_message in case of formatting errors and
+     lets us apply UTF-8-safe truncation. */
+  {
+    /* Local temporary buffer sized larger than the destination so we
+       can detect truncation scenarios reliably for long messages. */
+    size_t tmp_size = YAEP_MAX_ERROR_MESSAGE_LENGTH * 2;
+    char *tmp = (char *) malloc (tmp_size);
+    if (tmp == NULL)
+      {
+        va_end (arguments);
+        strncpy (grammar->error_message, "<formatting error>",
+                 sizeof (grammar->error_message));
+        grammar->error_message[sizeof (grammar->error_message) - 1] = '\0';
+        longjmp (error_longjump_buff, code);
+      }
+
+    int n = vsnprintf (tmp, tmp_size, format, arguments);
+    va_end (arguments);
+
+    if (n < 0)
+      {
+        /* Formatting error: produce a minimal fallback message. */
+        strncpy (grammar->error_message, "<formatting error>",
+                 sizeof (grammar->error_message));
+        grammar->error_message[sizeof (grammar->error_message) - 1] = '\0';
+        free (tmp);
+        longjmp (error_longjump_buff, code);
+      }
+
+    /* Use UTF-8-safe truncation to copy into grammar->error_message.
+       The helper appends "..." only when truncation occurred and
+       guarantees that the destination is valid UTF-8 and NUL-terminated. */
+    yaep_utf8_truncate_safe (tmp, grammar->error_message,
+                             sizeof (grammar->error_message));
+
+    free (tmp);
+  }
   longjmp (error_longjump_buff, code);
 }
 
@@ -3386,14 +3482,70 @@ yaep_read_grammar (struct grammar *g, int strict_p,
       if (code < 0)
 	yaep_error (YAEP_NEGATIVE_TERM_CODE,
 		    "term `%s' has negative code", name);
-      symb = symb_find_by_repr (name);
+      /* Attempt to NFC-normalize the terminal name for lookup/insertion.
+         We prefer allocating the normalized buffer with the grammar's
+         allocator when available to avoid extra copies; when no allocator
+         is available we accept utf8proc's malloc buffer and will free it
+         after insertion. */
+      char *norm_name = NULL;
+      if (grammar != NULL && grammar->alloc != NULL) {
+        if (yaep_utf8_normalize_nfc(name, &norm_name, grammar->alloc) != 1)
+          norm_name = NULL;
+      } else {
+        if (yaep_utf8_normalize_nfc(name, &norm_name, NULL) != 1)
+          norm_name = NULL;
+      }
+
+      const char *lookup_name = norm_name != NULL ? norm_name : name;
+
+      /* Check for repeated declaration using the (possibly) normalized
+         bytes so canonically equivalent names are detected as duplicates. */
+      symb = symb_find_by_repr (lookup_name);
       if (symb != NULL)
-	yaep_error (YAEP_REPEATED_TERM_DECL,
-		    "repeated declaration of term `%s'", name);
+ 	yaep_error (YAEP_REPEATED_TERM_DECL,
+ 		    "repeated declaration of term `%s'", lookup_name);
       if (symb_find_by_code (code) != NULL)
-	yaep_error (YAEP_REPEATED_TERM_CODE,
-		    "repeated code %d in term `%s'", code, name);
-      symb_add_term (name, code);
+ 	yaep_error (YAEP_REPEATED_TERM_CODE,
+ 		    "repeated code %d in term `%s'", code, lookup_name);
+
+      /* Insert symbol using the chosen representation so the hashtable
+         and persisted object-stack use identical bytes. This mirrors
+         symb_add_term's behavior but operates on the already-normalized
+         bytes when available to ensure duplicate detection. */
+      {
+        struct symb tmp_symb, *result_symb;
+        hash_table_entry_t *repr_entry, *code_entry;
+
+        tmp_symb.repr = (char *) lookup_name;
+        tmp_symb.term_p = TRUE;
+        tmp_symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
+        tmp_symb.u.term.code = code;
+        tmp_symb.u.term.term_num = symbs_ptr->n_terms++;
+        tmp_symb.empty_p = FALSE;
+
+        repr_entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &tmp_symb, TRUE);
+        assert (*repr_entry == NULL);
+        code_entry = find_hash_table_entry (symbs_ptr->code_to_symb_tab, &tmp_symb, TRUE);
+        assert (*code_entry == NULL);
+
+        OS_TOP_ADD_STRING (symbs_ptr->symbs_os, tmp_symb.repr);
+        tmp_symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+        OS_TOP_FINISH (symbs_ptr->symbs_os);
+        OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &tmp_symb, sizeof (struct symb));
+        result_symb = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+        OS_TOP_FINISH (symbs_ptr->symbs_os);
+        *repr_entry = (hash_table_entry_t) result_symb;
+        *code_entry = (hash_table_entry_t) result_symb;
+        VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result_symb, sizeof (struct symb *));
+        VLO_ADD_MEMORY (symbs_ptr->terms_vlo, &result_symb, sizeof (struct symb *));
+
+        /* If normalization returned a malloc()-ed buffer (no allocator),
+           free it since OS_TOP copied the bytes. If allocation was made
+           with the grammar allocator, it will be freed at grammar teardown. */
+        if (norm_name != NULL && grammar != NULL && grammar->alloc == NULL) {
+          free(norm_name);
+        }
+      }
     }
 
   /* Adding error symbol. */

@@ -438,3 +438,8 @@ set_tests_properties( yaep++-test-utf8 PROPERTIES PASS_REGULAR_EXPRESSION "All U
 add_executable( test++_utf8_invalid test_utf8_invalid.cpp )
 target_link_libraries( test++_utf8_invalid yaep++_static )
 add_test( NAME yaep++-test-utf8-invalid COMMAND test++_utf8_invalid )
+
+# Non-BMP UTF-8 handling (C++ test)
+add_executable( test++_utf8_nonbmp test_utf8_nonbmp.cpp )
+target_link_libraries( test++_utf8_nonbmp yaep++_static )
+add_test( NAME yaep++-test-utf8-nonbmp COMMAND test++_utf8_nonbmp )

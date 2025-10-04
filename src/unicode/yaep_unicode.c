@@ -10,6 +10,23 @@
 #include "yaep_unicode.h"
 #include "utf8proc.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+/* allocate.h defines the YaepAllocator and allocation helpers. It lives
+  in the project's include path; include it if available. */
+#if 0
+/* Avoid including allocate.h here to keep the unicode wrapper header-light.
+  We'll forward-declare the minimal allocator functions we need below. */
+#include "allocate.h"
+#endif
+
+/* Forward declarations for the YAEP allocator helpers used by the
+  normalization helper. These match the signatures declared in
+  src/allocate.h; we keep them local to avoid depending on the
+  full allocate.h in this translation unit. */
+typedef struct YaepAllocator YaepAllocator;
+void *yaep_malloc(YaepAllocator *allocator, size_t size);
+void yaep_free(YaepAllocator *allocator, void *ptr);
 
 /* UTF-8 Iterator with ASCII Fast Path
  *
@@ -46,6 +63,51 @@ yaep_codepoint_t yaep_utf8_next(const char **str_ptr)
   /* Success: advance pointer past the decoded sequence */
   *str_ptr = (const char *)(str + bytes_read);
   return (yaep_codepoint_t)codepoint;
+}
+
+yaep_codepoint_t yaep_utf8_next_with_len(const char **str_ptr, size_t *bytes_len_out)
+{
+  const char *s = *str_ptr;
+  if (bytes_len_out)
+    *bytes_len_out = 0;
+
+  if (!s || *s == '\0')
+    return YAEP_CODEPOINT_EOS;
+
+  unsigned char c = (unsigned char)*s;
+  size_t need = 0;
+  yaep_codepoint_t cp = 0;
+
+  if (c < 0x80) {
+    cp = c;
+    need = 1;
+  } else if ((c & 0xE0) == 0xC0) {
+    unsigned char c1 = (unsigned char)s[1];
+    if ((c1 & 0xC0) != 0x80) return YAEP_CODEPOINT_INVALID;
+    cp = ((c & 0x1F) << 6) | (c1 & 0x3F);
+    need = 2;
+  } else if ((c & 0xF0) == 0xE0) {
+    unsigned char c1 = (unsigned char)s[1];
+    unsigned char c2 = (unsigned char)s[2];
+    if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80) return YAEP_CODEPOINT_INVALID;
+    cp = ((c & 0x0F) << 12) | ((c1 & 0x3F) << 6) | (c2 & 0x3F);
+    need = 3;
+  } else if ((c & 0xF8) == 0xF0) {
+    unsigned char c1 = (unsigned char)s[1];
+    unsigned char c2 = (unsigned char)s[2];
+    unsigned char c3 = (unsigned char)s[3];
+    if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) return YAEP_CODEPOINT_INVALID;
+    cp = ((c & 0x07) << 18) | ((c1 & 0x3F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F);
+    need = 4;
+  } else {
+    return YAEP_CODEPOINT_INVALID;
+  }
+
+  if (bytes_len_out)
+    *bytes_len_out = need;
+
+  *str_ptr += need;
+  return cp;
 }
 
 /* UTF-8 Validation
@@ -308,4 +370,152 @@ const char *yaep_utf8_error_message(int error_code)
   
   /* Delegate to utf8proc's error message function */
   return utf8proc_errmsg(error_code);
+}
+
+/* yaep_utf8_truncate_safe implementation
+ *
+ * We copy full bytes until dst_size is exhausted. If the last byte in
+ * dst would be a UTF-8 continuation byte (0x80..0xBF), back up to the
+ * last valid code point boundary. If truncation occurs and there is
+ * space, append "..." to indicate truncation. Always NUL-terminate
+ * dst when dst_size > 0.
+ */
+int
+yaep_utf8_truncate_safe(const char *src, char *dst, size_t dst_size)
+{
+  if (dst_size == 0)
+    return 0;
+
+  size_t max_copy = dst_size - 1; /* reserve NUL */
+  (void) src; /* src is used via strlen and memcpy below - suppress unused warnings */
+
+  /* Fast path: entire string fits */
+  size_t src_len = strlen(src);
+  if (src_len <= max_copy) {
+    memcpy(dst, src, src_len);
+    dst[src_len] = '\0';
+    return 1; /* no truncation */
+  }
+
+  /* Copy up to max_copy bytes */
+  memcpy(dst, src, max_copy);
+
+  /* If the last byte is an ASCII byte (0x00-0x7F), we're aligned. */
+  if ((unsigned char)dst[max_copy - 1] < 0x80) {
+    /* We truncated but ended on ASCII boundary. Append ellipsis if fits. */
+    size_t ellipsis_len = 3;
+    if (max_copy >= ellipsis_len) {
+      /* Overwrite the last ellipsis_len bytes with dots. */
+      size_t start = max_copy - ellipsis_len;
+      dst[start] = '.'; dst[start+1] = '.'; dst[start+2] = '.';
+      dst[max_copy] = '\0';
+    } else {
+      dst[max_copy] = '\0';
+    }
+    return 0;
+  }
+
+  /* We may have cut a multi-byte sequence in the middle. Back up to the
+   * last valid code point start. UTF-8 start bytes are: 0xxxxxxx,
+   * 110xxxxx, 1110xxxx, 11110xxx (i.e. bytes not in 0x80..0xBF). */
+  size_t i = max_copy;
+  /* Move `i` backwards over any UTF-8 continuation bytes. After the
+   * loop `i` points to the index immediately after the start byte of
+   * the (possibly truncated) sequence. The actual start index of the
+   * last whole code point is therefore `i - 1` (when i > 0). */
+  while (i > 0 && ((unsigned char)dst[i-1] & 0xC0) == 0x80)
+    i--;
+
+  /* Convert `i` to the index of the start byte of the last whole code
+   * point that fits in the buffer. If the loop stopped immediately
+   * (no continuation bytes), this yields i-1 which is the last byte's
+   * index; in practice this branch is only used when the last byte is
+   * the start of a multi-byte sequence that was cut. */
+  if (i > 0)
+    i = i - 1;
+
+  /* If we backed up zero bytes, just produce safe empty ellipsis */
+  if (i == 0) {
+    if (dst_size > 4) {
+      dst[0] = '.'; dst[1] = '.'; dst[2] = '.'; dst[3] = '\0';
+    } else {
+      dst[0] = '\0';
+    }
+    return 0;
+  }
+
+  /* Now `i` is the index of the first byte of the last whole code point
+   * that fits. Append ellipsis if space allows. */
+  size_t ellipsis_len = 3;
+  if (i + ellipsis_len <= max_copy) {
+    dst[i] = '.'; dst[i+1] = '.'; dst[i+2] = '.';
+    dst[i+3] = '\0';
+  } else {
+    /* Not enough room for ellipsis, just NUL terminate at i. */
+    dst[i] = '\0';
+  }
+
+  return 0;
+}
+
+/* yaep_utf8_normalize_nfc
+ *
+ * NFC-normalize an input UTF-8 string `in`. This wrapper centralizes the
+ * normalization policy (NFC) and ensures that memory ownership follows the
+ * project's allocator conventions. The function uses utf8proc_NFC which
+ * returns a buffer allocated with malloc(); we copy that into allocator-owned
+ * memory using yaep_malloc (when an allocator is provided) and free the
+ * intermediate buffer.
+ *
+ * The design goals here are:
+ *  - deterministic normalization behavior (NFC) for symbol ingestion
+ *  - no leaking of utf8proc's malloc'd buffers into YAEP ownership
+ *  - clear failure semantics (returns 0 and sets *out = NULL)
+ */
+int
+yaep_utf8_normalize_nfc(const char *in, char **out, YaepAllocator *alloc)
+{
+  if (out == NULL) return 0;
+  *out = NULL;
+  if (in == NULL) {
+    /* Treat NULL input as empty string -> allocate empty string if requested. */
+    if (alloc) {
+      char *buf = (char *) yaep_malloc(alloc, 1);
+      if (!buf) return 0;
+      buf[0] = '\0';
+      *out = buf;
+      return 1;
+    } else {
+      char *buf = (char *) malloc(1);
+      if (!buf) return 0;
+      buf[0] = '\0';
+      *out = buf;
+      return 1;
+    }
+  }
+
+  /* Use utf8proc's convenience NFC function which returns a malloc()-ed
+     UTF-8 buffer on success or NULL on failure. */
+  utf8proc_uint8_t *tmp = utf8proc_NFC((const utf8proc_uint8_t *) in);
+  if (tmp == NULL) {
+    return 0;
+  }
+
+  size_t len = strlen((const char *) tmp) + 1;
+
+  if (alloc) {
+    char *dst = (char *) yaep_malloc(alloc, len);
+    if (!dst) {
+      free(tmp);
+      return 0;
+    }
+    memcpy(dst, tmp, len);
+    *out = dst;
+    free(tmp);
+    return 1;
+  } else {
+    /* No allocator provided, return the malloc()'d buffer directly */
+    *out = (char *) tmp;
+    return 1;
+  }
 }

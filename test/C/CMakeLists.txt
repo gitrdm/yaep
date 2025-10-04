@@ -107,6 +107,30 @@ add_test( NAME yaep-test06 COMMAND test06 1 0 )
 file( READ ${TEST_DATA_DIR}/test06.out TEST_OUTPUT )
 set_tests_properties( yaep-test06 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}$" )
 
+# UTF-8 truncation test (ensures error messages are valid UTF-8 and ellipsize)
+add_executable( test_utf8_truncation test_utf8_truncation.c )
+target_link_libraries( test_utf8_truncation yaep_static )
+add_test( NAME yaep-test-utf8-truncation COMMAND test_utf8_truncation )
+
+# NFC normalization canonical-equivalence test
+add_executable( test_utf8_normalization test_utf8_normalization.c )
+target_link_libraries( test_utf8_normalization yaep_static )
+add_test( NAME yaep-test-utf8-normalization COMMAND test_utf8_normalization )
+
+# Persistence / no-allocator normalization test
+add_executable( test_utf8_persistence test_utf8_persistence.c )
+target_link_libraries( test_utf8_persistence yaep_static )
+add_test( NAME yaep-test-utf8-persistence COMMAND test_utf8_persistence )
+
+# Additional small UTF-8 helper tests
+add_executable( test_utf8_iterator test_utf8_iterator.c )
+target_link_libraries( test_utf8_iterator yaep_static )
+add_test( NAME yaep-test-utf8-iterator COMMAND test_utf8_iterator )
+
+add_executable( test_truncate_edge test_truncate_edge.c )
+target_link_libraries( test_truncate_edge yaep_static )
+add_test( NAME yaep-test-truncate-edge COMMAND test_truncate_edge )
+
 # Already defined grammar
 add_executable( test07 test07.c )
 target_link_libraries( test07 yaep_static )

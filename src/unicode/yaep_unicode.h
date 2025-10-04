@@ -24,6 +24,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Forward declaration of the YAEP allocator type to avoid pulling
+	allocation internals into this header. Consumers that need to
+	manage allocator memory should include `allocate.h` directly. */
+typedef struct YaepAllocator YaepAllocator;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -75,6 +80,17 @@ typedef int32_t yaep_codepoint_t;
  *   }
  */
 yaep_codepoint_t yaep_utf8_next(const char **str_ptr);
+
+/* Variant of yaep_utf8_next that also returns the number of bytes
+ * consumed for the decoded code point. This is useful for callers
+ * that want to advance pointers by byte length without reparsing the
+ * UTF-8 sequence. The function writes the number of bytes consumed to
+ * `bytes_len_out` when non-NULL.
+ *
+ * Returns same values as yaep_utf8_next and sets *bytes_len_out to 0
+ * when the return value is YAEP_CODEPOINT_EOS or YAEP_CODEPOINT_INVALID.
+ */
+yaep_codepoint_t yaep_utf8_next_with_len(const char **str_ptr, size_t *bytes_len_out);
 
 /* UTF-8 Validation
  *
@@ -203,6 +219,48 @@ int yaep_utf8_digit_value(yaep_codepoint_t cp, int *value_out,
  * Note: The returned string is statically allocated and should not be freed.
  */
 const char *yaep_utf8_error_message(int error_code);
+
+/* UTF-8-safe truncation helper
+ *
+ * Truncates the UTF-8 encoded NUL-terminated string `src` into the
+ * buffer `dst` of size `dst_size` bytes. The function preserves whole
+ * Unicode code points: it never leaves `dst` ending in the middle of a
+ * UTF-8 continuation sequence. If truncation occurs, the function will
+ * append an ASCII ellipsis "..." when space permits to clearly mark
+ * the truncation. The function always NUL-terminates `dst` when
+ * dst_size > 0.
+ *
+ * Returns 1 if the source was copied fully without truncation, 0 if
+ * truncation happened.
+ */
+int yaep_utf8_truncate_safe(const char *src, char *dst, size_t dst_size);
+
+/* Normalize UTF-8 string to NFC using the bundled utf8proc backend.
+ *
+ * This function performs NFC normalization on the NUL-terminated input
+ * string `in`. The result is allocated using the provided YaepAllocator
+ * (so ownership follows existing allocator conventions inside YAEP).
+ *
+ * Parameters:
+ *   in    - NUL-terminated input UTF-8 string (may be NULL)
+ *   out   - Receives pointer to an allocator-owned NUL-terminated UTF-8
+ *           string on success. The caller must not free `*out` directly;
+ *           it will be freed when the allocator is freed. On failure *out
+ *           is set to NULL.
+ *   alloc - YAEP allocator used to allocate the returned string. If NULL,
+ *           the function falls back to plain malloc/free semantics.
+ *
+ * Returns:
+ *   1 on success, 0 on failure (memory allocation or normalization error).
+ *
+ * Implementation notes:
+ *   - Uses utf8proc_NFC to obtain a temporary malloc()'d buffer, then copies
+ *     it into allocator-managed memory via yaep_malloc for consistent
+ *     ownership inside YAEP.
+ *   - The function is deliberately conservative: if normalization fails,
+ *     the original string is not modified and *out is NULL.
+ */
+int yaep_utf8_normalize_nfc(const char *in, char **out, YaepAllocator *alloc);
 
 #ifdef __cplusplus
 }

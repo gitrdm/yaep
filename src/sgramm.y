@@ -589,18 +589,25 @@ yylex (void)
     error:
       /* Invalid character encountered */
       n_errs++;
-      if (n_errs == 1)
-	{
-	  char str[100];
-	  
-	  if (cp < 128 && isprint((int)cp))
-	    sprintf (str, "invalid input character '%c'", (char)cp);
-	  else if (cp >= 0)
-	    sprintf (str, "invalid input character U+%04X", cp);
-	  else
-	    sprintf (str, "invalid UTF-8 sequence");
-	  yyerror (str);
-	}
+			if (n_errs == 1)
+		{
+			char str[YAEP_MAX_ERROR_MESSAGE_LENGTH / 2];
+			int written = 0;
+
+			if (cp < 128 && isprint((int)cp))
+				written = snprintf (str, sizeof (str), "invalid input character '%c'", (char)cp);
+			else if (cp >= 0)
+				written = snprintf (str, sizeof (str), "invalid input character U+%04X", cp);
+			else
+				written = snprintf (str, sizeof (str), "invalid UTF-8 sequence");
+
+			/* Ensure NUL termination and pass to yyerror */
+			if (written < 0)
+				str[0] = '\0';
+			else
+				str[sizeof (str) - 1] = '\0';
+			yyerror (str);
+		}
     }
 }
 
