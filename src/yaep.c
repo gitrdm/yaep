@@ -45,6 +45,7 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "allocate.h"
 #include "hashtab.h"
@@ -119,6 +120,18 @@
 static const unsigned jauquet_prime_mod32 = 2053222611;
 /* Shift used for hash calculations.  */
 static const unsigned hash_shift = 611;
+
+/* Note on signedness: many hash accumulation sites in this file
+  operate on values that are already integer-typed (for example
+  `int`, `long int` / `term_set_el_t`, or explicit `(unsigned)`
+  casts).  Therefore the operands being added/multiplied are not
+  raw `char` bytes and no additional `(unsigned char)` promotion is
+  required here.  For places that do iterate over raw string bytes
+  we normalize to `unsigned char` (see `yaep_utf8_hash` and the
+  byte-storage normalization in `objstack.h` / `vlobject.h`) to
+  avoid platform-dependent sign-extension.  Keep this rationale in
+  mind when changing hashing code paths.
+*/
 
 
 /* The following is major structure which stores information about
@@ -3460,7 +3473,8 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 					     int *anode_cost, int **transl))
 {
   const char *name, *lhs, **rhs, *anode;
-  struct symb *symb, *start;
+  struct symb *symb;
+  volatile struct symb *start;
   struct rule *rule;
   int anode_cost;
   int *transl;
@@ -5455,8 +5469,8 @@ static vlo_t *tnodes_vlo;
 static struct yaep_tree_node *
 prune_to_minimal (struct yaep_tree_node *node, int *cost)
 {
-  struct yaep_tree_node *child, *alt, *next_alt, *result;
-  int i, min_cost;
+  struct yaep_tree_node *child, *alt, *next_alt, *result = NULL;
+  int i, min_cost = INT_MAX;
 
   assert (node != NULL);
   switch (node->type)
@@ -5623,11 +5637,14 @@ make_parse (int *ambiguous_p)
   struct yaep_tree_node *parent_anode, *anode, root_anode;
   int parent_disp;
   int saved_one_parse_p;
-  struct yaep_tree_node **term_node_array;
+  struct yaep_tree_node **term_node_array = NULL;
 #ifndef __cplusplus
-  vlo_t stack, orig_states;
+  /* zero-initialize VLO descriptors to avoid "may be used
+     uninitialized" warnings from aggressive compilers. They will be
+     properly created by VLO_CREATE before use. */
+  vlo_t stack = {0}, orig_states = {0};
 #else
-  vlo_t *stack, *orig_states;
+  vlo_t *stack = NULL, *orig_states = NULL;
 #endif
 
   n_parse_term_nodes = n_parse_abstract_nodes = n_parse_alt_nodes = 0;

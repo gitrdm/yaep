@@ -112,6 +112,11 @@ add_executable( test_utf8_truncation test_utf8_truncation.c )
 target_link_libraries( test_utf8_truncation yaep_static )
 add_test( NAME yaep-test-utf8-truncation COMMAND test_utf8_truncation )
 
+# Lexer identifier UTF-8 handling unit test
+add_executable( test_utf8_identifier test_utf8_identifier.c )
+target_link_libraries( test_utf8_identifier yaep_static )
+add_test( NAME yaep-test-utf8-identifier COMMAND test_utf8_identifier )
+
 # NFC normalization canonical-equivalence test
 add_executable( test_utf8_normalization test_utf8_normalization.c )
 target_link_libraries( test_utf8_normalization yaep_static )
