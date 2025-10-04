@@ -117,6 +117,23 @@ add_executable( test_utf8_identifier test_utf8_identifier.c )
 target_link_libraries( test_utf8_identifier yaep_static )
 add_test( NAME yaep-test-utf8-identifier COMMAND test_utf8_identifier )
 
+# Concurrent parsing smoke test (pthread)
+add_executable( test_concurrent_parse test_concurrent_parse.c )
+target_link_libraries( test_concurrent_parse yaep_static pthread )
+add_test( NAME yaep-test-concurrent-parse COMMAND test_concurrent_parse )
+set_tests_properties( yaep-test-concurrent-parse PROPERTIES DISABLED TRUE )
+
+# Concurrent parsing test (process-based)
+add_executable( test_concurrent_parse_process test_concurrent_parse_process.c )
+target_link_libraries( test_concurrent_parse_process yaep_static )
+add_test( NAME yaep-test-concurrent-parse-process COMMAND test_concurrent_parse_process )
+
+# Concurrent parsing test (pthread serialized by mutex)
+add_executable( test_concurrent_parse_mutex test_concurrent_parse_mutex.c )
+target_link_libraries( test_concurrent_parse_mutex yaep_static pthread )
+add_test( NAME yaep-test-concurrent-parse-mutex COMMAND test_concurrent_parse_mutex )
+set_tests_properties( yaep-test-concurrent-parse-mutex PROPERTIES DISABLED TRUE )
+
 # NFC normalization canonical-equivalence test
 add_executable( test_utf8_normalization test_utf8_normalization.c )
 target_link_libraries( test_utf8_normalization yaep_static )

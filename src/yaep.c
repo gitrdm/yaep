@@ -60,7 +60,25 @@
    via the grammar allocator. */
 struct parse_ctx {
   struct symb *start;
+  /* Flags that describe initialized subsystems during a parse. These
+     fields must survive across a longjmp so store them in the heap
+     allocated parse context which is created before calling setjmp. */
+  int tok_init_p;
+  int parse_init_p;
 };
+
+/* Thread-local slot for the current parse context. See comments in the
+  main edit where we allocate the context before calling setjmp to
+  avoid -Wclobbered diagnostics. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+static _Thread_local struct parse_ctx *yaep_current_parse_ctx = NULL;
+#else
+#ifdef __GNUC__
+static __thread struct parse_ctx *yaep_current_parse_ctx = NULL;
+#else
+static struct parse_ctx *yaep_current_parse_ctx = NULL;
+#endif
+#endif
 
 
 
@@ -3102,8 +3120,17 @@ core_symb_vect_fin (void)
 
 
 
-/* Jump buffer for processing errors. */
+/* Jump buffer for processing errors. Make it thread-local so concurrent
+  parses on different threads do not clobber each other's jump buffers. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+static _Thread_local jmp_buf error_longjump_buff;
+#else
+#ifdef __GNUC__
+static __thread jmp_buf error_longjump_buff;
+#else
 static jmp_buf error_longjump_buff;
+#endif
+#endif
 
 /* The following function stores error CODE and MESSAGE.  The function
    makes long jump after that.  So the function is designed to process
@@ -3488,10 +3515,14 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   /* Allocate a small per-parse context on the heap so values that must
      survive a longjmp do not live in automatic locals. This enables
      concurrent parses of the same grammar: each call gets its own
-     context. */
-  struct parse_ctx *ctx = (struct parse_ctx *) yaep_malloc (g->alloc, sizeof *ctx);
-  if (ctx != NULL)
-    ctx->start = NULL;
+     context. The context is allocated from the grammar allocator and
+     published into the thread-local slot `yaep_current_parse_ctx`. */
+  {
+    struct parse_ctx *tmp = (struct parse_ctx *) yaep_malloc (g->alloc, sizeof *tmp);
+    if (tmp != NULL)
+      tmp->start = NULL;
+    yaep_current_parse_ctx = tmp;
+  }
   struct rule *rule;
   int anode_cost;
   int *transl;
@@ -3511,8 +3542,9 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   /* Local uses below will access grammar->parse_ctx->start */
   if ((code = setjmp (error_longjump_buff)) != 0)
     {
-      if (ctx != NULL)
-        yaep_free (g->alloc, ctx);
+      if (yaep_current_parse_ctx != NULL)
+        yaep_free (g->alloc, yaep_current_parse_ctx);
+      yaep_current_parse_ctx = NULL;
       return code;
     }
   if (!grammar->undefined_p)
@@ -3612,12 +3644,12 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 	yaep_error (YAEP_NEGATIVE_COST,
 		    "translation for `%s' has negative cost", lhs);
   if (grammar->axiom == NULL)
-   {
+  {
    /* We made this here becuase we want that the start rule has
      number 0. */
    /* Add axiom and end marker. */
-   if (ctx != NULL)
-    ctx->start = symb;
+  if (yaep_current_parse_ctx != NULL)
+   yaep_current_parse_ctx->start = symb;
 	  grammar->axiom = symb_find_by_repr (AXIOM_NAME);
 	  if (grammar->axiom != NULL)
 	    yaep_error (YAEP_FIXED_NAME_USAGE,
@@ -3677,9 +3709,9 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
   if (grammar->axiom == NULL)
     yaep_error (YAEP_NO_RULES, "grammar does not contains rules");
-  assert (ctx != NULL && ctx->start != NULL);
+  assert (yaep_current_parse_ctx != NULL && yaep_current_parse_ctx->start != NULL);
   /* Adding axiom : error $eof if it is neccessary. */
-  for (rule = ctx->start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
+  for (rule = yaep_current_parse_ctx->start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
     if (rule->rhs[0] == grammar->term_error)
       break;
   if (rule == NULL)
@@ -3724,8 +3756,11 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
 #endif
   grammar->undefined_p = FALSE;
-  if (ctx != NULL)
-    yaep_free (g->alloc, ctx);
+  if (yaep_current_parse_ctx != NULL)
+    {
+      yaep_free (g->alloc, yaep_current_parse_ctx);
+      yaep_current_parse_ctx = NULL;
+    }
   return 0;
 }
 
@@ -6215,17 +6250,21 @@ static
 #endif
 int
 yaep_parse (struct grammar *g,
-	    int (*read) (void **attr),
-	    void (*error) (int err_tok_num, void *err_tok_attr,
-			   int start_ignored_tok_num,
-			   void *start_ignored_tok_attr,
-			   int start_recovered_tok_num,
-			   void *start_recovered_tok_attr),
-	    void *(*alloc) (int nmemb),
-	    void (*free) (void *mem),
-	    struct yaep_tree_node **root, int *ambiguous_p)
+    int (*read) (void **attr),
+    void (*error) (int err_tok_num, void *err_tok_attr,
+      int start_ignored_tok_num,
+      void *start_ignored_tok_attr,
+      int start_recovered_tok_num,
+      void *start_recovered_tok_attr),
+    void *(*alloc) (int nmemb),
+    void (*free) (void *mem),
+    struct yaep_tree_node **root, int *ambiguous_p)
 {
-  int code, tok_init_p, parse_init_p;
+  int code;
+  /* Per-parse heap context. We allocate it before setjmp and publish
+     it into the thread-local slot `yaep_current_parse_ctx` (declared
+     near the top of this file). This avoids holding an automatic
+     pointer across setjmp which can trigger -Wclobbered. */
   int tab_collisions, tab_searches;
 
   /* Set up parse allocation */
@@ -6253,24 +6292,44 @@ yaep_parse (struct grammar *g,
   *root = NULL;
   *ambiguous_p = FALSE;
   pl_init ();
-  tok_init_p = parse_init_p = FALSE;
+  /* Allocate parse context with the grammar allocator if available
+     so we avoid introducing a new runtime allocator. The context is
+     intentionally allocated before the setjmp call to ensure compilers
+     that analyze setjmp do not warn about clobbered automatic locals. */
+  {
+    struct parse_ctx *tmp = (struct parse_ctx *) yaep_malloc (g->alloc, sizeof *tmp);
+    if (tmp != NULL)
+      {
+        tmp->start = NULL;
+        tmp->tok_init_p = FALSE;
+        tmp->parse_init_p = FALSE;
+      }
+    /* Publish into the thread-local slot. */
+    yaep_current_parse_ctx = tmp;
+  }
+
   if ((code = setjmp (error_longjump_buff)) != 0)
     {
       pl_fin ();
-      if (parse_init_p)
-	yaep_parse_fin ();
-      if (tok_init_p)
-	tok_fin ();
+      if (yaep_current_parse_ctx != NULL && yaep_current_parse_ctx->parse_init_p)
+    yaep_parse_fin ();
+      if (yaep_current_parse_ctx != NULL && yaep_current_parse_ctx->tok_init_p)
+    tok_fin ();
+      if (yaep_current_parse_ctx != NULL)
+    yaep_free (g->alloc, yaep_current_parse_ctx);
+      yaep_current_parse_ctx = NULL;
       return code;
     }
   if (grammar->undefined_p)
     yaep_error (YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
   n_goto_successes = 0;
   tok_init ();
-  tok_init_p = TRUE;
+  if (yaep_current_parse_ctx != NULL)
+    yaep_current_parse_ctx->tok_init_p = TRUE;
   read_toks ();
   yaep_parse_init (toks_len);
-  parse_init_p = TRUE;
+  if (yaep_current_parse_ctx != NULL)
+    yaep_current_parse_ctx->parse_init_p = TRUE;
   pl_create ();
 #ifndef __cplusplus
   tab_collisions = get_all_collisions ();
