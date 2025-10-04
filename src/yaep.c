@@ -2179,17 +2179,31 @@ set_fin (void)
 
 /* This page is abstract data `parser list'. */
 
-/* The following two variables represents Earley's parser list.  The
-   values of pl_curr and array *pl can be read and modified
-   externally. */
+/* The following three variables represent Earley's parser list.  The
+  legacy code assumed that the allocator owning the list stayed valid
+  until program termination.  When we started creating and freeing
+  multiple grammar objects (for example, the UTF-8 regression tests
+  parse a Unicode grammar and then an ASCII grammar in the same
+  process) we began reusing this storage.  If `pl` was left pointing
+  at memory that had already been returned to the first grammar's
+  allocator, the second grammar would attempt to free it again and we
+  would hit a double free.  We therefore remember both the pointer
+  and the allocator that owns it so we can release the storage
+  exactly once and then reset the state before the next grammar runs. */
 static struct set **pl;
 static int pl_curr;
+static YaepAllocator *pl_allocator;
 
 /* Initialize work with the parser list. */
 static void
 pl_init (void)
 {
+  /* Ensure stale parser list state from a previous grammar does not leak
+    into the next parse.  This mirrors pl_fin, but is also called before
+    the very first use. */
   pl = NULL;
+  pl_curr = -1;
+  pl_allocator = NULL;
 }
 
 /* The following function creates Earley's parser list. */
@@ -2203,6 +2217,10 @@ pl_create (void)
     yaep_malloc (grammar->alloc, sizeof (struct set *) * (toks_len + 1) * 2);
   pl = (struct set **) mem;
   pl_curr = -1;
+  /* Remember which allocator owns this storage so we can safely dispose of
+    it even if `grammar` later becomes NULL (for example once the grammar
+    object is freed). */
+  pl_allocator = grammar != NULL ? grammar->alloc : NULL;
 }
 
 /* Finalize work with the parser list. */
@@ -2210,7 +2228,20 @@ static void
 pl_fin (void)
 {
   if (pl != NULL)
-    yaep_free (grammar->alloc, pl);
+    {
+      YaepAllocator *alloc = pl_allocator;
+
+      /* Fall back to the currently active grammar only if we do not have
+         a remembered allocator.  This preserves the historical behaviour
+         while preventing a dangling allocator pointer from being reused. */
+      if (alloc == NULL && grammar != NULL)
+        alloc = grammar->alloc;
+      if (alloc != NULL)
+        yaep_free (alloc, pl);
+    }
+  pl = NULL;
+  pl_curr = -1;
+  pl_allocator = NULL;
 }
 
 

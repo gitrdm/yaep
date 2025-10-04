@@ -152,15 +152,45 @@ main (void)
   cout << "  ✓ Successfully parsed input using Unicode grammar" << endl;
   cout << "    Input sequence: αριθμός + переменная * αριθμός" << endl;
   cout << "    (number + variable * number)" << endl << endl;
-  
+
+  g->free_tree(root, utf8_parse_free, NULL);
+
+  cout << "Test 3: Validating backwards compatibility..." << endl;
+
   delete g;
-  
+  g = new yaep();
+  if (g == NULL)
+    {
+      cerr << "Error: Failed to create ASCII grammar object" << endl;
+      return 1;
+    }
+
+  /* Switching to an ASCII grammar exercises the parser list reset path.  If
+     the UTF-8 grammar left a stale allocation behind we would double-free
+     when the ASCII grammar shuts down, so this regression must stay. */
+
+  const char *ascii_grammar =
+    "TERM;\n"
+    "S : 'a' S 'b' | ;\n";
+
+  ret = g->parse_grammar(0, ascii_grammar);
+  if (ret != 0)
+    {
+      cerr << "Error: ASCII grammar parsing failed (regression)" << endl;
+      delete g;
+      return 1;
+    }
+
+  cout << "  ✓ ASCII grammars still work correctly" << endl << endl;
+
+  delete g;
+
   cout << "All UTF-8 tests passed! ✓" << endl;
   cout << endl << "Summary:" << endl;
   cout << "  - Grammar parser handles UTF-8 identifiers" << endl;
   cout << "  - Comments can contain arbitrary Unicode" << endl;
   cout << "  - Mixed-script grammars work correctly" << endl;
   cout << "  - Backwards compatibility: All 127 existing tests still pass" << endl;
-  
+
   return 0;
 }

@@ -184,15 +184,45 @@ main (void)
   printf("    Input sequence: αριθμός + переменная * αριθμός\n");
   printf("    (number + variable * number)\n\n");
   
-  /* Clean up */
-  yaep_free_grammar(g);
+    /* Clean up parse tree before reusing the grammar object */
+    yaep_free_tree(root, utf8_parse_free, NULL);
 
-  printf("All UTF-8 tests passed! ✓\n");
-  printf("\nSummary:\n");
-  printf("  - Grammar parser handles UTF-8 identifiers\n");
-  printf("  - Comments can contain arbitrary Unicode\n");
-  printf("  - Mixed-script grammars work correctly\n");
-  printf("  - Backwards compatibility: All 127 existing tests still pass\n");
-  
-  return 0;
+    printf("Test 3: Validating backwards compatibility...\n");
+
+   /* Free UTF-8 grammar and create a fresh grammar for ASCII regression.
+     This specifically exercises the parser-list lifecycle fix that prevents
+     stale pointers from surviving across successive grammars. */
+    yaep_free_grammar(g);
+    g = yaep_create_grammar();
+    if (g == NULL)
+      {
+        fprintf(stderr, "Error: Failed to create ASCII grammar object\n");
+        return 1;
+      }
+
+    const char *ascii_grammar =
+      "TERM;\n"
+      "S : 'a' S 'b' | ;\n";
+
+    ret = yaep_parse_grammar(g, 0, ascii_grammar);
+    if (ret != 0)
+      {
+        fprintf(stderr, "Error: ASCII grammar parsing failed (regression)\n");
+        fprintf(stderr, "Error message: %s\n", yaep_error_message(g));
+        yaep_free_grammar(g);
+        return 1;
+      }
+
+    printf("  ✓ ASCII grammars still work correctly\n\n");
+
+    yaep_free_grammar(g);
+
+    printf("All UTF-8 tests passed! ✓\n");
+    printf("\nSummary:\n");
+    printf("  - Grammar parser handles UTF-8 identifiers\n");
+    printf("  - Comments can contain arbitrary Unicode\n");
+    printf("  - Mixed-script grammars work correctly\n");
+    printf("  - Backwards compatibility: All 127 existing tests still pass\n");
+
+    return 0;
 }
