@@ -33,6 +33,7 @@ add_custom_target( sgramm_c DEPENDS ${BISON_sgramm_OUTPUTS} ) # FIXME: yaep.c in
 include_directories(
 	${CMAKE_CURRENT_BINARY_DIR}
 	${PROJECT_SOURCE_DIR}/third_party/utf8proc
+	${CMAKE_CURRENT_SOURCE_DIR}/unicode
 )
 
 # C
@@ -48,6 +49,7 @@ set( YAEP_LIB_SOURCES
 	objstack.c
 	vlobject.c
 	yaep.c
+	unicode/yaep_unicode.c
 )
 
 add_library( yaep_static STATIC ${YAEP_LIB_SOURCES} )
@@ -68,6 +70,7 @@ set( YAEPXX_LIB_SOURCES
 	objstack.cpp
 	vlobject.cpp
 	yaep.cpp
+	unicode/yaep_unicode.c
 )
 
 add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )

@@ -425,3 +425,18 @@ add_test( NAME yaep-test49 COMMAND test49 1 2 )
 file( READ ${TEST_DATA_DIR}/test49.out TEST_OUTPUT )
 rescape( TEST_OUTPUT "${TEST_OUTPUT}" )
 set_tests_properties( yaep-test49 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}" )
+
+# UTF-8 Support Test
+add_executable( test_utf8 test_utf8.c )
+target_link_libraries( test_utf8 yaep_static )
+add_test( NAME yaep-test-utf8 COMMAND test_utf8 )
+set_tests_properties( yaep-test-utf8 PROPERTIES PASS_REGULAR_EXPRESSION "All UTF-8 tests passed" )
+
+# Simple UTF-8 debugging test
+add_executable( test_utf8_simple test_utf8_simple.c )
+target_link_libraries( test_utf8_simple yaep_static )
+add_test( NAME yaep-test-utf8-simple COMMAND test_utf8_simple )
+
+# Double grammar test
+add_executable( test_utf8_double test_utf8_double.c )
+target_link_libraries( test_utf8_double yaep_static )

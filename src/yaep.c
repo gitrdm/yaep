@@ -51,6 +51,7 @@
 #include "vlobject.h"
 #include "objstack.h"
 #include "yaep.h"
+#include "yaep_unicode.h"
 
 
 
@@ -354,17 +355,22 @@ struct symbs
 #endif
 };
 
-/* Hash of symbol representation. */
+/* Hash of symbol representation.
+ * 
+ * This function computes a hash value for symbol names (identifiers).
+ * It uses the UTF-8-safe hashing function to ensure that high-bit bytes
+ * in multi-byte UTF-8 sequences are treated as unsigned, avoiding
+ * sign-extension artifacts that would cause hash instability.
+ *
+ * The hash quality doesn't need to be cryptographic, but it should
+ * distribute common grammar symbols (ASCII identifiers) reasonably well
+ * to minimize collisions in the symbol table.
+ */
 static unsigned
 symb_repr_hash (hash_table_entry_t s)
 {
-  unsigned result = jauquet_prime_mod32;
   const char *str = ((struct symb *) s)->repr;
-  int i;
-
-  for (i = 0; str[i] != '\0'; i++)
-    result = result * hash_shift + (unsigned) str[i];
-  return result;
+  return yaep_utf8_hash(str);
 }
 
 /* Equality of symbol representations. */

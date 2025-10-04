@@ -35,6 +35,8 @@
 
 #include <assert.h>
 
+#include "yaep_unicode.h"
+
 /* The following is necessary if we use YAEP with byacc/bison/msta
    parser. */
 
@@ -267,116 +269,284 @@ static os_t *stoks;
    read. */
 static int nsterm, nsrule;
 
-/* The following implements lexical analyzer for yacc code. */
+/* The following implements lexical analyzer for yacc code.
+ * 
+ * This lexer has been updated to support UTF-8 encoded grammar descriptions.
+ * It uses yaep_utf8_next() to iterate through code points rather than bytes,
+ * and yaep_utf8_isalpha/isalnum/isdigit for character classification.
+ *
+ * ASCII Fast Path: The UTF-8 functions are optimized for ASCII, so there
+ * is minimal overhead for typical (ASCII-only) grammars.
+ *
+ * Error Handling: Invalid UTF-8 sequences are detected and reported as
+ * lexical errors with appropriate diagnostic messages.
+ */
 int
 yylex (void)
 {
-  int c;
+  yaep_codepoint_t cp;
+  const char *tok_start;
   int n_errs = 0;
 
   for (;;)
     {
-      c = *curr_ch++;
-      switch (c)
+      /* Save the position before reading the next code point,
+       * in case we need to report errors at this location. */
+      tok_start = curr_ch;
+      cp = yaep_utf8_next(&curr_ch);
+      
+      /* Check for UTF-8 decoding errors */
+      if (cp == YAEP_CODEPOINT_INVALID)
 	{
-	case '\0':
-	  return 0;
-	case '\n':
-	  ln++;
-	case '\t':
-	case ' ':
-	  break;
-	case '/':
-	  c = *curr_ch++;
-	  if (c != '*' && n_errs == 0)
+	  if (n_errs == 0)
 	    {
+	      yyerror ("invalid UTF-8 sequence in grammar");
 	      n_errs++;
-	      curr_ch--;
-	      yyerror ("invalid input character /");
 	    }
-	  for (;;)
+	  continue;
+	}
+      
+      /* End of string */
+      if (cp == YAEP_CODEPOINT_EOS)
+	return 0;
+      
+      /* Handle ASCII characters that map directly to single-byte checks.
+       * For these, the code point value equals the byte value. */
+      if (cp < 128)
+	{
+	  switch (cp)
 	    {
-	      c = *curr_ch++;
-	      if (c == '\0')
-		yyerror ("unfinished comment");
-	      if (c == '\n')
-		ln++;
-	      if (c == '*')
+	    case '\n':
+	      ln++;
+	    case '\t':
+	    case ' ':
+	      break;
+	    case '/':
+	      /* Comment handling */
+	      cp = yaep_utf8_next(&curr_ch);
+	      if (cp != '*' && n_errs == 0)
 		{
-		  c = *curr_ch++;
-		  if (c == '/')
-		    break;
-		  curr_ch--;
+		  n_errs++;
+		  curr_ch = tok_start + 1; /* Back up to after the '/' */
+		  yyerror ("invalid input character /");
 		}
-	    }
-	  break;
-	case '=':
-	case '#':
-	case '|':
-	case ';':
-	case '-':
-	case '(':
-	case ')':
-	  return c;
-	case '\'':
-	  OS_TOP_ADD_BYTE (stoks, '\'');
-	  yylval.num = *curr_ch++;
-	  OS_TOP_ADD_BYTE (stoks, yylval.num);
-	  if (*curr_ch++ != '\'')
-	    yyerror ("invalid character");
-	  OS_TOP_ADD_BYTE (stoks, '\'');
-	  OS_TOP_ADD_BYTE (stoks, '\0');
-	  yylval.ref = OS_TOP_BEGIN (stoks);
-	  OS_TOP_FINISH (stoks);
-	  return CHAR;
-	default:
-	  if (isalpha (c) || c == '_')
-	    {
-	      OS_TOP_ADD_BYTE (stoks, c);
-	      while ((c = *curr_ch++) != '\0' && (isalnum (c) || c == '_'))
-		OS_TOP_ADD_BYTE (stoks, c);
-	      curr_ch--;
+	      for (;;)
+		{
+		  cp = yaep_utf8_next(&curr_ch);
+		  if (cp == YAEP_CODEPOINT_EOS)
+		    yyerror ("unfinished comment");
+		  if (cp == YAEP_CODEPOINT_INVALID)
+		    {
+		      if (n_errs == 0)
+			{
+			  yyerror ("invalid UTF-8 in comment");
+			  n_errs++;
+			}
+		      continue;
+		    }
+		  if (cp == '\n')
+		    ln++;
+		  if (cp == '*')
+		    {
+		      const char *star_pos = curr_ch;
+		      cp = yaep_utf8_next(&curr_ch);
+		      if (cp == '/')
+			break;
+		      curr_ch = star_pos; /* Back up if not end of comment */
+		    }
+		}
+	      break;
+	    case '=':
+	    case '#':
+	    case '|':
+	    case ';':
+	    case '-':
+	    case '(':
+	    case ')':
+	      return (int)cp;
+	    case '\'':
+	      /* Character literal: 'x' where x can be any code point */
+	      OS_TOP_ADD_BYTE (stoks, '\'');
+	      cp = yaep_utf8_next(&curr_ch);
+	      if (cp == YAEP_CODEPOINT_EOS || cp == YAEP_CODEPOINT_INVALID)
+		yyerror ("invalid character literal");
+	      
+	      /* Store the code point value (not the UTF-8 bytes) as a number.
+	       * For ASCII this is identical to the old behavior. */
+	      yylval.num = cp;
+	      
+	      /* Add a representation for display purposes */
+	      if (cp < 128 && isprint((int)cp))
+		OS_TOP_ADD_BYTE (stoks, (char)cp);
+	      else
+		{
+		  /* For non-ASCII or non-printable, store a placeholder */
+		  char buf[20];
+		  sprintf(buf, "U+%04X", cp);
+		  for (const char *p = buf; *p; p++)
+		    OS_TOP_ADD_BYTE (stoks, *p);
+		}
+	      
+	      cp = yaep_utf8_next(&curr_ch);
+	      if (cp != '\'')
+		yyerror ("unterminated character literal");
+	      OS_TOP_ADD_BYTE (stoks, '\'');
 	      OS_TOP_ADD_BYTE (stoks, '\0');
 	      yylval.ref = OS_TOP_BEGIN (stoks);
-	      if (strcmp ((char *) yylval.ref, "TERM") == 0)
-		{
-		  OS_TOP_NULLIFY (stoks);
-		  return TERM;
-		}
 	      OS_TOP_FINISH (stoks);
-	      while ((c = *curr_ch++) != '\0')
-		if (c == '\n')
-		  ln++;
-		else if (c != '\t' && c != ' ')
-		  break;
-	      if (c != ':')
-		curr_ch--;
-	      return (c == ':' ? SEM_IDENT : IDENT);
+	      return CHAR;
+	    default:
+	      /* Check if this is the start of an identifier (ASCII fast path) */
+	      if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || cp == '_')
+		goto identifier;
+	      /* Check if this is the start of a number (ASCII fast path) */
+	      if (cp >= '0' && cp <= '9')
+		goto number;
+	      /* Otherwise, this is an error */
+	      goto error;
 	    }
-	  else if (isdigit (c))
-	    {
-	      yylval.num = c - '0';
-	      while ((c = *curr_ch++) != '\0' && isdigit (c))
-		yylval.num = yylval.num * 10 + (c - '0');
-	      curr_ch--;
-	      return NUMBER;
-	    }
-	  else
-	    {
-	      n_errs++;
-	      if (n_errs == 1)
-		{
-		  char str[100];
+	}
+      else
+	{
+	  /* Non-ASCII code point: check if it's alphabetic to start identifier */
+	  if (yaep_utf8_isalpha(cp))
+	    goto identifier;
+	  /* Otherwise, it's an invalid token */
+	  goto error;
+	}
+      continue;
 
-		  if (isprint (c))
-		    {
-		      sprintf (str, "invalid input character '%c'", c);
-		      yyerror (str);
-		    }
-		  else
-		    yyerror ("invalid input character");
-		}
+    identifier:
+      /* Identifier: starts with letter or underscore, continues with
+       * alphanumeric or underscore. Now supports full Unicode identifiers. */
+      {
+	const char *id_start = tok_start;
+	int id_byte_len;
+	
+	/* The first code point is already verified to be alphabetic or '_' */
+	while ((cp = yaep_utf8_next(&curr_ch)) != YAEP_CODEPOINT_EOS &&
+	       cp != YAEP_CODEPOINT_INVALID)
+	  {
+	    if (!yaep_utf8_isalnum(cp) && cp != '_')
+	      break;
+	  }
+	
+	/* Back up if we consumed a non-identifier character */
+	if (cp != YAEP_CODEPOINT_EOS && cp != YAEP_CODEPOINT_INVALID)
+	  {
+	    /* We need to back up curr_ch to before this code point.
+	     * Since we don't know the byte length, re-parse from id_start. */
+	    const char *p = id_start;
+	    const char *last_good = id_start;
+	    while (p < curr_ch)
+	      {
+		yaep_codepoint_t test_cp = yaep_utf8_next(&p);
+		if (test_cp == YAEP_CODEPOINT_EOS || test_cp == YAEP_CODEPOINT_INVALID)
+		  break;
+		if (p >= curr_ch)
+		  break;
+		if (!yaep_utf8_isalnum(test_cp) && test_cp != '_')
+		  break;
+		last_good = p;
+	      }
+	    curr_ch = last_good;
+	  }
+	
+	/* Copy the identifier bytes into the token buffer */
+	id_byte_len = curr_ch - id_start;
+	for (int i = 0; i < id_byte_len; i++)
+	  OS_TOP_ADD_BYTE (stoks, id_start[i]);
+	OS_TOP_ADD_BYTE (stoks, '\0');
+	yylval.ref = OS_TOP_BEGIN (stoks);
+	
+	/* Check for keyword "TERM" */
+	if (strcmp ((char *) yylval.ref, "TERM") == 0)
+	  {
+	    OS_TOP_NULLIFY (stoks);
+	    return TERM;
+	  }
+	OS_TOP_FINISH (stoks);
+	
+	/* Skip whitespace and check for ':' to distinguish identifiers.
+	 * We need to look ahead past whitespace to see if there's a ':' character.
+	 * If not, we need to back up curr_ch to before the first non-whitespace char.
+	 */
+	const char *before_nonws = curr_ch; /* Position before any whitespace */
+	while ((cp = yaep_utf8_next(&curr_ch)) != YAEP_CODEPOINT_EOS)
+	  {
+	    if (cp == YAEP_CODEPOINT_INVALID)
+	      {
+		if (n_errs == 0)
+		  {
+		    yyerror ("invalid UTF-8 after identifier");
+		    n_errs++;
+		  }
+		continue;
+	      }
+	    if (cp == '\n')
+	      {
+		ln++;
+		before_nonws = curr_ch;
+	      }
+	    else if (yaep_utf8_isspace(cp))
+	      {
+		before_nonws = curr_ch;
+	      }
+	    else
+	      {
+		/* Found non-whitespace character. If it's not ':', back up. */
+		if (cp != ':')
+		  curr_ch = before_nonws;
+		break;
+	      }
+	  }
+	
+	return (cp == ':' ? SEM_IDENT : IDENT);
+      }
+
+    number:
+      /* Number: sequence of decimal digits (ASCII only for now,
+       * could be extended to support Unicode decimal digits) */
+      yylval.num = cp - '0';
+      while ((cp = yaep_utf8_next(&curr_ch)) != YAEP_CODEPOINT_EOS &&
+	     cp != YAEP_CODEPOINT_INVALID)
+	{
+	  if (cp < '0' || cp > '9')
+	    break;
+	  yylval.num = yylval.num * 10 + (cp - '0');
+	}
+      
+      /* Back up if we consumed a non-digit */
+      if (cp != YAEP_CODEPOINT_EOS && cp != YAEP_CODEPOINT_INVALID)
+	{
+	  /* Back up curr_ch by one code point */
+	  const char *p = tok_start;
+	  const char *last_pos = tok_start;
+	  while (p < curr_ch)
+	    {
+	      yaep_codepoint_t test_cp = yaep_utf8_next(&p);
+	      if (test_cp == cp || p >= curr_ch)
+		break;
+	      last_pos = p;
 	    }
+	  curr_ch = last_pos;
+	}
+      return NUMBER;
+
+    error:
+      /* Invalid character encountered */
+      n_errs++;
+      if (n_errs == 1)
+	{
+	  char str[100];
+	  
+	  if (cp < 128 && isprint((int)cp))
+	    sprintf (str, "invalid input character '%c'", (char)cp);
+	  else if (cp >= 0)
+	    sprintf (str, "invalid input character U+%04X", cp);
+	  else
+	    sprintf (str, "invalid UTF-8 sequence");
+	  yyerror (str);
 	}
     }
 }

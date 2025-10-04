@@ -427,3 +427,9 @@ add_test( NAME yaep++-test49 COMMAND test++49 1 2 )
 file( READ ${TEST_DATA_DIR}/test49.out TEST_OUTPUT )
 rescape( TEST_OUTPUT "${TEST_OUTPUT}" )
 set_tests_properties( yaep++-test49 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}" )
+
+# UTF-8 Support Test
+add_executable( test++_utf8 test_utf8.cpp )
+target_link_libraries( test++_utf8 yaep++_static )
+add_test( NAME yaep++-test-utf8 COMMAND test++_utf8 )
+set_tests_properties( yaep++-test-utf8 PROPERTIES PASS_REGULAR_EXPRESSION "All UTF-8 tests passed" )
