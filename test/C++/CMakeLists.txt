@@ -433,3 +433,8 @@ add_executable( test++_utf8 test_utf8.cpp )
 target_link_libraries( test++_utf8 yaep++_static )
 add_test( NAME yaep++-test-utf8 COMMAND test++_utf8 )
 set_tests_properties( yaep++-test-utf8 PROPERTIES PASS_REGULAR_EXPRESSION "All UTF-8 tests passed" )
+
+# Invalid UTF-8 validation test
+add_executable( test++_utf8_invalid test_utf8_invalid.cpp )
+target_link_libraries( test++_utf8_invalid yaep++_static )
+add_test( NAME yaep++-test-utf8-invalid COMMAND test++_utf8_invalid )

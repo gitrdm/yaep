@@ -19,7 +19,7 @@ static const char *utf8_grammar =
   "/* This grammar demonstrates UTF-8 support in YAEP */\n"
   "/* Comments can contain: Здравствуй мир! 你好世界! Γειά σου κόσμε! */\n"
   "\n"
-  "TERM αριθμός переменная\n"
+  "TERM αριθμός переменная x̸_var=١٢\n"
   ";\n"
   "\n"
   "数式 : 运算符_项\n"
@@ -30,18 +30,22 @@ static const char *utf8_grammar =
   "运算符_项 : множитель\n"
   "         | 运算符_项 '*' множитель\n"
   "         | 运算符_项 '/' множитель\n"
+  "         | 运算符_项 'π' множитель\n"
   "         ;\n"
   "\n"
   "множитель : αριθμός\n"
   "          | переменная\n"
+  "          | x̸_var\n"
   "          | '(' 数式 ')'\n"
   "          ;\n";
 
 static int test_token_num = 0;
 static const char *test_tokens[][2] = {
   {"αριθμός", NULL},
+  {"π", NULL},
+  {"αριθμός", NULL},
   {"+", NULL},
-  {"переменная", NULL},
+  {"x̸_var", NULL},
   {"*", NULL},
   {"αριθμός", NULL},
   {NULL, NULL}
@@ -62,6 +66,10 @@ read_utf8_terminal (void **attr)
     return 0;
   else if (strcmp(token, "переменная") == 0)
     return 1;
+  else if (strcmp(token, "x̸_var") == 0)
+    return 12;
+  else if (strcmp(token, "π") == 0)
+    return 0x03C0;
   else
     return (int)token[0];
 }
@@ -150,8 +158,8 @@ main (void)
     }
   
   cout << "  ✓ Successfully parsed input using Unicode grammar" << endl;
-  cout << "    Input sequence: αριθμός + переменная * αριθμός" << endl;
-  cout << "    (number + variable * number)" << endl << endl;
+  cout << "    Input sequence: αριθμός π αριθμός + x̸_var * αριθμός" << endl;
+  cout << "    (number π number + combining-mark identifier * number)" << endl << endl;
 
   g->free_tree(root, utf8_parse_free, NULL);
 

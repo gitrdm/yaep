@@ -90,6 +90,7 @@ static void parse (void)
        ;
 ``` 
   * For more details, please see the documentation in directory ``src/``,
+    the Unicode notes in ``doc/unicode_support.md``,
     or the YAEP examples in files ``test*.c`` in directories ``test/C`` or ``test/C++``.
 
 # Installing:

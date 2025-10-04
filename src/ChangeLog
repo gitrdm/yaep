@@ -1,3 +1,25 @@
+2025-10-04  GitHub Copilot  <copilot@example.com>
+
+	* src/sgramm.y: Preserve UTF-8 bytes for character literals, recover the
+	decoded scalar from appended metadata, accept combining-mark
+	identifiers, and expand number parsing to all Nd digits with
+	mixed-script detection.  Validate grammar text with detailed UTF-8
+	diagnostics before lexing.
+	* src/unicode/yaep_unicode.c, src/unicode/yaep_unicode.h: Broaden identifier
+	continuation categories, expose yaep_utf8_digit_value, and enrich the
+	validator API with offset/error reporting.
+	* src/yaep.h: Reserve YAEP_INVALID_UTF8 for preflight validation failures.
+	* test/C/test_utf8.c, test/C++/test_utf8.cpp: Extend regression
+	grammars to cover π literals, combining-mark identifiers, and
+	Arabic-Indic digit assignments.
+	* test/C/test_utf8_invalid.c, test/C++/test_utf8_invalid.cpp: New
+	sanity checks that malformed UTF-8 is rejected before lexing.
+	* test/C/CMakeLists.txt, test/C++/CMakeLists.txt: Wire new UTF-8 tests
+	into the suite.
+	* doc/unicode_support.md: Document Unicode handling policy, including
+	normalisation guidance and helper snippets.
+	* README.md: Link to the Unicode support guide for quick discovery.
+
 2025-10-04  gitrdm  <gitrdm@example.com>
 
 	* yaep.c: Document parser list allocator tracking and explain stale

@@ -62,6 +62,7 @@ struct grammar;
 #define YAEP_NONTERM_DERIVATION            15
 #define YAEP_LOOP_NONTERM                  16
 #define YAEP_INVALID_TOKEN_CODE            17
+#define YAEP_INVALID_UTF8                  18
 
 /* The following describes the type of parse tree node. */
 enum yaep_tree_node_type

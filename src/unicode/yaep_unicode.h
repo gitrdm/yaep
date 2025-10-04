@@ -85,13 +85,16 @@ yaep_codepoint_t yaep_utf8_next(const char **str_ptr);
  * Parameters:
  *   str: NUL-terminated string to validate
  *   len: If non-NULL, receives the number of valid code points decoded
+ *   error_offset: Receives the byte offset where validation failed (if any)
+ *   error_code: Receives the utf8proc error code on failure, or 0 on success
  *
  * Returns:
  *   1 if the entire string is valid UTF-8, 0 otherwise
  *
  * Note: A string containing only ASCII (0x00-0x7F) is always valid UTF-8.
  */
-int yaep_utf8_validate(const char *str, size_t *len);
+int yaep_utf8_validate(const char *str, size_t *len,
+					   size_t *error_offset, int *error_code);
 
 /* Character Classification Predicates
  *
@@ -126,10 +129,12 @@ int yaep_utf8_isalpha(yaep_codepoint_t cp);
  */
 int yaep_utf8_isdigit(yaep_codepoint_t cp);
 
-/* yaep_utf8_isalnum: Tests if a code point is alphabetic or numeric.
+/* yaep_utf8_isalnum: Tests if a code point is alphabetic, numeric, or an
+ * allowed identifier continuation mark.
  *
- * Equivalent to (yaep_utf8_isalpha(cp) || yaep_utf8_isdigit(cp)).
- * This is the predicate typically used for identifier continuation.
+ * Equivalent to (yaep_utf8_isalpha(cp) || yaep_utf8_isdigit(cp)) for ASCII,
+ * and additionally returns true for combining marks (Mn/Mc) and connector
+ * punctuation (Pc) so that decomposed identifiers conform to UAX #31.
  *
  * ASCII Fast Path: For code points 0-127, uses a simple range check.
  */
@@ -165,6 +170,23 @@ int yaep_utf8_isspace(yaep_codepoint_t cp);
  *   correctness depends on it.
  */
 unsigned yaep_utf8_hash(const char *str);
+
+/* yaep_utf8_digit_value
+ *
+ * Returns the decimal value of the given Unicode digit (general category Nd)
+ * and exposes the code point of the zero digit for the script block.  The
+ * lexer relies on the block start to reject mixed-script numeric literals.
+ *
+ * Parameters:
+ *   cp          - Code point to examine.
+ *   value_out   - Receives the decimal value (0-9) on success.
+ *   block_start - Receives the code point corresponding to the digit zero in
+ *                 the same block as `cp` (i.e., cp - value).
+ *
+ * Returns 1 on success, 0 if `cp` is not a decimal digit.
+ */
+int yaep_utf8_digit_value(yaep_codepoint_t cp, int *value_out,
+						  yaep_codepoint_t *block_start);
 
 /* Error Message Helper
  *

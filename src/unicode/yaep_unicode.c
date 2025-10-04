@@ -54,27 +54,49 @@ yaep_codepoint_t yaep_utf8_next(const char **str_ptr)
  * are well-formed. Also counts the number of code points for the caller's
  * convenience (useful for pre-allocating buffers or progress reporting).
  */
-int yaep_utf8_validate(const char *str, size_t *len)
+int yaep_utf8_validate(const char *str, size_t *len,
+                       size_t *error_offset, int *error_code)
 {
-  const char *p = str;
+  const unsigned char *p = (const unsigned char *)str;
   size_t count = 0;
-  yaep_codepoint_t cp;
-  
-  /* Iterate through the string until we hit EOS */
-  while ((cp = yaep_utf8_next(&p)) != YAEP_CODEPOINT_EOS) {
-    if (cp == YAEP_CODEPOINT_INVALID) {
-      /* Invalid UTF-8 sequence encountered */
+  size_t offset = 0;
+
+  if (error_offset != NULL) {
+    *error_offset = 0;
+  }
+  if (error_code != NULL) {
+    *error_code = 0;
+  }
+
+  if (str == NULL) {
+    return 1;
+  }
+
+  while (*p != '\0') {
+    utf8proc_int32_t cp = 0;
+    utf8proc_ssize_t step = utf8proc_iterate(p, -1, &cp);
+    if (step < 0) {
       if (len != NULL) {
         *len = count;
       }
+      if (error_offset != NULL) {
+        *error_offset = offset;
+      }
+      if (error_code != NULL) {
+        *error_code = (int)step;
+      }
       return 0;
     }
+    p += step;
+    offset += (size_t)step;
     count++;
   }
-  
-  /* All sequences were valid */
+
   if (len != NULL) {
     *len = count;
+  }
+  if (error_offset != NULL) {
+    *error_offset = offset;
   }
   return 1;
 }
@@ -157,13 +179,21 @@ int yaep_utf8_isalnum(yaep_codepoint_t cp)
   /* Query the Unicode Character Database via utf8proc */
   const utf8proc_property_t *prop = utf8proc_get_property(cp);
   
-  /* Check for Letter or Decimal Number categories */
+  /*
+   * UAX #31 permits combining marks (Mn, Mc) and connector punctuation (Pc)
+   * in identifier continuation positions.  We include them here so the lexer
+   * can accept decomposed forms such as "x\u0338_var" without splitting the
+   * token mid-way.
+   */
   return (prop->category == UTF8PROC_CATEGORY_LU ||
           prop->category == UTF8PROC_CATEGORY_LL ||
           prop->category == UTF8PROC_CATEGORY_LT ||
           prop->category == UTF8PROC_CATEGORY_LM ||
           prop->category == UTF8PROC_CATEGORY_LO ||
-          prop->category == UTF8PROC_CATEGORY_ND);
+          prop->category == UTF8PROC_CATEGORY_ND ||
+          prop->category == UTF8PROC_CATEGORY_MN ||
+          prop->category == UTF8PROC_CATEGORY_MC ||
+          prop->category == UTF8PROC_CATEGORY_PC);
 }
 
 /* Character Classification: Whitespace
@@ -219,6 +249,46 @@ unsigned yaep_utf8_hash(const char *str)
   }
   
   return hash;
+}
+
+int yaep_utf8_digit_value(yaep_codepoint_t cp, int *value_out,
+                          yaep_codepoint_t *block_start)
+{
+  if (value_out == NULL || block_start == NULL) {
+    return 0;
+  }
+
+  if (cp >= '0' && cp <= '9') {
+    *value_out = (int)(cp - '0');
+    *block_start = '0';
+    return 1;
+  }
+
+  if (cp < 0) {
+    return 0;
+  }
+
+  const utf8proc_property_t *prop = utf8proc_get_property(cp);
+  if (prop->category != UTF8PROC_CATEGORY_ND) {
+    return 0;
+  }
+
+  yaep_codepoint_t start = cp;
+  while (start > 0) {
+    const utf8proc_property_t *prev = utf8proc_get_property(start - 1);
+    if (prev->category != UTF8PROC_CATEGORY_ND) {
+      break;
+    }
+    start--;
+  }
+
+  *block_start = start;
+  int value = (int)(cp - start);
+  if (value < 0 || value > 9) {
+    return 0;
+  }
+  *value_out = value;
+  return 1;
 }
 
 /* Error Message Lookup

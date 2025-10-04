@@ -440,3 +440,9 @@ add_test( NAME yaep-test-utf8-simple COMMAND test_utf8_simple )
 # Double grammar test
 add_executable( test_utf8_double test_utf8_double.c )
 target_link_libraries( test_utf8_double yaep_static )
+add_test( NAME yaep-test-utf8-double COMMAND test_utf8_double )
+
+# Invalid UTF-8 validation test
+add_executable( test_utf8_invalid test_utf8_invalid.c )
+target_link_libraries( test_utf8_invalid yaep_static )
+add_test( NAME yaep-test-utf8-invalid COMMAND test_utf8_invalid )
