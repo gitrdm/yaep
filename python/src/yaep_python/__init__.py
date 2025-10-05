@@ -1,5 +1,5 @@
 from . import _cffi
-from typing import Iterable, Optional, Tuple, Any, List, Dict
+from typing import Iterable, Optional, Tuple, Any, List, Dict, Callable
 
 # YAEP public error codes (a few are mirrored here for convenience)
 YAEP_INVALID_UTF8 = 18
@@ -41,6 +41,15 @@ class ParseTree:
 	def free(self) -> None:
 		if hasattr(self, '_root_ptr') and self._root_ptr and self._root_ptr != _cffi._ffi.NULL:
 			_cffi.free_tree(self._root_ptr)
+			self._root_ptr = None
+
+	def free_with_termcb(self, termcb: Optional[Callable[[Any], None]] = None) -> None:
+		"""Free the parse tree with optional term callback for freeing term attributes.
+
+		termcb: callable that takes a struct yaep_term * cdata, for freeing attr.
+		"""
+		if hasattr(self, '_root_ptr') and self._root_ptr and self._root_ptr != _cffi._ffi.NULL:
+			_cffi.free_tree(self._root_ptr, termcb=termcb)
 			self._root_ptr = None
 
 	def __enter__(self) -> 'ParseTree':
@@ -89,6 +98,20 @@ class Grammar:
 		tree = ParseTree(root_ptr, ambiguous) if root_ptr != _cffi._ffi.NULL else None
 		syntax_info = syntax_err['info'] if syntax_err['called'] else None
 		return int(rc), tree, syntax_info
+
+	def full_parse(self, read_token: Callable[[], Tuple[int, Optional[Any]]], syntax_error: Optional[Callable[[int, Any, int, Any, int, Any], None]] = None, parse_alloc: Optional[Callable[[int], Any]] = None, parse_free: Optional[Callable[[Any], None]] = None) -> Tuple[int, Optional[ParseTree]]:
+		"""Parse with full YAEP callbacks.
+
+		read_token: () -> (token_code: int, attr: cdata or None)
+		syntax_error: (err_tok_num, err_tok_attr, start_ignored_tok_num, start_ignored_tok_attr, start_recovered_tok_num, start_recovered_tok_attr) -> None
+		parse_alloc: (nmemb: int) -> cdata
+		parse_free: (mem: cdata) -> None
+
+		Returns (rc: int, tree: ParseTree or None)
+		"""
+		rc, root_ptr, ambiguous = _cffi.parse_full(self._g, read_token, syntax_error, parse_alloc, parse_free)
+		tree = ParseTree(root_ptr, ambiguous) if root_ptr != _cffi._ffi.NULL else None
+		return int(rc), tree
 
 	def error_code(self) -> int:
 		return int(_cffi.error_code(self._g))

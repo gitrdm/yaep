@@ -113,6 +113,10 @@ Python API to YAEP concepts and the tests/examples that demonstrate them.
   - See examples: `python/examples/read_grammar_example.py`.
   - See tests: `python/tests/test_read_grammar.py`.
 
+- `Grammar.full_parse(read_token, syntax_error=None, parse_alloc=None, parse_free=None)`
+  - Parse with full YAEP callbacks for custom token reading, error handling, and memory management.
+  - See tests: `python/tests/test_full_parse.py`.
+
 # YAEP Public API Coverage and Implementation Assumptions
 
 This section lists the **full YAEP public C API** as defined in `src/yaep.h`. For each function, we describe the current Python wrapper implementation status, roundtrip assumptions (how Python types map to C types and back), memory safety considerations, and abstraction assumptions (how we simplify or expose the API for Python users).
@@ -200,18 +204,18 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 ## Parsing
 
 ### `yaep_parse(struct grammar *g, int (*read_token)(void **attr), void (*syntax_error)(int, void *, int, void *, int, void *), void *(*parse_alloc)(int nmemb), void (*parse_free)(void *mem), struct yaep_tree_node **root, int *ambiguous_p) -> int`
-- **Status**: Partially wrapped; `_cffi.parse_with_tokens()` handles token reading via Python iterator; full callback mode with custom alloc/free not exposed. Planning to add optional alloc/free callbacks and termcb to `yaep_free_tree`.
-- **Roundtrip**: Callbacks for tokens/syntax errors; Python uses CFFI callbacks that call Python functions. Alloc/free callbacks not exposed yet; tree root returned as pointer, wrapped in `ParseTree`.
-- **Memory Safety**: Tree root must be freed with `yaep_free_tree`; wrapper uses RAII. Custom alloc/free would require careful ownership; we'll expose safely with warnings.
-- **Abstraction**: High-level `Grammar.parse(tokens_iterable)` builds token callback; returns (rc, ParseTree?). Full callback mode not exposed to avoid complexity.
+- **Status**: Wrapped as `Grammar.parse()` (token iterable) and `Grammar.full_parse()` (full callbacks); `_cffi.parse_with_tokens()` and `_cffi.parse_full()` (low-level).
+- **Roundtrip**: Callbacks for tokens/syntax errors/alloc/free; Python callables converted to CFFI callbacks. Tree root returned as pointer, wrapped in `ParseTree`.
+- **Memory Safety**: Tree root freed via RAII; custom alloc/free allow user control but require careful cdata management.
+- **Abstraction**: `parse()` builds token callback from iterable; `full_parse()` exposes all callbacks for advanced use.
 
 ## Tree Management
 
 ### `yaep_free_tree(struct yaep_tree_node *root, void (*parse_free)(void *), void (*termcb)(struct yaep_term *term))`
-- **Status**: Partially wrapped; `_cffi.free_tree()` calls with NULL callbacks (default case). Planning to expose termcb as optional Python callable.
-- **Roundtrip**: Takes root pointer and optional callbacks; Python can pass a termcb function that gets called for each term.
-- **Memory Safety**: Must be called after `yaep_free_grammar`; wrapper ensures via RAII. Termcb allows freeing term attributes; we'll wrap to call Python function safely.
-- **Abstraction**: Called automatically in `ParseTree.__exit__`; users can pass termcb if needed for custom attribute freeing.
+- **Status**: Wrapped as `ParseTree.free()` (default) and `ParseTree.free_with_termcb()` (with termcb); `_cffi.free_tree()` (low-level).
+- **Roundtrip**: Takes root pointer and optional callbacks; Python callable for termcb converted to CFFI callback.
+- **Memory Safety**: Freed after `yaep_free_grammar`; RAII ensures safety. Termcb allows freeing custom term attributes.
+- **Abstraction**: Automatic in `ParseTree.__exit__`; `free_with_termcb()` for custom term attribute freeing.
 
 ## C++ Class Methods (Mirrored from C Functions)
 
@@ -219,9 +223,8 @@ The C++ class `yaep` mirrors the C functions above. Since the Python wrapper tar
 
 ## Summary of Coverage and Plans
 
-- **Fully Wrapped**: create/free_grammar, error_code/message, parse_grammar (with bytes variant), all setters, parse (token iterator mode), free_tree (default mode), read_grammar.
-- **Partially Wrapped**: yaep_parse (full callbacks), yaep_free_tree (termcb).
-- **Not Wrapped**: None; all are planned for full coverage.
+- **Fully Wrapped**: create/free_grammar, error_code/message, parse_grammar (with bytes variant), all setters, parse (token iterable and full callbacks), free_tree (default and with termcb), read_grammar.
+- **Not Wrapped**: None; all are fully covered.
 - **Next Steps**: Implement `read_grammar_from_lists`, expose custom alloc/free/termcb safely, add tests and examples for each.
 
 ## Examples and tests (living documentation)
@@ -251,6 +254,10 @@ The C++ class `yaep` mirrors the C functions above. Since the Python wrapper tar
 - `python/tests/test_tree_utils.py`
   - Verifies `tree_utils.to_dict()` handles empty/None parse trees and
     returns a dict when appropriate.
+- `python/tests/test_full_parse.py`
+  - Demonstrates `Grammar.full_parse()` with custom token reading and error handling.
+- `python/tests/test_free_with_termcb.py`
+  - Tests `ParseTree.free_with_termcb()` with a dummy term callback.
 
 ## Design goals and next steps
 

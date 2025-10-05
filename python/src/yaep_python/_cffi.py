@@ -144,15 +144,16 @@ def parse_with_tokens(grammar_ptr, token_iterable):
     return int(rc), root_ptr[0], int(ambiguous_p[0]), syntax_err
 
 
-def free_tree(root_ptr):
-    """Free a parse tree previously returned by yaep_parse.
-
-    This calls yaep_free_tree(root, NULL, NULL) which is correct when
-    the parser was invoked with default PARSE_ALLOC/PARSE_FREE (NULL).
-    """
+def free_tree(root_ptr, parse_free=_ffi.NULL, termcb=None):
+    """Free a parse tree, with optional parse_free and termcb."""
     if root_ptr == _ffi.NULL or root_ptr is None:
         return
-    _lib.yaep_free_tree(root_ptr, _ffi.NULL, _ffi.NULL)
+    c_termcb = _ffi.NULL
+    if termcb:
+        @_ffi.callback("void(struct yaep_term *)")
+        def c_termcb(term_ptr):
+            termcb(term_ptr)
+    _lib.yaep_free_tree(root_ptr, parse_free, c_termcb)
 
 def free_grammar(g):
     _lib.yaep_free_grammar(g)
@@ -255,4 +256,35 @@ def read_grammar_from_lists(grammar_ptr, strict_p, terminals, rules):
         return _ffi.new("char[]", rule['lhs'].encode('utf-8'))
 
     return int(_lib.yaep_read_grammar(grammar_ptr, int(strict_p), read_terminal, read_rule))
+
+def parse_full(grammar_ptr, read_token, syntax_error, parse_alloc, parse_free):
+    """Call yaep_parse with full Python callbacks."""
+    @_ffi.callback("int(void **)")
+    def c_read_token(attr_ptr):
+        tok, attr = read_token()
+        attr_ptr[0] = attr if attr is not None else _ffi.NULL
+        return int(tok)
+
+    c_syntax_error = _ffi.NULL
+    if syntax_error:
+        @_ffi.callback("void(int, void *, int, void *, int, void *)")
+        def c_syntax_error(err_tok_num, err_tok_attr, start_ignored_tok_num, start_ignored_tok_attr, start_recovered_tok_num, start_recovered_tok_attr):
+            syntax_error(err_tok_num, err_tok_attr, start_ignored_tok_num, start_ignored_tok_attr, start_recovered_tok_num, start_recovered_tok_attr)
+
+    c_parse_alloc = _ffi.NULL
+    if parse_alloc:
+        @_ffi.callback("void *(int)")
+        def c_parse_alloc(nmemb):
+            return parse_alloc(nmemb)
+
+    c_parse_free = _ffi.NULL
+    if parse_free:
+        @_ffi.callback("void(void *)")
+        def c_parse_free(mem):
+            parse_free(mem)
+
+    root_ptr = _ffi.new("struct yaep_tree_node **")
+    ambiguous_p = _ffi.new("int *")
+    rc = _lib.yaep_parse(grammar_ptr, c_read_token, c_syntax_error, c_parse_alloc, c_parse_free, root_ptr, ambiguous_p)
+    return int(rc), root_ptr[0], int(ambiguous_p[0])
 
