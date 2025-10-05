@@ -184,7 +184,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: No issues; sets state.
 - **Abstraction**: Exposed directly; users set level (1=default static, 2=dynamic).
 - **Tests**: `python/tests/test_set_lookahead_level.py` (checks behavior with different levels).
-- **Examples**: None.
+- **Examples**: `python/examples/set_lookahead_level_example.py`.
 
 ### `yaep_set_debug_level(struct grammar *g, int level) -> int`
 - **Purpose**: Sets the debug output level. When compiled with debug support, higher levels produce more detailed tracing of parser operations. Used for debugging grammar issues or understanding parser behavior. Level 0 disables debug output.
@@ -193,7 +193,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: No issues; sets state.
 - **Abstraction**: Exposed directly; users set level (0=default no debug).
 - **Tests**: Not specifically tested.
-- **Examples**: None.
+- **Examples**: `python/examples/set_debug_level_example.py`.
 
 ### `yaep_set_one_parse_flag(struct grammar *g, int flag) -> int`
 - **Purpose**: Controls whether to build only one parse tree or all possible trees for ambiguous grammars. Set to 1 for single tree (faster, less memory), 0 for all trees. For unambiguous grammars, this has no effect. Used to handle ambiguity in grammars.
@@ -202,7 +202,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: No issues; sets state.
 - **Abstraction**: Exposed directly; users set flag (1=default one parse tree).
 - **Tests**: `python/tests/test_set_one_parse_flag.py` (checks behavior with different flags).
-- **Examples**: None.
+- **Examples**: `python/examples/set_one_parse_flag_example.py`.
 
 ### `yaep_set_cost_flag(struct grammar *g, int flag) -> int`
 - **Purpose**: Enables cost-based parsing to find the minimum-cost parse tree when multiple trees exist. Costs are assigned to rules and used to select the cheapest derivation. Set to 1 to enable, 0 to disable. Used for optimization in ambiguous grammars with cost annotations.
@@ -211,7 +211,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: No issues; sets state.
 - **Abstraction**: Exposed directly; users set flag (0=default no cost minimization).
 - **Tests**: Not specifically tested.
-- **Examples**: None.
+- **Examples**: None; cost-based parsing requires rule cost annotations in grammar descriptions, not demonstrated in simple examples.
 
 ### `yaep_set_error_recovery_flag(struct grammar *g, int flag) -> int`
 - **Purpose**: Enables error recovery during parsing. When enabled, the parser attempts to continue after syntax errors by skipping tokens. When disabled, parsing stops immediately on errors. Used to make parsers more robust for interactive or incomplete input.
@@ -220,7 +220,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: No issues; sets state.
 - **Abstraction**: Exposed directly; users set flag (1=default error recovery enabled).
 - **Tests**: `python/tests/test_set_error_recovery_flag.py` (checks behavior with different flags).
-- **Examples**: None.
+- **Examples**: `python/examples/set_error_recovery_flag_example.py`.
 
 ### `yaep_set_recovery_match(struct grammar *g, int n_toks) -> int`
 - **Purpose**: Sets the number of consecutive tokens that must be successfully shifted after an error to consider recovery complete. Higher values require more successful parsing before resuming normal operation. Used in conjunction with error recovery to control how much input must be correct before proceeding.
@@ -229,7 +229,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: No issues; sets state.
 - **Abstraction**: Exposed directly; users set number of tokens to match for recovery (3=default).
 - **Tests**: `python/tests/test_set_recovery_match.py` (checks behavior with different recovery match settings).
-- **Examples**: None.
+- **Examples**: `python/examples/set_recovery_match_example.py`.
 
 ## Parsing
 
@@ -251,7 +251,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Memory Safety**: Freed after `yaep_free_grammar`; RAII ensures safety. Termcb allows freeing custom term attributes.
 - **Abstraction**: Automatic in `ParseTree.__exit__`; `free_with_termcb()` for custom term attribute freeing.
 - **Tests**: `python/tests/test_free_with_termcb.py`.
-- **Examples**: None specific.
+- **Examples**: `python/examples/free_tree_example.py` (demonstrates free_with_termcb with dummy callback).
 
 ## C++ Class Methods (Mirrored from C Functions)
 
@@ -286,6 +286,24 @@ The C++ class `yaep` mirrors the C functions above. Since the Python wrapper tar
 
 - `python/examples/read_grammar_example.py`
   - Demonstrates `Grammar.read_grammar_from_lists()` to build a grammar programmatically from Python lists, parse input, and convert the tree to a dict.
+
+- `python/examples/set_lookahead_level_example.py`
+  - Demonstrates setting lookahead level and its effect on parsing behavior.
+
+- `python/examples/set_debug_level_example.py`
+  - Shows how to set debug level for parser tracing (output depends on compilation).
+
+- `python/examples/set_one_parse_flag_example.py`
+  - Illustrates controlling parse tree generation for ambiguous grammars.
+
+- `python/examples/set_error_recovery_flag_example.py`
+  - Demonstrates error recovery behavior with invalid input.
+
+- `python/examples/set_recovery_match_example.py`
+  - Shows setting recovery match count for error recovery tuning.
+
+- `python/examples/free_tree_example.py`
+  - Demonstrates custom tree freeing with term callback.
 
 ### Tests (machine-verifiable documentation):
 - `python/tests/test_smoke.py`
