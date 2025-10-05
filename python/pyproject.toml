@@ -20,3 +20,4 @@ Homepage = "https://github.com/gitrdm/yaep"
 
 [project.optional-dependencies]
 dev = ["pytest", "cffi"]
+viz = ["graphviz"]

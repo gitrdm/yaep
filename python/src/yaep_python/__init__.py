@@ -1,5 +1,5 @@
 from . import _cffi
-from typing import Iterable, Optional, Tuple, Any
+from typing import Iterable, Optional, Tuple, Any, List, Dict
 
 # YAEP public error codes (a few are mirrored here for convenience)
 YAEP_INVALID_UTF8 = 18
@@ -79,10 +79,16 @@ class Grammar:
 			raise YaepInvalidUTF8Error(self.error_message() or "YAEP_INVALID_UTF8")
 		return rc
 
-	def parse(self, tokens: Iterable[int]) -> Tuple[int, Optional[ParseTree]]:
+	def parse(self, tokens: Iterable[int]) -> Tuple[int, Optional[ParseTree], Optional[Tuple[int, int, int]]]:
+		"""Parse a stream of integer token codes.
+
+		Returns (rc, ParseTree|None, syntax_error_info|None).
+		syntax_error_info is (err_tok_num, start_ignored_tok_num, start_recovered_tok_num) if syntax error occurred, else None.
+		"""
 		rc, root_ptr, ambiguous, syntax_err = _cffi.parse_with_tokens(self._g, tokens)
 		tree = ParseTree(root_ptr, ambiguous) if root_ptr != _cffi._ffi.NULL else None
-		return int(rc), tree
+		syntax_info = syntax_err['info'] if syntax_err['called'] else None
+		return int(rc), tree, syntax_info
 
 	def error_code(self) -> int:
 		return int(_cffi.error_code(self._g))
@@ -98,5 +104,29 @@ class Grammar:
 	# convenience setters mirroring public API
 	def set_lookahead_level(self, level: int) -> int:
 		return int(_cffi.set_lookahead_level(self._g, level))
+
+	def set_debug_level(self, level: int) -> int:
+		return int(_cffi.set_debug_level(self._g, level))
+
+	def set_one_parse_flag(self, flag: int) -> int:
+		return int(_cffi.set_one_parse_flag(self._g, flag))
+
+	def set_cost_flag(self, flag: int) -> int:
+		return int(_cffi.set_cost_flag(self._g, flag))
+
+	def set_error_recovery_flag(self, flag: int) -> int:
+		return int(_cffi.set_error_recovery_flag(self._g, flag))
+
+	def set_recovery_match(self, n_toks: int) -> int:
+		return int(_cffi.set_recovery_match(self._g, n_toks))
+
+	def read_grammar_from_lists(self, terminals: List[Tuple[str, Optional[int]]], rules: List[Dict], strict: bool = True) -> int:
+		"""Read grammar from Python lists of terminals and rules.
+
+		terminals: [(name, code?), ...] where code is int or None (auto-assign).
+		rules: [{'lhs': str, 'rhs': [str], 'abs_node': str?, 'anode_cost': int?, 'transl': [int]?}, ...]
+		Returns YAEP return code.
+		"""
+		return int(_cffi.read_grammar_from_lists(self._g, strict, terminals, rules))
 
 __all__ = ["Grammar", "ParseTree", "ParseNode"]

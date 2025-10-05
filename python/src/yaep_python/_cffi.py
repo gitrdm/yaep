@@ -56,6 +56,13 @@ int yaep_parse(struct grammar *grammar,
                              int *ambiguous_p);
 
 void yaep_free_tree(struct yaep_tree_node * root, void (*parse_free) (void *), void (*termcb) (struct yaep_term * term));
+
+int yaep_read_grammar(struct grammar *g, int strict_p,
+                      const char *(*read_terminal) (int *code),
+                      const char *(*read_rule) (const char ***rhs,
+                                                const char **abs_node,
+                                                int *anode_cost,
+                                                int **transl));
 """)
 
 def _find_lib():
@@ -161,4 +168,91 @@ def error_message(g):
 
 def set_lookahead_level(g, level):
     return int(_lib.yaep_set_lookahead_level(g, int(level)))
+
+
+def set_debug_level(g, level):
+    return int(_lib.yaep_set_debug_level(g, int(level)))
+
+
+def set_one_parse_flag(g, flag):
+    return int(_lib.yaep_set_one_parse_flag(g, int(flag)))
+
+
+def set_cost_flag(g, flag):
+    return int(_lib.yaep_set_cost_flag(g, int(flag)))
+
+
+def set_error_recovery_flag(g, flag):
+    return int(_lib.yaep_set_error_recovery_flag(g, int(flag)))
+
+
+def set_recovery_match(g, n_toks):
+    return int(_lib.yaep_set_recovery_match(g, int(n_toks)))
+
+def read_grammar_from_lists(grammar_ptr, strict_p, terminals, rules):
+    """Call yaep_read_grammar with Python lists for terminals and rules.
+
+    terminals: list of (name: str, code: int?) tuples. If code is None, YAEP auto-assigns.
+    rules: list of dicts with keys:
+        'lhs': str (nonterminal)
+        'rhs': list[str] (symbols)
+        'abs_node': str? (abstract node name)
+        'anode_cost': int? (cost, default 1)
+        'transl': list[int]? (translation indexes, or None for NIL, or single int for reuse)
+
+    Returns the YAEP return code (int).
+    """
+    # State to keep C arrays alive during callbacks
+    state = {'terminals': terminals, 'rules': rules, 'term_idx': 0, 'rule_idx': 0}
+
+    @_ffi.callback("const char *(int *)")
+    def read_terminal(code_ptr):
+        if state['term_idx'] >= len(state['terminals']):
+            return _ffi.NULL
+        name, code = state['terminals'][state['term_idx']]
+        state['term_idx'] += 1
+        if code is not None:
+            code_ptr[0] = int(code)
+        else:
+            code_ptr[0] = -1  # Let YAEP assign
+        return _ffi.new("char[]", name.encode('utf-8'))
+
+    @_ffi.callback("const char *(const char ***, const char **, int *, int **)")  
+    def read_rule(rhs_ptr, abs_node_ptr, anode_cost_ptr, transl_ptr):
+        if state['rule_idx'] >= len(state['rules']):
+            return _ffi.NULL
+        rule = state['rules'][state['rule_idx']]
+        state['rule_idx'] += 1
+
+        # RHS: array of strings
+        rhs = rule['rhs']
+        rhs_c = [_ffi.new("char[]", s.encode('utf-8')) for s in rhs]
+        rhs_c.append(_ffi.NULL)  # End marker
+        rhs_array = _ffi.new("const char *[]", rhs_c)
+        rhs_ptr[0] = rhs_array
+
+        # abs_node
+        abs_node = rule.get('abs_node')
+        if abs_node:
+            abs_node_c = _ffi.new("char[]", abs_node.encode('utf-8'))
+            abs_node_ptr[0] = _ffi.cast("const char *", abs_node_c)
+        else:
+            abs_node_ptr[0] = _ffi.NULL
+
+        # anode_cost
+        cost = rule.get('anode_cost', 1)  # Default 1
+        anode_cost_ptr[0] = int(cost)
+
+        # transl: array of ints, end with negative
+        transl = rule.get('transl')
+        if transl is None:
+            transl_ptr[0] = _ffi.NULL
+        else:
+            transl_c = [int(x) for x in transl] + [-1]  # End marker
+            transl_array = _ffi.new("int[]", transl_c)
+            transl_ptr[0] = transl_array
+
+        return _ffi.new("char[]", rule['lhs'].encode('utf-8'))
+
+    return int(_lib.yaep_read_grammar(grammar_ptr, int(strict_p), read_terminal, read_rule))
 
