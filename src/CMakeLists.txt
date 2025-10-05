@@ -57,6 +57,12 @@ add_dependencies( yaep_static sgramm_c )
 target_link_libraries( yaep_static PUBLIC utf8proc )
 set_target_properties( yaep_static PROPERTIES OUTPUT_NAME ${YAEP_LIB_STATIC} )
 
+# Also build a shared library for language bindings / runtime loading
+add_library( yaep SHARED ${YAEP_LIB_SOURCES} )
+add_dependencies( yaep sgramm_c )
+target_link_libraries( yaep PUBLIC utf8proc )
+set_target_properties( yaep PROPERTIES OUTPUT_NAME ${YAEP_LIB} POSITION_INDEPENDENT_CODE ON)
+
 # C++
 set( YAEPXX_LIB "${PROJECT_NAME}++" )
 if( UNIX )
@@ -77,6 +83,12 @@ add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )
 add_dependencies( yaep++_static sgramm_c )
 target_link_libraries( yaep++_static PUBLIC utf8proc )
 set_target_properties( yaep++_static PROPERTIES OUTPUT_NAME ${YAEPXX_LIB_STATIC} )
+
+# Shared C++ variant
+add_library( "${YAEPXX_LIB}" SHARED ${YAEPXX_LIB_SOURCES} )
+add_dependencies( "${YAEPXX_LIB}" sgramm_c )
+target_link_libraries( "${YAEPXX_LIB}" PUBLIC utf8proc )
+set_target_properties( "${YAEPXX_LIB}" PROPERTIES OUTPUT_NAME "${YAEPXX_LIB}" POSITION_INDEPENDENT_CODE ON)
 
 # Install
 set( YAEP_INCLUDE
