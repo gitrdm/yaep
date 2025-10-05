@@ -307,6 +307,9 @@ The C++ class `yaep` mirrors the C functions above. Since the Python wrapper tar
 - `python/examples/free_tree_example.py`
   - Demonstrates custom tree freeing with term callback.
 
+- `python/examples/regex_vs_grammar_example.py`
+  - Compares regex pattern matching vs YAEP grammar parsing for string validation (phone numbers, emails).
+
 ### Tests (machine-verifiable documentation):
 - `python/tests/test_smoke.py`
   - Low-level smoke test using `_cffi` to create/parse/free a grammar.
@@ -326,16 +329,4 @@ The C++ class `yaep` mirrors the C functions above. Since the Python wrapper tar
 - `python/tests/test_free_with_termcb.py`
   - Tests `ParseTree.free_with_termcb()` with a dummy term callback.
 - `python/tests/test_read_grammar.py`
-  - Tests `Grammar.read_grammar_from_lists()` with various terminal and rule configurations.
-- `python/tests/test_set_lookahead_level.py`
-  - Tests `Grammar.set_lookahead_level()` with different lookahead levels and verifies the behavior.
-- `python/tests/test_set_debug_level.py`
-  - Tests `Grammar.set_debug_level()` with different debug levels and verifies the behavior.
-- `python/tests/test_set_one_parse_flag.py`
-  - Tests `Grammar.set_one_parse_flag()` with different parse flag settings and verifies the behavior.
-- `python/tests/test_set_cost_flag.py`
-  - Tests `Grammar.set_cost_flag()` with different cost flag settings and verifies the behavior.
-- `python/tests/test_set_error_recovery_flag.py`
-  - Tests `Grammar.set_error_recovery_flag()` with different error recovery flag settings and verifies the behavior.
-- `python/tests/test_set_recovery_match.py`
-  - Tests `Grammar.set_recovery_match()` with different recovery match settings and verifies the behavior`.
+  - Tests `Grammar.read_grammar_from_lists()` with
