@@ -120,6 +120,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 ## Grammar Lifecycle and Diagnostics
 
 ### `yaep_create_grammar(void) -> struct grammar *`
+- **Purpose**: Creates an undefined grammar structure. This is the first function to call when starting to use YAEP, as all other operations require a grammar pointer. It allocates memory for the grammar and initializes it to an empty state, ready for grammar definition via `yaep_read_grammar` or `yaep_parse_grammar`.
 - **Status**: Wrapped as `Grammar.__init__()` (high-level) and `_cffi.create_grammar()` (low-level).
 - **Roundtrip**: Returns a `struct grammar *` pointer; Python wraps it in a `Grammar` instance with RAII (context manager and explicit `free()`).
 - **Memory Safety**: The pointer is managed by the `Grammar` class; `free()` or `__exit__` calls `yaep_free_grammar`. No leaks if used as context manager.
@@ -128,6 +129,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: All examples via `Grammar()`.
 
 ### `yaep_free_grammar(struct grammar *g)`
+- **Purpose**: Frees the memory allocated for the grammar structure. This should be called after all parsing operations are complete to release resources. It must be called before freeing any parse trees, as the grammar contains references needed for tree cleanup.
 - **Status**: Wrapped as `Grammar.free()` (high-level) and `_cffi.free_grammar()` (low-level).
 - **Roundtrip**: Takes the pointer; no return value.
 - **Memory Safety**: Must be called after all parsing; the wrapper ensures it's called via RAII or explicit free. Double-free is prevented by setting `_g = None`.
@@ -136,6 +138,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: All examples via `Grammar.free()` or context manager.
 
 ### `yaep_error_code(struct grammar *g) -> int`
+- **Purpose**: Returns the last error code set during grammar operations. Used for error handling after functions like `yaep_read_grammar` or `yaep_parse` return non-zero. Error codes are defined in `yaep.h` (e.g., `YAEP_UNDEFINED_OR_BAD_GRAMMAR`). Check this after any operation that might fail to determine the cause.
 - **Status**: Wrapped as `Grammar.error_code()` (high-level) and `_cffi.error_code()` (low-level).
 - **Roundtrip**: Returns int error code; Python returns `int`.
 - **Memory Safety**: No issues; reads state from grammar pointer.
@@ -144,6 +147,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: `python/examples/visualize_parse_tree.py` (prints error code).
 
 ### `yaep_error_message(struct grammar *g) -> const char *`
+- **Purpose**: Returns a human-readable error message corresponding to the last error code. Used alongside `yaep_error_code` for detailed error reporting. The message is always available and describes the error in English. Useful for logging or user-facing error displays.
 - **Status**: Wrapped as `Grammar.error_message()` (high-level) and `_cffi.error_message()` (low-level).
 - **Roundtrip**: Returns UTF-8 string pointer; Python decodes to `str` or returns `None` if NULL.
 - **Memory Safety**: String is owned by YAEP; Python copies it immediately.
@@ -154,6 +158,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 ## Grammar Population
 
 ### `yaep_read_grammar(struct grammar *g, int strict_p, const char *(*read_terminal)(int *code), const char *(*read_rule)(const char ***rhs, const char **abs_node, int *anode_cost, int **transl)) -> int`
+- **Purpose**: Reads terminals and rules into the grammar using callback functions. Used to programmatically build a grammar without parsing a string description. Callbacks allow incremental reading of terminals and rules, enabling dynamic grammar construction. Strict mode checks for errors like unreachable nonterminals.
 - **Status**: Wrapped as `Grammar.read_grammar_from_lists()` (high-level) and `_cffi.read_grammar_from_lists()` (low-level).
 - **Roundtrip**: Callbacks return C strings and arrays; Python allocates CFFI-managed arrays in callbacks and keeps references alive until YAEP consumes them.
 - **Memory Safety**: Callbacks allocate C arrays (e.g., for RHS and transl) that persist until YAEP reads them; CFFI buffers and closure state prevent GC.
@@ -162,6 +167,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: `python/examples/read_grammar_example.py`.
 
 ### `yaep_parse_grammar(struct grammar *g, int strict_p, const char *description) -> int`
+- **Purpose**: Parses a grammar description string into the grammar structure. This is the primary way to define a grammar from a textual description (e.g., BNF-like syntax). Used after creating the grammar to populate it with terminals, nonterminals, and rules. Strict mode validates the grammar for issues like loops or unreachable symbols.
 - **Status**: Wrapped as `Grammar.parse_description()` and `Grammar.parse_description_bytes()` (high-level); `_cffi.parse_grammar()` and `_cffi.parse_grammar_bytes()` (low-level).
 - **Roundtrip**: Takes UTF-8 string; Python encodes `str` to bytes or passes `bytes` directly.
 - **Memory Safety**: String is copied by YAEP; no lifetime issues.
@@ -172,6 +178,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 ## Parser Configuration
 
 ### `yaep_set_lookahead_level(struct grammar *g, int level) -> int`
+- **Purpose**: Sets the lookahead level for parsing. Level 1 uses static lookaheads (good balance of speed and space), level 2 uses dynamic lookaheads (slightly worse but more accurate). Higher levels reduce ambiguity but increase memory usage. Used to tune parser performance for specific grammars.
 - **Status**: Wrapped as `Grammar.set_lookahead_level()` (high-level) and `_cffi.set_lookahead_level()` (low-level).
 - **Roundtrip**: Takes/returns int; Python int <-> C int.
 - **Memory Safety**: No issues; sets state.
@@ -180,6 +187,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: None.
 
 ### `yaep_set_debug_level(struct grammar *g, int level) -> int`
+- **Purpose**: Sets the debug output level. When compiled with debug support, higher levels produce more detailed tracing of parser operations. Used for debugging grammar issues or understanding parser behavior. Level 0 disables debug output.
 - **Status**: Wrapped as `Grammar.set_debug_level()` (high-level) and `_cffi.set_debug_level()` (low-level).
 - **Roundtrip**: Takes/returns int; Python int <-> C int.
 - **Memory Safety**: No issues; sets state.
@@ -188,6 +196,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: None.
 
 ### `yaep_set_one_parse_flag(struct grammar *g, int flag) -> int`
+- **Purpose**: Controls whether to build only one parse tree or all possible trees for ambiguous grammars. Set to 1 for single tree (faster, less memory), 0 for all trees. For unambiguous grammars, this has no effect. Used to handle ambiguity in grammars.
 - **Status**: Wrapped as `Grammar.set_one_parse_flag()` (high-level) and `_cffi.set_one_parse_flag()` (low-level).
 - **Roundtrip**: Takes/returns int; Python int <-> C int.
 - **Memory Safety**: No issues; sets state.
@@ -196,6 +205,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: None.
 
 ### `yaep_set_cost_flag(struct grammar *g, int flag) -> int`
+- **Purpose**: Enables cost-based parsing to find the minimum-cost parse tree when multiple trees exist. Costs are assigned to rules and used to select the cheapest derivation. Set to 1 to enable, 0 to disable. Used for optimization in ambiguous grammars with cost annotations.
 - **Status**: Wrapped as `Grammar.set_cost_flag()` (high-level) and `_cffi.set_cost_flag()` (low-level).
 - **Roundtrip**: Takes/returns int; Python int <-> C int.
 - **Memory Safety**: No issues; sets state.
@@ -204,6 +214,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: None.
 
 ### `yaep_set_error_recovery_flag(struct grammar *g, int flag) -> int`
+- **Purpose**: Enables error recovery during parsing. When enabled, the parser attempts to continue after syntax errors by skipping tokens. When disabled, parsing stops immediately on errors. Used to make parsers more robust for interactive or incomplete input.
 - **Status**: Wrapped as `Grammar.set_error_recovery_flag()` (high-level) and `_cffi.set_error_recovery_flag()` (low-level).
 - **Roundtrip**: Takes/returns int; Python int <-> C int.
 - **Memory Safety**: No issues; sets state.
@@ -212,6 +223,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 - **Examples**: None.
 
 ### `yaep_set_recovery_match(struct grammar *g, int n_toks) -> int`
+- **Purpose**: Sets the number of consecutive tokens that must be successfully shifted after an error to consider recovery complete. Higher values require more successful parsing before resuming normal operation. Used in conjunction with error recovery to control how much input must be correct before proceeding.
 - **Status**: Wrapped as `Grammar.set_recovery_match()` (high-level) and `_cffi.set_recovery_match()` (low-level).
 - **Roundtrip**: Takes/returns int; Python int <-> C int.
 - **Memory Safety**: No issues; sets state.
@@ -222,6 +234,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 ## Parsing
 
 ### `yaep_parse(struct grammar *g, int (*read_token)(void **attr), void (*syntax_error)(int, void *, int, void *, int, void *), void *(*parse_alloc)(int nmemb), void (*parse_free)(void *mem), struct yaep_tree_node **root, int *ambiguous_p) -> int`
+- **Purpose**: Parses input tokens using the defined grammar, producing a parse tree. The read_token callback provides input, syntax_error handles errors, and alloc/free manage memory. Returns the root of the parse tree and ambiguity flag. This is the core parsing function, used after grammar setup to process input streams.
 - **Status**: Wrapped as `Grammar.parse()` (token iterable) and `Grammar.full_parse()` (full callbacks); `_cffi.parse_with_tokens()` and `_cffi.parse_full()` (low-level).
 - **Roundtrip**: Callbacks for tokens/syntax errors/alloc/free; Python callables converted to CFFI callbacks. Tree root returned as pointer, wrapped in `ParseTree`.
 - **Memory Safety**: Tree root freed via RAII; custom alloc/free allow user control but require careful cdata management.
@@ -232,6 +245,7 @@ The wrapper aims for full coverage with safe, idiomatic Python bindings. Where a
 ## Tree Management
 
 ### `yaep_free_tree(struct yaep_tree_node *root, void (*parse_free)(void *), void (*termcb)(struct yaep_term *term))`
+- **Purpose**: Frees the memory allocated for the parse tree. Must be called after `yaep_free_grammar` to avoid dangling references. The parse_free callback frees tree nodes, and termcb frees any attributes attached to terminal nodes. Used to clean up after parsing to prevent memory leaks.
 - **Status**: Wrapped as `ParseTree.free()` (default) and `ParseTree.free_with_termcb()` (with termcb); `_cffi.free_tree()` (low-level).
 - **Roundtrip**: Takes root pointer and optional callbacks; Python callable for termcb converted to CFFI callback.
 - **Memory Safety**: Freed after `yaep_free_grammar`; RAII ensures safety. Termcb allows freeing custom term attributes.
@@ -304,4 +318,4 @@ The C++ class `yaep` mirrors the C functions above. Since the Python wrapper tar
 - `python/tests/test_set_error_recovery_flag.py`
   - Tests `Grammar.set_error_recovery_flag()` with different error recovery flag settings and verifies the behavior.
 - `python/tests/test_set_recovery_match.py`
-  - Tests `Grammar.set_recovery_match()` with different recovery match settings and verifies the behavior.
+  - Tests `Grammar.set_recovery_match()` with different recovery match settings and verifies the behavior`.
