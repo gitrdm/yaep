@@ -43,13 +43,7 @@ export YAEP_LIB_PATH=build/src/libyaep.so
   Python API is intentionally small and well-tested — the tests and
   examples serve as living documentation.
 
-## Public Python API (what we export today)
-
-The primary high-level types and functions are provided from
-`python/src/yaep_python/__init__.py`. Below is a mapping of the public
-Python API to YAEP concepts and the tests/examples that demonstrate them.
-
-### Types and exceptions
+## Types and exceptions
 
 - `Grammar`
   - Thin RAII-style wrapper around a YAEP `struct grammar *`.
