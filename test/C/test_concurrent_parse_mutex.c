@@ -36,7 +36,12 @@ simple_syntax_error (int err_tok_num, void *err_tok_attr,
                      int start_ignored_tok_num, void *start_ignored_tok_attr,
                      int start_recovered_tok_num, void *start_recovered_tok_attr)
 {
-  (void) err_tok_attr; (void) start_ignored_tok_attr; (void) start_recovered_tok_attr;
+  /* Mark unused parameters explicitly to avoid compiler warnings. */
+  (void) err_tok_attr;
+  (void) start_ignored_tok_num;
+  (void) start_ignored_tok_attr;
+  (void) start_recovered_tok_num;
+  (void) start_recovered_tok_attr;
   fprintf (stderr, "syntax error on token %d\n", err_tok_num);
 }
 

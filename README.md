@@ -93,6 +93,27 @@ static void parse (void)
     the Unicode notes in ``doc/unicode_support.md``,
     or the YAEP examples in files ``test*.c`` in directories ``test/C`` or ``test/C++``.
 
+  ## Encoding / Unicode
+
+  YAEP expects UTF-8 encoded input for grammar descriptions, symbol names,
+  terminal names, abstract node labels, and other public string APIs. Strings
+  passed to YAEP (for example, the `description` argument to
+  `yaep_parse_grammar`) must be valid UTF-8. The project includes a small
+  Unicode wrapper and uses the vendored `utf8proc` library to validate and
+  normalize UTF-8 where appropriate (see `src/unicode/yaep_unicode.*`).
+
+  Notes for callers:
+  - YAEP stores strings as UTF-8 byte buffers; stored lengths are byte counts,
+    not code point counts.
+  - YAEP performs NFC normalization on names in some symbol-insertion paths.
+    Callers that need canonicalization may also call the helpers in
+    `src/unicode/yaep_unicode.h`.
+  - If YAEP encounters invalid UTF-8 in a grammar description or symbol name,
+    it will report the error code `YAEP_INVALID_UTF8` (see `src/yaep.h`).
+
+  If you need to work in a different encoding, convert text to UTF-8 before
+  calling YAEP.
+
 # Installing:
   * ``mkdir build``
   * ``cd build``

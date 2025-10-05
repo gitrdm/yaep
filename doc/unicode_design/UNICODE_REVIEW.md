@@ -1,19 +1,25 @@
 # Unicode Enablement Review for YAEP
 
+This file has been updated to reflect the current implementation status on the `unicode-feature` branch. The project now implements a UTF-8 wrapper and integrates `utf8proc`. The changes below note where code was updated and what remains.
+
 ## Summary
-- YAEP currently operates on narrow `char` buffers and assumes ASCII semantics in its grammar reader, helper utilities, and sample scanners.
-- To accept and produce Unicode safely, we should adopt UTF-8 as the canonical internal encoding, introduce Unicode-aware character classification helpers, and adjust all parsing front-ends that walk text byte-by-byte.
-- The core Earley engine already works on integer token codes, so Unicode work concentrates on grammar ingestion, diagnostics, memory helpers, and public documentation/testing.
 
-## Key Findings
-- **Grammar description lexer (`src/sgramm.y`)** iterates character-by-character with `curr_ch++`, relies on `isalpha`, `isalnum`, `isdigit`, and assumes one-byte characters when forming `CHAR` tokens. Multi-byte input would be split incorrectly and locale-dependent classification could crash when `char` is signed.
-- **String helpers (`src/objstack.c`, `src/vlobject.c`)** store strings with `strlen` and raw byte copies. This is safe for UTF-8 storage but requires explicit documentation that stored lengths are byte counts and that upstream callers must present valid UTF-8.
-- **Hashing (`symb_repr_hash` in `src/yaep.c`)** and other loops treat `char` values as signed. High-bit bytes from UTF-8 become negative, changing hash behaviour. Casting through `unsigned char` will stabilise hashing for non-ASCII.
-- **Diagnostics (`YAEP_MAX_ERROR_MESSAGE_LENGTH`)** caps error messages at 200 bytes, risking truncated UTF-8 sequences. Error assembly also uses `sprintf`/`vsprintf` without length guards in several places.
-- **Sample scanners/tests (e.g. `test/ansic.l`)** encode ASCII-only token patterns. They should either be modernised for UTF-8 or clearly tagged as ASCII-only fixtures.
-- **Public headers (`src/yaep.h`)** document interfaces in terms of `const char *` without clarifying encoding expectations. Callers need guidance on supplying UTF-8 identifiers, literal names, and abstract node labels.
+- YAEP previously assumed byte-wise ASCII processing in its grammar reader. The `unicode-feature` branch implements a UTF-8 wrapper and updates the grammar lexer and supporting utilities to operate correctly on Unicode code points.
 
-## Recommendations (assuming utf8proc)
+## Key findings (current)
+
+- **Grammar description lexer (`src/sgramm.y`)** now uses `yaep_utf8_next` and `yaep_utf8_is*` predicates from `src/unicode/yaep_unicode.*` so lexing is performed on Unicode code points rather than raw bytes.
+- **String helpers** (e.g., `objstack`, `vlobject`) still store byte buffers, which is correct for UTF-8 storage; callers and docs should note stored lengths count bytes, not code points.
+- **Hashing**: the repository contains `yaep_utf8_hash` which treats bytes as `unsigned char` to avoid sign-extension issues; `src/yaep.c` also calls normalization helpers where needed.
+- **Diagnostics**: `yaep_utf8_truncate_safe` exists and ensures truncation preserves code point boundaries when building error messages.
+- **Public headers**: `src/unicode/yaep_unicode.h` documents UTF-8 expectations and helper APIs; users should consult it for correct usage.
+
+## Recommendations (concrete next steps)
+
+- Update `README.md` and public API docs to state that YAEP expects UTF-8 encoded input in public APIs and grammar descriptions.
+- Ensure unit tests include edge cases: malformed UTF-8, combining marks, emoji, and mixed-script digits (there are existing tests under `test/` to extend).
+- Consider documenting `objstack`/`vlobject` storage semantics explicitly to avoid confusion about byte vs codepoint lengths.
+
 
 ### 1. Establish UTF-8 as the canonical encoding
 - Document UTF-8 as the required encoding for grammar descriptions, symbol names, and diagnostic output.
@@ -65,7 +71,3 @@
 - **Parser generator compatibility**: Updating `sgramm.y` may require newer flex/bison features for Unicode. Document toolchain requirements and consider bundling pre-generated sources for portability.
 - **Invalid input**: Enforcing UTF-8 may reject previously accepted raw byte grammars. Provide opt-in validation mode or configuration flag during transition.
 
-## Next Steps
-- Align on the UTF-8-only vs. pluggable encoding decision.
-- Prototype the UTF-8 helper module and refactor `symb_repr_hash`/diagnostics as a low-risk starting point.
-- Schedule a follow-up review once the lexer refactor and tests are drafted.
