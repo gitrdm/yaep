@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yaep-python"
+version = "0.1.0"
+description = "Prototype Python bindings for YAEP (cffi-based)"
+authors = [{name = "gitrdm"}]
+requires-python = ">=3.8"
+readme = "README.md"
+keywords = ["yaep", "parser", "earley", "grammar"]
+classifiers = [
+	"Programming Language :: Python :: 3",
+	"License :: OSI Approved :: MIT License",
+]
+
+[project.urls]
+Homepage = "https://github.com/gitrdm/yaep"
+
+[project.optional-dependencies]
+dev = ["pytest", "cffi"]
