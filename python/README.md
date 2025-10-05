@@ -42,6 +42,8 @@ export YAEP_LIB_PATH=build/src/libyaep.so
 - This is a prototype and aims to be documentation-through-examples; the
   Python API is intentionally small and well-tested — the tests and
   examples serve as living documentation.
+- For YAEP grammar syntax and concepts, see the grammar documentation at
+  ``../doc/YAEP_GRAMMAR.md``.
 
 ## Types and exceptions
 
