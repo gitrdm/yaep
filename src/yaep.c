@@ -1342,8 +1342,32 @@ tok_add (int code, void *attr)
 
   tok.attr = attr;
   tok.symb = symb_find_by_code (code);
+  /* If the token code is unknown treat it as an input error token
+     instead of invoking yaep_error() from this low-level helper.
+     Calling yaep_error() performs a longjmp which may unwind across
+     user callbacks in some embedding scenarios and lead to crashes.
+     If the grammar and its error terminal are available, substitute
+     the token with the grammar's special error terminal so the
+     parser can perform normal error recovery.  If the grammar or
+     the error terminal isn't yet initialized, fall back to the
+     previous fatal behaviour. */
   if (tok.symb == NULL)
-    yaep_error (YAEP_INVALID_TOKEN_CODE, "invalid token code %d", code);
+    {
+      if (grammar != NULL && grammar->term_error != NULL)
+        {
+          /* Record an informative error code/message but continue by
+             treating this token as the internal error terminal. */
+          grammar->error_code = YAEP_INVALID_TOKEN_CODE;
+          snprintf (grammar->error_message, sizeof (grammar->error_message),
+                    "invalid token code %d (treated as error token)", code);
+          tok.symb = grammar->term_error;
+        }
+      else
+        {
+          /* Grammar not ready: preserve previous behaviour. */
+          yaep_error (YAEP_INVALID_TOKEN_CODE, "invalid token code %d", code);
+        }
+    }
   VLO_ADD_MEMORY (toks_vlo, &tok, sizeof (struct tok));
   toks = (struct tok *) VLO_BEGIN (toks_vlo);
   toks_len++;
