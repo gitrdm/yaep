@@ -21,13 +21,13 @@ This document provides a comprehensive, production-ready plan to modernize the Y
 
 ---
 
-## Current Progress Snapshot (branch state: 2024-11)
+## Current Progress Snapshot (branch state: Oct 2025)
 
 - ✅ **Build targets now compile as C17.** The top-level `CMakeLists.txt` sets `CMAKE_C_STANDARD 17`, `C_STANDARD_REQUIRED ON`, and disables GNU extensions.
 - ✅ **Thread-local error infrastructure is in place.** `src/yaep_error.c` defines `_Thread_local` error contexts and the boundary stack; `yaep_set_error`, `yaep_clear_error`, and `yaep_copy_error_to_grammar` are live.
 - ✅ **Public entry points use the boundary wrapper.** `yaep_read_grammar` and `yaep_parse` (see `src/yaep.c`) call `yaep_run_with_error_boundary` to contain longjmps inside the new helper.
-- ⚠️ **`yaep_error` still performs a longjmp.** It calls `yaep_error_boundary_raise`, so the legacy control-flow behavior remains; call sites still assume non-local exits.
-- ⚠️ **`yyerror` in `src/sgramm.y` still raises via `yaep_error`.** Grammar-description parsing continues to unwind with longjmp instead of returning an error code.
+- ✅ **Bison error handling fixed (Phase 4 complete).** `yyerror` in `src/sgramm.y` now correctly calls `yaep_set_error` and returns normally to Bison. `set_sgrammar_internal` checks `yyparse()` return value. Grammar description parsing no longer performs longjmp in the Bison path.
+- ⚠️ **`yaep_error` still performs a longjmp.** It calls `yaep_error_boundary_raise`, so the legacy control-flow behavior remains in internal validation code; call sites still assume non-local exits.
 - ⚠️ **Cleanup attributes and explicit propagation are not wired up yet.** No feature-detection macros or RAII helpers have landed, and most internal helpers still signal errors by longjmping.
 
 The remaining work focuses on converting the longjmp-based helpers to explicit error returns, updating the parser/grammar call graph to propagate those codes, and introducing the cleanup/RAII scaffolding that the design below describes.
@@ -260,10 +260,11 @@ static int toks_len;                             // Token count
 2. Update `set_sgrammar()` to use explicit error checking
 3. No changes needed to Bison-generated code (Bison is not the problem)
 
-**Current Status (2024-11):**
-- ☐ `yyerror` still calls `yaep_error`, so syntax errors unwind through longjmp.
-- ☐ `set_sgrammar` continues to assume non-local exits; no explicit error returns are wired up yet.
+**Current Status (2024-11 → Oct 2025):**
+- ✅ `yyerror` now calls `yaep_set_error` and returns normally (fixed Oct 2025).
+- ✅ `set_sgrammar_internal` checks `yyparse()` return value properly.
 - ✅ No Bison-generated sources require modification (confirmed by inspection).
+- ⚠️ One `yaep_error` call remains in terminal validation (still uses longjmp).
 
 ### Phase 5: Validation & Documentation
 **Duration:** 2-3 days  
@@ -301,11 +302,12 @@ static int toks_len;                             // Token count
 
 ### Immediate Next Steps (priority backlog)
 
-1. Refactor `yaep_error` to return error codes instead of calling `yaep_error_boundary_raise`, and update callers to propagate the result.
-2. Update `yyerror`/`set_sgrammar` to use `yaep_set_error` + explicit returns so grammar parsing no longer depends on longjmp.
-3. Introduce cleanup-attribute feature detection and start migrating allocator wrappers to RAII helpers (`yaep_alloc_*` safe adapters).
-4. Add thin propagation helpers/macros to replace the direct `yaep_error(...)` calls throughout `yaep.c`.
-5. Extend the test harness to exercise both success and failure paths without assuming non-local exits.
+1. ~~Update `yyerror`/`set_sgrammar` to use `yaep_set_error` + explicit returns so grammar parsing no longer depends on longjmp.~~ **✅ DONE (Oct 2025)**
+2. Refactor `yaep_error` to return error codes instead of calling `yaep_error_boundary_raise`, and update callers to propagate the result.
+3. Convert remaining `yaep_error` call in `set_sgrammar_internal` terminal validation to explicit return.
+4. Introduce cleanup-attribute feature detection and start migrating allocator wrappers to RAII helpers (`yaep_alloc_*` safe adapters).
+5. Add thin propagation helpers/macros to replace the direct `yaep_error(...)` calls throughout `yaep.c`.
+6. Extend the test harness to exercise both success and failure paths without assuming non-local exits.
 
 ---
 
@@ -1986,7 +1988,7 @@ The result will be a faster, safer, more maintainable codebase suitable for mode
 
 ---
 
-**Document Version:** 0.6 (progress update)  
-**Date:** November 27, 2024  
+**Document Version:** 0.7 (Phase 4 complete)  
+**Date:** October 7, 2025  
 **Author:** GitHub Copilot  
-**Status:** In Progress
+**Status:** In Progress - Phase 4 Complete
