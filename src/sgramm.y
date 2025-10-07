@@ -412,31 +412,47 @@ sterm_num_cmp (const void *t1, const void *t2)
 
 static void free_sgrammar (void);
 
+struct set_sgrammar_context
+{
+  struct grammar *grammar;
+  const char *description;
+};
+
+static int set_sgrammar_internal (void *user);
+
 /* The following is major function which parses the description and
    transforms it into IR. */
 static int
 set_sgrammar (struct grammar *g, const char *grammar)
 {
+  struct set_sgrammar_context ctx;
+  int code;
+
+  ctx.grammar = g;
+  ctx.description = grammar;
+
+  code = yaep_run_with_error_boundary (set_sgrammar_internal, &ctx);
+  if (code != 0)
+    free_sgrammar ();
+  return code;
+}
+
+static int
+set_sgrammar_internal (void *user)
+{
+  struct set_sgrammar_context *ctx = (struct set_sgrammar_context *) user;
+  struct grammar *g = ctx->grammar;
   int i, j, num;
   struct sterm *term, *prev, *arr;
   int code = 256;
-  yaep_error_boundary_t boundary;
 
   ln = 1;
-  yaep_error_boundary_push (&boundary);
-  code = setjmp (boundary.env);
-  if (code != 0)
-    {
-      yaep_error_boundary_pop ();
-      free_sgrammar ();
-      return code;
-    }
   OS_CREATE (stoks, g->alloc, 0);
   VLO_CREATE (sterms, g->alloc, 0);
   VLO_CREATE (srules, g->alloc, 0);
   OS_CREATE (srhs, g->alloc, 0);
   OS_CREATE (strans, g->alloc, 0);
-  curr_ch = grammar;
+  curr_ch = ctx->description;
   yyparse ();
   /* sort array of syntax terminals by names. */
   num = VLO_LENGTH (sterms) / sizeof (struct sterm);
@@ -478,7 +494,6 @@ set_sgrammar (struct grammar *g, const char *grammar)
 	term->code = code++;
     }
   nsterm = nsrule = 0;
-  yaep_error_boundary_pop ();
   return 0;
 }
 

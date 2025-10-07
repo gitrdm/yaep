@@ -42,6 +42,8 @@ typedef struct yaep_error_boundary {
     struct yaep_error_boundary *prev;                              /**< previous boundary */
 } yaep_error_boundary_t;
 
+typedef int (*yaep_error_protected_fn)(void *user);
+
 typedef void (*yaep_error_update_hook_t)(struct grammar *g,
                                          const yaep_error_context_t *ctx);
 
@@ -87,13 +89,11 @@ void yaep_clear_error(void);
  */
 void yaep_set_error_update_hook(yaep_error_update_hook_t hook);
 
-void yaep_error_boundary_push(yaep_error_boundary_t *boundary);
-
-void yaep_error_boundary_pop(void);
-
 void yaep_error_boundary_raise(int code);
 
 int yaep_error_boundary_is_active(void);
+
+int yaep_run_with_error_boundary(yaep_error_protected_fn fn, void *user);
 
 #ifdef __cplusplus
 }

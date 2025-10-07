@@ -42,7 +42,6 @@
 
 #include <stdio.h>
 #include <stdarg.h>
-#include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
 #ifdef __cplusplus
@@ -3742,6 +3741,36 @@ check_grammar (int strict_p)
 /* The following function reads terminals/rules.  The function returns
    pointer to the grammar (or NULL if there were errors in
    grammar). */
+struct yaep_read_grammar_context
+{
+  struct grammar *grammar;
+  int strict_p;
+  const char *(*read_terminal) (int *code);
+  const char *(*read_rule) (const char ***rhs,
+                            const char **abs_node,
+                            int *anode_cost, int **transl);
+};
+
+struct yaep_parse_context
+{
+  struct grammar *grammar;
+  int (*read_fn) (void **attr);
+  void (*error_fn) (int err_tok_num, void *err_tok_attr,
+                    int start_ignored_tok_num, void *start_ignored_tok_attr,
+                    int start_recovered_tok_num,
+                    void *start_recovered_tok_attr);
+  void *(*alloc_fn) (int nmemb);
+  void (*free_fn) (void *mem);
+  struct yaep_tree_node **root;
+  int *ambiguous_p;
+  int result;
+  int tok_init_p;
+  int parse_init_p;
+};
+
+static int yaep_read_grammar_internal (void *user);
+static int yaep_parse_internal (void *user);
+
 #ifdef __cplusplus
 static
 #endif
@@ -3752,33 +3781,41 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 					     const char **abs_node,
 					     int *anode_cost, int **transl))
 {
+  int code;
+  struct yaep_read_grammar_context ctx;
+
+  assert (g != NULL);
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
+  ctx.grammar = g;
+  ctx.strict_p = strict_p;
+  ctx.read_terminal = read_terminal;
+  ctx.read_rule = read_rule;
+  code = yaep_run_with_error_boundary (yaep_read_grammar_internal, &ctx);
+  return code;
+}
+
+static int
+yaep_read_grammar_internal (void *user)
+{
+  struct yaep_read_grammar_context *ctx = (struct yaep_read_grammar_context *) user;
   const char *name, *lhs, **rhs, *anode;
   struct symb *symb, *start;
   struct rule *rule;
   int anode_cost;
   int *transl;
   int i, el, code;
+  int strict_p = ctx->strict_p;
 
-  yaep_error_boundary_t boundary;
-
-  assert (g != NULL);
-  yaep_initialize_error_handling ();
-  yaep_clear_error ();
-  grammar = g;
+  grammar = ctx->grammar;
   yaep_copy_error_to_grammar (grammar);
-  symbs_ptr = g->symbs_ptr;
-  term_sets_ptr = g->term_sets_ptr;
-  rules_ptr = g->rules_ptr;
-  yaep_error_boundary_push (&boundary);
-  code = setjmp (boundary.env);
-  if (code != 0)
-    {
-      yaep_error_boundary_pop ();
-      return code;
-    }
+  symbs_ptr = grammar->symbs_ptr;
+  term_sets_ptr = grammar->term_sets_ptr;
+  rules_ptr = grammar->rules_ptr;
+
   if (!grammar->undefined_p)
     yaep_empty_grammar ();
-  while ((name = (*read_terminal) (&code)) != NULL)
+  while ((name = (*ctx->read_terminal) (&code)) != NULL)
     {
       if (code < 0)
 	yaep_error (YAEP_NEGATIVE_TERM_CODE,
@@ -3802,7 +3839,7 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   grammar->term_error = symb_add_term (TERM_ERROR_NAME, TERM_ERROR_CODE);
   grammar->term_error_num = grammar->term_error->u.term.term_num;
   grammar->axiom = grammar->end_marker = NULL;
-  while ((lhs = (*read_rule) (&rhs, &anode, &anode_cost, &transl)) != NULL)
+  while ((lhs = (*ctx->read_rule) (&rhs, &anode, &anode_cost, &transl)) != NULL)
     {
       symb = symb_find_by_repr (lhs);
       if (symb == NULL)
@@ -3928,7 +3965,6 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
 #endif
   grammar->undefined_p = FALSE;
-  yaep_error_boundary_pop ();
   return 0;
 }
 
@@ -6429,12 +6465,11 @@ yaep_parse (struct grammar *g,
 	    void (*free) (void *mem),
 	    struct yaep_tree_node **root, int *ambiguous_p)
 {
-  int code, tok_init_p, parse_init_p;
-  int tab_collisions, tab_searches;
-  int result = 0;
-  yaep_error_boundary_t boundary;
+  struct yaep_parse_context ctx;
+  int code;
 
-  /* Set up parse allocation */
+  assert (g != NULL);
+
   yaep_initialize_error_handling ();
   yaep_clear_error ();
   if (alloc == NULL)
@@ -6449,40 +6484,72 @@ yaep_parse (struct grammar *g,
       free = parse_free_default;
     }
 
-  grammar = g;
-  assert (grammar != NULL);
-  yaep_copy_error_to_grammar (grammar);
-  symbs_ptr = g->symbs_ptr;
-  term_sets_ptr = g->term_sets_ptr;
-  rules_ptr = g->rules_ptr;
-  read_token = read;
-  syntax_error = error;
-  parse_alloc = alloc;
-  parse_free = free;
-  *root = NULL;
-  *ambiguous_p = FALSE;
+  ctx.grammar = g;
+  ctx.read_fn = read;
+  ctx.error_fn = error;
+  ctx.alloc_fn = alloc;
+  ctx.free_fn = free;
+  ctx.root = root;
+  ctx.ambiguous_p = ambiguous_p;
+  ctx.result = 0;
+  ctx.tok_init_p = FALSE;
+  ctx.parse_init_p = FALSE;
+
   pl_init ();
-  tok_init_p = parse_init_p = FALSE;
-  yaep_error_boundary_push (&boundary);
-  code = setjmp (boundary.env);
+
+  code = yaep_run_with_error_boundary (yaep_parse_internal, &ctx);
+  if (code != 0 && ctx.result == 0)
+    ctx.result = code;
+
   if (code != 0)
     {
-      result = code;
-      goto error;
+      pl_fin ();
+      if (ctx.parse_init_p)
+	yaep_parse_fin ();
+      if (ctx.tok_init_p)
+	tok_fin ();
     }
+
+  return ctx.result;
+}
+
+static int
+yaep_parse_internal (void *user)
+{
+  struct yaep_parse_context *ctx = (struct yaep_parse_context *) user;
+  int tab_collisions, tab_searches;
+  int code;
+
+  grammar = ctx->grammar;
+  assert (grammar != NULL);
+  yaep_copy_error_to_grammar (grammar);
+  symbs_ptr = grammar->symbs_ptr;
+  term_sets_ptr = grammar->term_sets_ptr;
+  rules_ptr = grammar->rules_ptr;
+  read_token = ctx->read_fn;
+  syntax_error = ctx->error_fn;
+  parse_alloc = ctx->alloc_fn;
+  parse_free = ctx->free_fn;
+  *ctx->root = NULL;
+  *ctx->ambiguous_p = FALSE;
+
+  ctx->result = 0;
+  ctx->tok_init_p = FALSE;
+  ctx->parse_init_p = FALSE;
+
   if (grammar->undefined_p)
     yaep_error (YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
   n_goto_successes = 0;
   tok_init ();
-  tok_init_p = TRUE;
+  ctx->tok_init_p = TRUE;
   code = read_toks ();
   if (code != 0)
     {
-      result = code;
-      goto error;
+      ctx->result = code;
+      return code;
     }
   yaep_parse_init (toks_len);
-  parse_init_p = TRUE;
+  ctx->parse_init_p = TRUE;
   pl_create ();
 #ifndef __cplusplus
   tab_collisions = get_all_collisions ();
@@ -6492,7 +6559,7 @@ yaep_parse (struct grammar *g,
   tab_searches = hash_table::get_all_searches ();
 #endif
   build_pl ();
-  *root = make_parse (ambiguous_p);
+  *ctx->root = make_parse (ctx->ambiguous_p);
 #ifndef __cplusplus
   tab_collisions = get_all_collisions () - tab_collisions;
   tab_searches = get_all_searches () - tab_searches;
@@ -6505,7 +6572,7 @@ yaep_parse (struct grammar *g,
   if (grammar->debug_level > 0)
     {
       fprintf (stderr, "%sGrammar: #terms = %d, #nonterms = %d, ",
-	       *ambiguous_p ? "AMBIGUOUS " : "",
+	       *ctx->ambiguous_p ? "AMBIGUOUS " : "",
 	       symbs_ptr->n_terms, symbs_ptr->n_nonterms);
       fprintf (stderr, "#rules = %d, rules size = %d\n",
 	       rules_ptr->n_rules,
@@ -6560,19 +6627,12 @@ yaep_parse (struct grammar *g,
 	       tab_collisions, tab_searches);
     }
 #endif
-  yaep_parse_fin ();
-  tok_fin ();
-  yaep_error_boundary_pop ();
-  return 0;
 
-error:
-  yaep_error_boundary_pop ();
-  pl_fin ();
-  if (parse_init_p)
-    yaep_parse_fin ();
-  if (tok_init_p)
-    tok_fin ();
-  return result;
+  yaep_parse_fin ();
+  ctx->parse_init_p = FALSE;
+  tok_fin ();
+  ctx->tok_init_p = FALSE;
+  return 0;
 }
 
 /* The following function frees memory allocated for the grammar. */

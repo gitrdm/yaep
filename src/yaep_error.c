@@ -104,7 +104,7 @@ yaep_set_error_update_hook(yaep_error_update_hook_t hook)
     yaep_error_update_hook = hook;
 }
 
-void
+static void
 yaep_error_boundary_push(yaep_error_boundary_t *boundary)
 {
     if (boundary == NULL) {
@@ -115,7 +115,7 @@ yaep_error_boundary_push(yaep_error_boundary_t *boundary)
     yaep_boundary_top = boundary;
 }
 
-void
+static void
 yaep_error_boundary_pop(void)
 {
     if (yaep_boundary_top != NULL) {
@@ -140,4 +140,24 @@ int
 yaep_error_boundary_is_active(void)
 {
     return yaep_boundary_top != NULL;
+}
+
+int
+yaep_run_with_error_boundary(yaep_error_protected_fn fn, void *user)
+{
+    int code = 0;
+    yaep_error_boundary_t boundary;
+
+    yaep_error_boundary_push(&boundary);
+    code = setjmp(boundary.env);
+    if (code == 0) {
+        if (fn != NULL) {
+            code = fn(user);
+        }
+        yaep_error_boundary_pop();
+        return code;
+    }
+
+    yaep_error_boundary_pop();
+    return code;
 }
