@@ -135,3 +135,9 @@ yaep_error_boundary_raise(int code)
 
     longjmp(boundary->env, code);
 }
+
+int
+yaep_error_boundary_is_active(void)
+{
+    return yaep_boundary_top != NULL;
+}

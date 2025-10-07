@@ -93,6 +93,8 @@ void yaep_error_boundary_pop(void);
 
 void yaep_error_boundary_raise(int code);
 
+int yaep_error_boundary_is_active(void);
+
 #ifdef __cplusplus
 }
 #endif

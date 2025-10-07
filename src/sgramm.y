@@ -538,9 +538,16 @@ yaep_parse_grammar (struct grammar *g, int strict_p, const char *description)
   int code;
 
   assert (g != NULL);
-  if ((code = set_sgrammar (g, description)) != 0)
-    return code;
-  code = yaep_read_grammar (g, strict_p, sread_terminal, sread_rule);
-  free_sgrammar ();
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
+  grammar = g;
+  yaep_copy_error_to_grammar (grammar);
+
+  code = set_sgrammar (g, description);
+  if (code == 0)
+    {
+      code = yaep_read_grammar (g, strict_p, sread_terminal, sread_rule);
+      free_sgrammar ();
+    }
   return code;
 }

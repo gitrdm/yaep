@@ -3026,6 +3026,7 @@ yaep_error (int code, const char *format, ...)
   va_end (arguments);
   if (grammar != NULL)
     yaep_copy_error_to_grammar (grammar);
+  assert (yaep_error_boundary_is_active ());
   yaep_error_boundary_raise (code);
 }
 
