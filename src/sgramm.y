@@ -278,7 +278,14 @@ yylex (void)
 
   for (;;)
     {
-      c = *curr_ch++;
+      /* Safe: peek current character and consume explicitly. This
+         avoids advancing past the terminating NUL byte which previously
+         allowed subsequent reads to dereference out-of-bounds memory. */
+      c = *curr_ch;
+      if (c == '\0')
+        return 0;
+      /* consume the character we just peeked */
+      curr_ch++;
       switch (c)
 	{
 	case '\0':
@@ -289,28 +296,43 @@ yylex (void)
 	case ' ':
 	  break;
 	case '/':
-	  c = *curr_ch++;
-	  if (c != '*' && n_errs == 0)
-	    {
-	      n_errs++;
-	      curr_ch--;
-	      yyerror ("invalid input character /");
-	    }
-	  for (;;)
-	    {
-	      c = *curr_ch++;
-	      if (c == '\0')
-		yyerror ("unfinished comment");
-	      if (c == '\n')
-		ln++;
-	      if (c == '*')
-		{
-		  c = *curr_ch++;
-		  if (c == '/')
-		    break;
-		  curr_ch--;
-		}
-	    }
+    /* check for start of comment '/*' without advancing past NUL */
+    if (*curr_ch != '*')
+      {
+        if (n_errs == 0)
+    {
+      n_errs++;
+      yyerror ("invalid input character /");
+    }
+      }
+    else
+      {
+        /* consume the '*' */
+        curr_ch++;
+        for (;;)
+    {
+      c = *curr_ch;
+      if (c == '\0')
+        {
+          yyerror ("unfinished comment");
+          /* End of input while in comment - stop lexing to avoid
+             further out-of-bounds reads. */
+          return 0;
+        }
+      /* consume character */
+      curr_ch++;
+      if (c == '\n')
+        ln++;
+      if (c == '*')
+        {
+          if (*curr_ch == '/')
+      {
+        curr_ch++; /* consume '/' */
+        break;
+      }
+        }
+    }
+      }
 	  break;
 	case '=':
 	case '#':
@@ -321,23 +343,37 @@ yylex (void)
 	case ')':
 	  return c;
 	case '\'':
-	  OS_TOP_ADD_BYTE (stoks, '\'');
-	  yylval.num = *curr_ch++;
-	  OS_TOP_ADD_BYTE (stoks, yylval.num);
-	  if (*curr_ch++ != '\'')
-	    yyerror ("invalid character");
-	  OS_TOP_ADD_BYTE (stoks, '\'');
-	  OS_TOP_ADD_BYTE (stoks, '\0');
-	  yylval.ref = OS_TOP_BEGIN (stoks);
-	  OS_TOP_FINISH (stoks);
-	  return CHAR;
+    OS_TOP_ADD_BYTE (stoks, '\'');
+    /* read character safely without advancing past NUL */
+    yylval.num = *curr_ch;
+    if (yylval.num == '\0')
+      {
+        yyerror ("invalid character");
+        return 0;
+      }
+    curr_ch++;
+    OS_TOP_ADD_BYTE (stoks, yylval.num);
+    if (*curr_ch != '\'')
+      {
+        yyerror ("invalid character");
+      }
+    else
+      curr_ch++;
+    OS_TOP_ADD_BYTE (stoks, '\'');
+    OS_TOP_ADD_BYTE (stoks, '\0');
+    yylval.ref = OS_TOP_BEGIN (stoks);
+    OS_TOP_FINISH (stoks);
+    return CHAR;
 	default:
 	  if (isalpha (c) || c == '_')
 	    {
 	      OS_TOP_ADD_BYTE (stoks, c);
-	      while ((c = *curr_ch++) != '\0' && (isalnum (c) || c == '_'))
-		OS_TOP_ADD_BYTE (stoks, c);
-	      curr_ch--;
+        /* consume identifier characters without ever reading past NUL */
+        while ((c = *curr_ch) != '\0' && (isalnum (c) || c == '_'))
+    {
+      OS_TOP_ADD_BYTE (stoks, c);
+      curr_ch++;
+    }
 	      OS_TOP_ADD_BYTE (stoks, '\0');
 	      yylval.ref = OS_TOP_BEGIN (stoks);
 	      if (strcmp ((char *) yylval.ref, "TERM") == 0)
@@ -346,22 +382,31 @@ yylex (void)
 		  return TERM;
 		}
 	      OS_TOP_FINISH (stoks);
-	      while ((c = *curr_ch++) != '\0')
-		if (c == '\n')
-		  ln++;
-		else if (c != '\t' && c != ' ')
-		  break;
-	      if (c != ':')
-		curr_ch--;
-	      return (c == ':' ? SEM_IDENT : IDENT);
+        /* skip whitespace but do not advance past terminator */
+        while ((c = *curr_ch) != '\0')
+    {
+      if (c == '\n')
+        ln++;
+      else if (c != '\t' && c != ' ')
+        break;
+      curr_ch++;
+    }
+        if (c == ':')
+    {
+      curr_ch++; /* consume ':' */
+      return SEM_IDENT;
+    }
+        return IDENT;
 	    }
 	  else if (isdigit (c))
 	    {
-	      yylval.num = c - '0';
-	      while ((c = *curr_ch++) != '\0' && isdigit (c))
-		yylval.num = yylval.num * 10 + (c - '0');
-	      curr_ch--;
-	      return NUMBER;
+    yylval.num = c - '0';
+    while ((c = *curr_ch) != '\0' && isdigit (c))
+    {
+      yylval.num = yylval.num * 10 + (*curr_ch - '0');
+      curr_ch++;
+    }
+    return NUMBER;
 	    }
 	  else
 	    {
