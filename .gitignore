@@ -31,10 +31,14 @@ cmake_install.cmake
 test/*.out
 fuzz/build/
 fuzz/build_debug/
+fuzz/corpus/
+fuzz/results/
 fuzz/telemetry.csv
 crash-*
+leak-*
 slow-unit-*
 timeout-*
+oom-*
 src/sgramm.c
 test/C/*.bin
 test/C++/*.bin
