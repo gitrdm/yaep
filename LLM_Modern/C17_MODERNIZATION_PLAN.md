@@ -21,6 +21,17 @@ This document provides a comprehensive, production-ready plan to modernize the Y
 
 ---
 
+## Current Progress Snapshot (branch state: 2024-11)
+
+- ✅ **Build targets now compile as C17.** The top-level `CMakeLists.txt` sets `CMAKE_C_STANDARD 17`, `C_STANDARD_REQUIRED ON`, and disables GNU extensions.
+- ✅ **Thread-local error infrastructure is in place.** `src/yaep_error.c` defines `_Thread_local` error contexts and the boundary stack; `yaep_set_error`, `yaep_clear_error`, and `yaep_copy_error_to_grammar` are live.
+- ✅ **Public entry points use the boundary wrapper.** `yaep_read_grammar` and `yaep_parse` (see `src/yaep.c`) call `yaep_run_with_error_boundary` to contain longjmps inside the new helper.
+- ⚠️ **`yaep_error` still performs a longjmp.** It calls `yaep_error_boundary_raise`, so the legacy control-flow behavior remains; call sites still assume non-local exits.
+- ⚠️ **`yyerror` in `src/sgramm.y` still raises via `yaep_error`.** Grammar-description parsing continues to unwind with longjmp instead of returning an error code.
+- ⚠️ **Cleanup attributes and explicit propagation are not wired up yet.** No feature-detection macros or RAII helpers have landed, and most internal helpers still signal errors by longjmping.
+
+The remaining work focuses on converting the longjmp-based helpers to explicit error returns, updating the parser/grammar call graph to propagate those codes, and introducing the cleanup/RAII scaffolding that the design below describes.
+
 ## Table of Contents
 
 1. [Problem Analysis](#1-problem-analysis)
@@ -200,6 +211,12 @@ static int toks_len;                             // Token count
 3. Create error handling infrastructure
 4. Add compiler warnings/sanitizers
 
+**Current Status (2024-11):**
+- ✅ `CMakeLists.txt` sets `CMAKE_C_STANDARD 17`, `C_STANDARD_REQUIRED ON`, and disables extensions.
+- ☐ No cleanup-attribute detection macros or fallbacks are present yet.
+- ⚠️ `src/yaep_error.[ch]` implement thread-local contexts and boundary helpers, but they still wrap `setjmp`/`longjmp` semantics.
+- ☐ Warnings/sanitizers remain unchanged; the build scripts still use the legacy flag set.
+
 ### Phase 2: Error Context Migration
 **Duration:** 2-3 days  
 **Risk:** Medium  
@@ -210,6 +227,12 @@ static int toks_len;                             // Token count
 2. Refactor `yaep_error()` to set error state and return
 3. Create error propagation macros
 4. Add cleanup attribute support
+
+**Current Status (2024-11):**
+- ✅ Global `jmp_buf` variables were removed; `yaep_error_boundary_t` and `_Thread_local` stacks now live in `src/yaep_error.c`.
+- ⚠️ `yaep_error` still terminates via `yaep_error_boundary_raise` (which longjmps); callers have not been updated to expect return codes.
+- ☐ No propagation macros exist; call sites continue to invoke `yaep_error(...)` directly.
+- ☐ Cleanup attribute detection/support remains unimplemented.
 
 ### Phase 3: Function Refactoring (Core)
 **Duration:** 3-5 days  
@@ -222,6 +245,11 @@ static int toks_len;                             // Token count
 3. Refactor `yaep_parse()`
 4. Fix NULL pointer bugs
 
+**Current Status (2024-11):**
+- ⚠️ `yaep_read_grammar`/`yaep_parse` now wrap their internals with `yaep_run_with_error_boundary`, but their internal helpers still raise `yaep_error` instead of returning explicit codes.
+- ☐ `yaep_create_grammar` still depends on the global grammar state and longjmp-based unwinding.
+- ☐ Error-path audits for NULL-pointer/RAII fixes have not been carried out; longjmp still bypasses cleanup in many helpers.
+
 ### Phase 4: Grammar Parser Migration
 **Duration:** 2-3 days  
 **Risk:** Low  
@@ -231,6 +259,11 @@ static int toks_len;                             // Token count
 1. Refactor `sgramm.y` error handling (change `yyerror()` only)
 2. Update `set_sgrammar()` to use explicit error checking
 3. No changes needed to Bison-generated code (Bison is not the problem)
+
+**Current Status (2024-11):**
+- ☐ `yyerror` still calls `yaep_error`, so syntax errors unwind through longjmp.
+- ☐ `set_sgrammar` continues to assume non-local exits; no explicit error returns are wired up yet.
+- ✅ No Bison-generated sources require modification (confirmed by inspection).
 
 ### Phase 5: Validation & Documentation
 **Duration:** 2-3 days  
@@ -243,6 +276,8 @@ static int toks_len;                             // Token count
 3. Performance benchmarks
 4. Migration guide
 5. API documentation updates
+
+**Current Status (2024-11):** Pending. Existing tests still target the longjmp behavior; no new validation artifacts for the modernized flow have been added yet.
 
 **Total Duration:** 10-16 days
 
@@ -261,6 +296,16 @@ static int toks_len;                             // Token count
 - Global state elimination - Enables concurrent parsing
 - Parser strategy abstraction - Enables Leo's algorithm, PEP
 - Memory pool architecture - 5-10x faster allocation
+
+---
+
+### Immediate Next Steps (priority backlog)
+
+1. Refactor `yaep_error` to return error codes instead of calling `yaep_error_boundary_raise`, and update callers to propagate the result.
+2. Update `yyerror`/`set_sgrammar` to use `yaep_set_error` + explicit returns so grammar parsing no longer depends on longjmp.
+3. Introduce cleanup-attribute feature detection and start migrating allocator wrappers to RAII helpers (`yaep_alloc_*` safe adapters).
+4. Add thin propagation helpers/macros to replace the direct `yaep_error(...)` calls throughout `yaep.c`.
+5. Extend the test harness to exercise both success and failure paths without assuming non-local exits.
 
 ---
 
@@ -316,6 +361,8 @@ int yyerror(const char *str) {
 - Total timeline: 13-15 days instead of 16 days
 
 ### 4.1 Error Context Infrastructure
+
+> **Implementation status:** The thread-local context and boundary stack from this section are already in the tree (`src/yaep_error.[ch]`). They currently coexist with `yaep_error`/`yaep_error_boundary_raise`, which still perform a `longjmp`. Callers have not yet been updated to rely solely on explicit return codes.
 
 **File:** `src/yaep_error.h` (new file)
 
@@ -1888,16 +1935,16 @@ If partial rollback needed:
 
 **Migration considered successful when:**
 
-1. ✅ All setjmp/longjmp removed
-2. ✅ All existing tests pass
-3. ✅ No memory leaks (valgrind clean)
-4. ✅ Thread-safe (helgrind/tsan clean)
-5. ✅ Performance within 5% of baseline
-6. ✅ Fuzzing finds no crashes
-7. ✅ API fully documented
-8. ✅ Migration guide complete
-9. ✅ Code review approved
-10. ✅ Community acceptance
+1. ☐ All setjmp/longjmp removed *(current blocker: `yaep_error`/`yyerror` still longjmp)*
+2. ☐ All existing tests pass without relying on longjmp side effects *(requires refactored code paths)*
+3. ☐ No memory leaks (valgrind clean) *(pending once RAII helpers land)*
+4. ☐ Thread-safe (helgrind/tsan clean) *(thread-local infra exists but needs full adoption)*
+5. ☐ Performance within 5% of baseline *(benchmarks not yet rerun post-refactor)*
+6. ☐ Fuzzing finds no crashes *(campaign to be re-run after migration)*
+7. ☐ API fully documented *(docs update outstanding)*
+8. ☐ Migration guide complete *(draft not yet started)*
+9. ☐ Code review approved *(requires completing remaining phases)*
+10. ☐ Community acceptance *(ship the finished work)*
 
 ## 10. Timeline
 
@@ -1910,6 +1957,8 @@ If partial rollback needed:
 | Phase 5 | 3 days | Day 14 | Day 16 | Testing & docs |
 
 **Total: 16 days**
+
+> **Progress note:** Phase 1 is partially complete (C17 build + TLS infrastructure landed). Phase 2 is in progress while `yaep_error` still longjmps. Subsequent phases have not started.
 
 ## 11. Risk Assessment
 
@@ -1937,7 +1986,7 @@ The result will be a faster, safer, more maintainable codebase suitable for mode
 
 ---
 
-**Document Version:** 1.0  
-**Date:** October 7, 2025  
+**Document Version:** 0.6 (progress update)  
+**Date:** November 27, 2024  
 **Author:** GitHub Copilot  
-**Status:** Ready for Review
+**Status:** In Progress
