@@ -2,15 +2,14 @@
  * @file yaep_error.h
  * @brief Thread-safe error handling infrastructure for YAEP
  *
- * Provides thread-local error context management replacing the legacy
- * setjmp/longjmp error handling. Each thread maintains its own error state,
- * enabling concurrent grammar processing and explicit error propagation.
+ * Provides thread-local error context management for modern C17 error handling.
+ * Each thread maintains its own error state, enabling concurrent grammar
+ * processing and explicit error propagation via return codes.
  */
 
 #ifndef YAEP_ERROR_H
 #define YAEP_ERROR_H
 
-#include <setjmp.h>
 #include <stdarg.h>
 
 #include "yaep.h"
@@ -36,13 +35,6 @@ typedef struct {
     char error_message[YAEP_MAX_ERROR_MESSAGE_LENGTH + 1];         /**< Human-readable message */
     struct grammar *grammar_ctx;                                   /**< Grammar context (optional) */
 } yaep_error_context_t;
-
-typedef struct yaep_error_boundary {
-    jmp_buf env;                                                   /**< saved execution context */
-    struct yaep_error_boundary *prev;                              /**< previous boundary */
-} yaep_error_boundary_t;
-
-typedef int (*yaep_error_protected_fn)(void *user);
 
 typedef void (*yaep_error_update_hook_t)(struct grammar *g,
                                          const yaep_error_context_t *ctx);
@@ -89,11 +81,10 @@ void yaep_clear_error(void);
  */
 void yaep_set_error_update_hook(yaep_error_update_hook_t hook);
 
-void yaep_error_boundary_raise(int code);
-
-int yaep_error_boundary_is_active(void);
-
-int yaep_run_with_error_boundary(yaep_error_protected_fn fn, void *user);
+/* Note: The error boundary infrastructure (yaep_error_boundary_raise,
+ * yaep_error_boundary_is_active, yaep_run_with_error_boundary) has been
+ * removed as part of the C17 modernization. All error handling now uses
+ * explicit return codes with thread-local error context. */
 
 #ifdef __cplusplus
 }

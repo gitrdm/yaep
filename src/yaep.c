@@ -212,9 +212,6 @@ static void (*syntax_error) (int err_tok_num,
 static void *(*parse_alloc) (int nmemb);
 static void (*parse_free) (void *mem);
 
-/* Forward decrlarations: */
-static void yaep_error (int code, const char *format, ...);
-
 #ifndef __cplusplus
 extern
 #else
@@ -3303,33 +3300,33 @@ yaep_initialize_error_handling (void)
     }
 }
 
-/* The following function stores error CODE and MESSAGE.  The function
-   makes long jump after that.  So the function is designed to process
-   only one error. */
-static void
-yaep_error (int code, const char *format, ...)
-{
-  va_list arguments;
-
-  yaep_initialize_error_handling ();
-  va_start (arguments, format);
-  yaep_vset_error (grammar, code, format, arguments);
-  va_end (arguments);
-  if (grammar != NULL)
-    yaep_copy_error_to_grammar (grammar);
-  assert (yaep_error_boundary_is_active ());
-  yaep_error_boundary_raise (code);
-}
-
-/* The following function processes allocation errors. */
-static void
-error_func_for_allocate (void *ignored)
-{
-  (void) ignored;
-
-  yaep_error (YAEP_NO_MEMORY, "no memory");
-}
-
+/**
+ * @brief Safe allocation error handler
+ *
+ * This error handler is called by the YAEP allocator when memory allocation
+ * fails. Unlike the legacy error_func_for_allocate (now removed), this
+ * function does NOT perform a longjmp. Instead, it records the error in
+ * the thread-local error context and allows normal control flow to continue.
+ *
+ * The allocator will return NULL after calling this function, and the
+ * calling code must check for NULL and handle the error appropriately.
+ *
+ * Design Rationale:
+ * This is the correct pattern for allocation errors in modern C code:
+ * 1. Allocator calls error handler to record details
+ * 2. Allocator returns NULL
+ * 3. Caller checks for NULL and propagates error upward
+ *
+ * This eliminates the need for setjmp/longjmp while maintaining clear
+ * error reporting.
+ *
+ * @param userptr User-provided context pointer (typically struct grammar*)
+ *                May be NULL during early initialization
+ *
+ * Thread Safety: Safe - uses thread-local error context
+ * Control Flow: Always returns normally (no longjmp)
+ * Side Effects: Sets thread-local error state
+ */
 static void
 error_func_for_allocate_safe (void *userptr)
 {
@@ -3438,8 +3435,15 @@ yaep_create_grammar (void)
   term_sets_ptr = term_sets;
   rules_ptr = rules;
 
-  yaep_alloc_seterr (allocator, error_func_for_allocate,
-	     yaep_alloc_getuserptr (allocator));
+  /*
+   * Grammar successfully initialized.
+   * Keep the safe error handler installed - there's no reason to
+   * switch back to the unsafe longjmp-based version.
+   * 
+   * Previous code incorrectly switched back to error_func_for_allocate
+   * which performs longjmp. This was the LAST remaining longjmp call
+   * site in the codebase.
+   */
 
   return g;
 
@@ -3834,7 +3838,17 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   ctx.strict_p = strict_p;
   ctx.read_terminal = read_terminal;
   ctx.read_rule = read_rule;
-  code = yaep_run_with_error_boundary (yaep_read_grammar_internal, &ctx);
+  
+  /*
+   * Call the internal implementation directly.
+   * 
+   * Previously wrapped with yaep_run_with_error_boundary() to catch
+   * longjmp-based errors. Now that all internal code uses explicit
+   * error returns, the boundary wrapper is unnecessary.
+   *
+   * This simplifies the call stack and makes debugging easier.
+   */
+  code = yaep_read_grammar_internal (&ctx);
   return code;
 }
 
@@ -6582,7 +6596,11 @@ yaep_parse (struct grammar *g,
 
   pl_init ();
 
-  code = yaep_run_with_error_boundary (yaep_parse_internal, &ctx);
+  /* All internal error handling now uses explicit return codes,
+   * so we can call yaep_parse_internal directly without the
+   * error boundary wrapper. This simplifies the call stack and
+   * improves debuggability. */
+  code = yaep_parse_internal (&ctx);
   if (code != 0 && ctx.result == 0)
     ctx.result = code;
 

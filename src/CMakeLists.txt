@@ -31,6 +31,7 @@ add_custom_target( sgramm_c DEPENDS ${BISON_sgramm_OUTPUTS} ) # FIXME: yaep.c in
 
 # Now build libraries
 include_directories(
+	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_BINARY_DIR}
 )
 

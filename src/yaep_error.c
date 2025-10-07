@@ -14,16 +14,6 @@
 static yaep_error_update_hook_t yaep_error_update_hook = NULL;
 
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
-static _Thread_local yaep_error_boundary_t *yaep_boundary_top = NULL;
-#elif defined(__GNUC__) || defined(__clang__)
-static __thread yaep_error_boundary_t *yaep_boundary_top = NULL;
-#elif defined(_MSC_VER)
-static __declspec(thread) yaep_error_boundary_t *yaep_boundary_top = NULL;
-#else
-#error "Thread-local storage not supported on this compiler"
-#endif
-
-#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
 static _Thread_local yaep_error_context_t yaep_thread_error_ctx = {0};
 #elif defined(__GNUC__) || defined(__clang__)
 static __thread yaep_error_context_t yaep_thread_error_ctx = {0};
@@ -104,60 +94,9 @@ yaep_set_error_update_hook(yaep_error_update_hook_t hook)
     yaep_error_update_hook = hook;
 }
 
-static void
-yaep_error_boundary_push(yaep_error_boundary_t *boundary)
-{
-    if (boundary == NULL) {
-        return;
-    }
+/* Note: The error boundary infrastructure (yaep_error_boundary_push/pop/raise,
+ * yaep_run_with_error_boundary) has been removed as part of the C17 modernization.
+ * All error handling now uses explicit return codes with thread-local error context.
+ * See yaep_set_error and yaep_get_error_context for the new error handling model.
+ */
 
-    boundary->prev = yaep_boundary_top;
-    yaep_boundary_top = boundary;
-}
-
-static void
-yaep_error_boundary_pop(void)
-{
-    if (yaep_boundary_top != NULL) {
-        yaep_boundary_top = yaep_boundary_top->prev;
-    }
-}
-
-void
-yaep_error_boundary_raise(int code)
-{
-    yaep_error_boundary_t *boundary = yaep_boundary_top;
-
-    if (boundary == NULL) {
-        /* If no boundary is installed, abort to avoid undefined behaviour. */
-        abort();
-    }
-
-    longjmp(boundary->env, code);
-}
-
-int
-yaep_error_boundary_is_active(void)
-{
-    return yaep_boundary_top != NULL;
-}
-
-int
-yaep_run_with_error_boundary(yaep_error_protected_fn fn, void *user)
-{
-    int code = 0;
-    yaep_error_boundary_t boundary;
-
-    yaep_error_boundary_push(&boundary);
-    code = setjmp(boundary.env);
-    if (code == 0) {
-        if (fn != NULL) {
-            code = fn(user);
-        }
-        yaep_error_boundary_pop();
-        return code;
-    }
-
-    yaep_error_boundary_pop();
-    return code;
-}

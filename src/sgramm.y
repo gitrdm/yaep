@@ -474,7 +474,11 @@ set_sgrammar (struct grammar *g, const char *grammar)
   ctx.grammar = g;
   ctx.description = grammar;
 
-  code = yaep_run_with_error_boundary (set_sgrammar_internal, &ctx);
+  /* All internal error handling now uses explicit return codes,
+   * so we can call set_sgrammar_internal directly without the
+   * error boundary wrapper. This simplifies the call stack and
+   * improves debuggability. */
+  code = set_sgrammar_internal (&ctx);
   if (code != 0)
     free_sgrammar ();
   return code;
@@ -485,8 +489,6 @@ set_sgrammar (struct grammar *g, const char *grammar)
  *
  * This function performs the actual work of parsing a YACC-like grammar
  * description string and converting it into YAEP's internal representation.
- * It is called via yaep_run_with_error_boundary() to handle any remaining
- * longjmp-based errors during the transition period.
  *
  * Algorithm:
  * 1. Initialize parser data structures (stoks, sterms, srules, etc.)
@@ -498,6 +500,7 @@ set_sgrammar (struct grammar *g, const char *grammar)
  * Error Handling:
  * - yyparse() errors: Detected via return value (no longjmp)
  * - Validation errors: Now use yaep_set_error with explicit return
+ * - All errors propagate via return codes
  * - All errors propagate via return codes
  *
  * @param user Pointer to set_sgrammar_context structure
