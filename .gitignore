@@ -4,3 +4,52 @@
 
 # Build directories
 /build*
+
+# Autotools build artifacts
+Makefile
+Makefile.in
+configure
+config.log
+config.status
+autom4te.cache/
+install-sh
+
+# CMake build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Output binaries and objects
+*.o
+*.a
+*.so
+*.exe
+*.out
+*.log
+
+# Test and fuzz artifacts
+test/*.out
+fuzz/build/
+fuzz/build_debug/
+fuzz/telemetry.csv
+crash-*
+slow-unit-*
+timeout-*
+
+# Binary executables (main targets and test binaries)
+src/yaep
+src/yaep_test
+src/yaep++
+src/yaep++_test
+src/*.a
+src/*.so
+src/*.exe
+src/*.out
+test/*.exe
+test/*.out
+test/*_test
+test/*_dbg
+
+# Catch all executables in src/ and test/
+src/*
+test/*
