@@ -30,6 +30,40 @@ AC_CHECK_LIB(m, log)
 dnl Checks for header files.
 AC_CHECK_HEADERS(assert.h limits.h errno.h float.h time.h dlfcn.h unistd.h sys/time.h)
 
+dnl Enforce C17 support
+AC_MSG_CHECKING([whether $CC supports -std=c17])
+yaep_saved_cflags="$CFLAGS"
+CFLAGS="$CFLAGS -std=c17"
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[]], [[]])],
+  [AC_MSG_RESULT([yes])
+   yaep_have_c17=yes],
+  [AC_MSG_RESULT([no])
+   yaep_have_c17=no])
+CFLAGS="$yaep_saved_cflags"
+if test "x$yaep_have_c17" = "xyes"; then
+  CFLAGS="$CFLAGS -std=c17"
+else
+  AC_MSG_ERROR([YAEP requires a compiler with C17 support])
+fi
+
+dnl Prefer C++17 for C++ components when available
+AC_MSG_CHECKING([whether $CXX supports -std=c++17])
+yaep_saved_cxxflags="$CXXFLAGS"
+CXXFLAGS="$CXXFLAGS -std=c++17"
+AC_LANG_PUSH([C++])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[]], [[]])],
+  [AC_MSG_RESULT([yes])
+   yaep_have_cxx17=yes],
+  [AC_MSG_RESULT([no])
+   yaep_have_cxx17=no])
+AC_LANG_POP([C++])
+CXXFLAGS="$yaep_saved_cxxflags"
+if test "x$yaep_have_cxx17" = "xyes"; then
+  CXXFLAGS="$CXXFLAGS -std=c++17"
+else
+  AC_MSG_WARN([C++ compiler lacks -std=c++17; continuing with defaults])
+fi
+
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 AC_C_INLINE

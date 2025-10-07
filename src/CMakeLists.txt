@@ -46,6 +46,7 @@ set( YAEP_LIB_SOURCES
 	hashtab.c
 	objstack.c
 	vlobject.c
+	yaep_error.c
 	yaep.c
 )
 add_library( yaep_static STATIC ${YAEP_LIB_SOURCES} )
@@ -64,6 +65,7 @@ set( YAEPXX_LIB_SOURCES
 	hashtab.cpp
 	objstack.cpp
 	vlobject.cpp
+	yaep_error.c
 	yaep.cpp
 )
 add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )

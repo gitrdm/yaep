@@ -35,6 +35,13 @@ fuzz/telemetry.csv
 crash-*
 slow-unit-*
 timeout-*
+src/sgramm.c
+test/C/*.bin
+test/C++/*.bin
+test/compare_parsers/compare_parsers.sh
+test/compare_parsers/y.tab.c
+test/ansic.c
+test/compare_parsers/small_test.i
 
 # Binary executables (main targets and test binaries)
 src/yaep
@@ -50,6 +57,3 @@ test/*.out
 test/*_test
 test/*_dbg
 
-# Catch all executables in src/ and test/
-src/*
-test/*

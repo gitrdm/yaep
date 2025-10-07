@@ -145,7 +145,9 @@ source = $(srcdir)/src/allocate.h $(srcdir)/src/allocate.c \
 	 $(srcdir)/src/vlobject.h $(srcdir)/src/vlobject.c $(srcdir)/src/vlobject.cpp\
          $(srcdir)/src/objstack.h $(srcdir)/src/objstack.c $(srcdir)/src/objstack.cpp\
 	 $(srcdir)/src/hashtab.h $(srcdir)/src/hashtab.c $(srcdir)/src/hashtab.cpp\
-         $(srcdir)/src/yaep.h $(srcdir)/src/yaep.c $(srcdir)/src/sgramm.y\
+	 $(srcdir)/src/yaep.h $(srcdir)/src/yaep.c $(srcdir)/src/yaep_error.c \
+	 $(srcdir)/src/yaep_error.h $(srcdir)/src/yaep_cleanup.h \
+	 $(srcdir)/src/yaep_macros.h $(srcdir)/src/sgramm.y\
 	 $(srcdir)/src/yaep.cpp $(srcdir)/src/Makefile.in $(srcdir)/src/CMakeLists.txt
 
 additional_files = README.md LICENSE install-sh Makefile.in CMakeLists.txt configure.ac configure
@@ -191,11 +193,11 @@ additional_doc_files = yaep.sgml.in yaep_part.sgml.in\
                        yaep++.sgml.in yaep_part++.sgml.in 
 
 # All C object files
-Cobjects = $(Cdir)/allocate.o  $(Cdir)/vlobject.o  $(Cdir)/objstack.o $(Cdir)/hashtab.o 
+Cobjects = $(Cdir)/allocate.o  $(Cdir)/vlobject.o  $(Cdir)/objstack.o $(Cdir)/hashtab.o $(Cdir)/yaep_error.o 
 Callobjects = $(Cobjects) $(Cdir)/yaep.o
 
 # All C++ object files
-Cppobjects = $(Cxxdir)/allocate.o  $(Cxxdir)/vlobject.o  $(Cxxdir)/objstack.o $(Cxxdir)/hashtab.o
+Cppobjects = $(Cxxdir)/allocate.o  $(Cxxdir)/vlobject.o  $(Cxxdir)/objstack.o $(Cxxdir)/hashtab.o $(Cxxdir)/yaep_error.o
 Cppallobjects = $(Cppobjects) $(Cxxdir)/yaep.o
 
 # C Library
@@ -220,6 +222,9 @@ src/$(Clibrary): $(Callobjects)
 
 $(Cxxdir)/allocate.o: $(Cxxdir) $(Cdir)/allocate.o
 	cp $(Cdir)/allocate.o $(Cxxdir)
+
+$(Cxxdir)/yaep_error.o: $(Cxxdir) $(Cdir)/yaep_error.o
+	cp $(Cdir)/yaep_error.o $(Cxxdir)
 
 src/$(Cpplibrary): $(Cppallobjects)
 	rm -f src/$(Cpplibrary)
@@ -453,7 +458,7 @@ depend : src/sgramm.c $(Cdir) $(Cxxdir)
 	echo '# The following is generated with the aid of Makefile entry depend' >>Makefile.tmp
 	echo '# Do not place anything below this line' >>Makefile.tmp
 	echo '#' >>Makefile.tmp
-	for i in allocate.c vlobject.c objstack.c hashtab.c yaep.c;\
+	for i in allocate.c vlobject.c objstack.c hashtab.c yaep_error.c yaep.c;\
 	do\
 	   echo $(Cdir)/`gcc -MM -iquote -I$(srcdir)/src $(CFLAGS) $(srcdir)/src/$$i` | $(SED) 's/\\//g'\
                 | $(SED) `echo 's%$(top_srcdir)/%$$(top_srcdir)/%g'\
@@ -499,6 +504,8 @@ src/C/objstack.o: $(top_srcdir)/src/objstack.c  $(top_srcdir)/src/allocate.h  $(
 	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/objstack.c
 src/C/hashtab.o: $(top_srcdir)/src/hashtab.c  $(top_srcdir)/src/allocate.h  $(top_srcdir)/src/hashtab.h
 	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/hashtab.c
+src/C/yaep_error.o: $(top_srcdir)/src/yaep_error.c $(top_srcdir)/src/yaep_error.h $(top_srcdir)/src/yaep.h
+	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/yaep_error.c
 src/C/yaep.o: $(top_srcdir)/src/yaep.c  $(top_srcdir)/src/allocate.h  $(top_srcdir)/src/hashtab.h  $(top_srcdir)/src/vlobject.h  $(top_srcdir)/src/objstack.h  $(top_srcdir)/src/yaep.h src/sgramm.c
 	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/yaep.c
 src/C++/vlobject.o: $(top_srcdir)/src/vlobject.cpp  $(top_srcdir)/src/allocate.h  $(top_srcdir)/src/vlobject.h

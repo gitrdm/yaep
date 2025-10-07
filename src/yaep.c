@@ -51,6 +51,9 @@
 #include "vlobject.h"
 #include "objstack.h"
 #include "yaep.h"
+#include "yaep_cleanup.h"
+#include "yaep_error.h"
+#include "yaep_macros.h"
 
 
 
@@ -2980,6 +2983,38 @@ core_symb_vect_fin (void)
 /* Jump buffer for processing errors. */
 static jmp_buf error_longjump_buff;
 
+static void
+yaep_update_error_context (struct grammar *g,
+                           const yaep_error_context_t *ctx)
+{
+  if (g == NULL || ctx == NULL)
+    return;
+
+  g->error_code = ctx->error_code;
+
+  if (ctx->error_message[0] == '\0')
+    {
+      g->error_message[0] = '\0';
+      return;
+    }
+
+  strncpy (g->error_message, ctx->error_message,
+           YAEP_MAX_ERROR_MESSAGE_LENGTH);
+  g->error_message[YAEP_MAX_ERROR_MESSAGE_LENGTH] = '\0';
+}
+
+static void
+yaep_initialize_error_handling (void)
+{
+  static int initialized = 0;
+
+  if (!initialized)
+    {
+      yaep_set_error_update_hook (yaep_update_error_context);
+      initialized = 1;
+    }
+}
+
 /* The following function stores error CODE and MESSAGE.  The function
    makes long jump after that.  So the function is designed to process
    only one error. */
@@ -2988,11 +3023,12 @@ yaep_error (int code, const char *format, ...)
 {
   va_list arguments;
 
-  grammar->error_code = code;
+  yaep_initialize_error_handling ();
   va_start (arguments, format);
-  vsprintf (grammar->error_message, format, arguments);
+  yaep_vset_error (grammar, code, format, arguments);
   va_end (arguments);
-  assert (strlen (grammar->error_message) < YAEP_MAX_ERROR_MESSAGE_LENGTH);
+  if (grammar != NULL)
+    yaep_copy_error_to_grammar (grammar);
   longjmp (error_longjump_buff, code);
 }
 
@@ -3014,6 +3050,8 @@ yaep_create_grammar (void)
 {
   YaepAllocator *allocator;
 
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
   allocator = yaep_alloc_new (NULL, NULL, NULL, NULL);
   if (allocator == NULL)
     {
@@ -3029,6 +3067,7 @@ yaep_create_grammar (void)
   grammar->alloc = allocator;
   yaep_alloc_seterr (allocator, error_func_for_allocate,
 		     yaep_alloc_getuserptr (allocator));
+  yaep_copy_error_to_grammar (grammar);
   if (setjmp (error_longjump_buff) != 0)
     {
       yaep_free_grammar (grammar);
@@ -3331,7 +3370,10 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   int i, el, code;
 
   assert (g != NULL);
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
   grammar = g;
+  yaep_copy_error_to_grammar (grammar);
   symbs_ptr = g->symbs_ptr;
   term_sets_ptr = g->term_sets_ptr;
   rules_ptr = g->rules_ptr;
@@ -5991,6 +6033,8 @@ yaep_parse (struct grammar *g,
   int tab_collisions, tab_searches;
 
   /* Set up parse allocation */
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
   if (alloc == NULL)
     {
       if (free != NULL)
@@ -6005,6 +6049,7 @@ yaep_parse (struct grammar *g,
 
   grammar = g;
   assert (grammar != NULL);
+  yaep_copy_error_to_grammar (grammar);
   symbs_ptr = g->symbs_ptr;
   term_sets_ptr = g->term_sets_ptr;
   rules_ptr = g->rules_ptr;
