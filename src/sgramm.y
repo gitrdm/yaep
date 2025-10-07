@@ -384,13 +384,56 @@ yylex (void)
 }
 
 
-/* The following implements syntactic error diagnostic function yacc
-   code. */
+/**
+ * @brief Bison error reporting callback
+ *
+ * Called by Bison-generated parser when a syntax error is detected in the
+ * grammar description. This function records the error in the thread-local
+ * error context WITHOUT performing a non-local exit (longjmp).
+ *
+ * Design Rationale:
+ * Bison's error handling works by calling yyerror() and then attempting
+ * error recovery or giving up gracefully. The parser returns a non-zero
+ * value to indicate failure. Our previous implementation incorrectly
+ * called yaep_error() which performed a longjmp(), bypassing Bison's
+ * normal control flow and error recovery mechanisms.
+ *
+ * Control Flow:
+ * 1. Bison detects syntax error
+ * 2. Bison calls yyerror(message)
+ * 3. yyerror() records error details (this function)
+ * 4. yyerror() returns to Bison
+ * 5. Bison attempts error recovery or gives up
+ * 6. yyparse() returns non-zero error code
+ * 7. Caller checks yyparse() return value
+ *
+ * @param str Error message from Bison (currently unused as we provide
+ *            a more specific message with line number)
+ * @return 0 (return value ignored by Bison in LALR parsers)
+ *
+ * Thread Safety: Safe - uses thread-local error context
+ * Side Effects: Sets thread-local error state
+ * Non-local Exits: None (previously did longjmp - now fixed)
+ */
 int
 yyerror (const char *str)
 {
-  yaep_error (YAEP_DESCRIPTION_SYNTAX_ERROR_CODE,
-	      "description syntax error on ln %d", ln);
+  (void) str;  /* Bison's generic message less informative than ours */
+  
+  /*
+   * Record error in thread-local context.
+   * This does NOT perform a longjmp - it simply stores the error
+   * for later retrieval. The parser will return normally and
+   * yyparse() will return a non-zero error code.
+   */
+  yaep_set_error (grammar, YAEP_DESCRIPTION_SYNTAX_ERROR_CODE,
+		  "description syntax error on ln %d", ln);
+  
+  /*
+   * Return to Bison normally.
+   * Bison will attempt error recovery or terminate parsing gracefully.
+   * The return value is conventionally 0 but is ignored by LALR parsers.
+   */
   return 0;
 }
 
@@ -437,6 +480,32 @@ set_sgrammar (struct grammar *g, const char *grammar)
   return code;
 }
 
+/**
+ * @brief Parse and process grammar description (internal worker)
+ *
+ * This function performs the actual work of parsing a YACC-like grammar
+ * description string and converting it into YAEP's internal representation.
+ * It is called via yaep_run_with_error_boundary() to handle any remaining
+ * longjmp-based errors during the transition period.
+ *
+ * Algorithm:
+ * 1. Initialize parser data structures (stoks, sterms, srules, etc.)
+ * 2. Run Bison parser (yyparse) - now checks return value properly
+ * 3. Post-process terminals: sort, validate, assign codes
+ * 4. Post-process rules: validate and store
+ * 5. Return success (0) or error code
+ *
+ * Error Handling:
+ * - yyparse() errors: Detected via return value (was: longjmp)
+ * - Validation errors: Still use yaep_error (longjmp) temporarily
+ * - Future: All errors will be explicit returns
+ *
+ * @param user Pointer to set_sgrammar_context structure
+ * @return 0 on success, YAEP error code on failure
+ *
+ * Thread Safety: Uses thread-local error context
+ * Memory: Allocates temporary structures (freed on error via free_sgrammar)
+ */
 static int
 set_sgrammar_internal (void *user)
 {
@@ -445,6 +514,7 @@ set_sgrammar_internal (void *user)
   int i, j, num;
   struct sterm *term, *prev, *arr;
   int code = 256;
+  int parse_result;
 
   ln = 1;
   OS_CREATE (stoks, g->alloc, 0);
@@ -453,7 +523,34 @@ set_sgrammar_internal (void *user)
   OS_CREATE (srhs, g->alloc, 0);
   OS_CREATE (strans, g->alloc, 0);
   curr_ch = ctx->description;
-  yyparse ();
+  
+  /*
+   * Run Bison-generated parser.
+   * 
+   * CRITICAL FIX: We now check the return value instead of relying on
+   * yyerror() to longjmp. This is the correct way to use Bison.
+   *
+   * yyparse() returns:
+   * - 0 on successful parse
+   * - 1 on parse error (syntax error, yyerror was called)
+   * - 2 on memory exhaustion
+   *
+   * If parse fails, error details are already recorded in thread-local
+   * context by yyerror(). We simply need to return the error code.
+   */
+  parse_result = yyparse ();
+  if (parse_result != 0)
+    {
+      /*
+       * Parser failed. Error already recorded by yyerror().
+       * Return the error code from our error context, or default
+       * to YAEP_DESCRIPTION_SYNTAX_ERROR_CODE if somehow not set.
+       */
+      yaep_error_context_t *err_ctx = yaep_get_error_context ();
+      return err_ctx->error_code != 0 ? err_ctx->error_code
+				      : YAEP_DESCRIPTION_SYNTAX_ERROR_CODE;
+    }
+  
   /* sort array of syntax terminals by names. */
   num = VLO_LENGTH (sterms) / sizeof (struct sterm);
   arr = (struct sterm *) VLO_BEGIN (sterms);
