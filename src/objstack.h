@@ -322,7 +322,7 @@ typedef struct
    Remember that they are internal functions - all work with OS is
    executed through the macros. */
 
-extern void _OS_create_function (os_t *os, size_t initial_segment_length);
+extern int _OS_create_function (os_t *os, size_t initial_segment_length);
 extern void _OS_delete_function (os_t *os);
 extern void _OS_empty_function (os_t *os);
 extern void _OS_add_string_function (os_t *os, const char *str);

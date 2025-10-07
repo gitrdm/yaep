@@ -97,8 +97,15 @@ create_hash_table (YaepAllocator * allocator, size_t size,
 
   size = higher_prime_number (size);
   result = yaep_malloc (allocator, sizeof (*result));
+  if (result == NULL)
+    return NULL;
   result->entries =
     yaep_malloc (allocator, size * sizeof (hash_table_entry_t));
+  if (result->entries == NULL)
+    {
+      yaep_free (allocator, result);
+      return NULL;
+    }
   result->size = size;
   result->hash_function = hash_function;
   result->eq_function = eq_function;
@@ -157,6 +164,8 @@ expand_hash_table (hash_table_t htab)
   new_htab =
     create_hash_table (htab->alloc, htab->number_of_elements * 2,
 		       htab->hash_function, htab->eq_function);
+  if (new_htab == NULL)
+    return;
   for (entry_ptr = htab->entries; entry_ptr < htab->entries + htab->size;
        entry_ptr++)
     if (*entry_ptr != EMPTY_ENTRY && *entry_ptr != DELETED_ENTRY)

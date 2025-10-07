@@ -45,6 +45,9 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __cplusplus
+#include <new>
+#endif
 
 #include "allocate.h"
 #include "hashtab.h"
@@ -355,6 +358,13 @@ struct symbs
 #endif
 };
 
+#ifndef __cplusplus
+static int os_create_safe (os_t *os, YaepAllocator *alloc,
+                           size_t initial_segment_length);
+static int vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc,
+                            size_t initial_length);
+#endif
+
 /* Hash of symbol representation. */
 static unsigned
 symb_repr_hash (hash_table_entry_t s)
@@ -396,29 +406,185 @@ symb_code_eq (hash_table_entry_t s1, hash_table_entry_t s2)
   return symb1->u.term.code == symb2->u.term.code;
 }
 
-/* Initialize work with symbols and returns storage for the
+/* Initialize work with symbols and return storage for the
    symbols. */
-static struct symbs *
-symb_init (void)
+static int
+symb_init (struct grammar *g, struct symbs **out_symbs)
 {
-  void *mem;
-  struct symbs *result;
+  struct symbs *result = NULL;
+  int os_initialized = 0;
+  int symbs_vlo_initialized = 0;
+  int terms_vlo_initialized = 0;
+  int nonterms_vlo_initialized = 0;
+  int repr_tab_initialized = 0;
+  int code_tab_initialized = 0;
 
-  mem = yaep_malloc (grammar->alloc, sizeof (struct symbs));
-  result = (struct symbs *) mem;
-  OS_CREATE (result->symbs_os, grammar->alloc, 0);
-  VLO_CREATE (result->symbs_vlo, grammar->alloc, 1024);
-  VLO_CREATE (result->terms_vlo, grammar->alloc, 512);
-  VLO_CREATE (result->nonterms_vlo, grammar->alloc, 512);
+  assert (g != NULL);
+
+  result = (struct symbs *) yaep_malloc (g->alloc, sizeof (struct symbs));
+  if (result == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate symbol table");
+      return YAEP_NO_MEMORY;
+    }
+
+  memset (result, 0, sizeof (*result));
+
+#ifndef __cplusplus
+  if (os_create_safe (&result->symbs_os, g->alloc, 0) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
+  if (vlo_create_safe (&result->symbs_vlo, g->alloc, 1024) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol descriptor storage");
+      goto fail;
+    }
+  symbs_vlo_initialized = 1;
+
+  if (vlo_create_safe (&result->terms_vlo, g->alloc, 512) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal storage");
+      goto fail;
+    }
+  terms_vlo_initialized = 1;
+
+  if (vlo_create_safe (&result->nonterms_vlo, g->alloc, 512) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate nonterminal storage");
+      goto fail;
+    }
+  nonterms_vlo_initialized = 1;
+
   result->repr_to_symb_tab =
-    create_hash_table (grammar->alloc, 300, symb_repr_hash, symb_repr_eq);
+    create_hash_table (g->alloc, 300, symb_repr_hash, symb_repr_eq);
+  if (result->repr_to_symb_tab == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol representation map");
+      goto fail;
+    }
+  repr_tab_initialized = 1;
+
   result->code_to_symb_tab =
-    create_hash_table (grammar->alloc, 200, symb_code_hash, symb_code_eq);
+    create_hash_table (g->alloc, 200, symb_code_hash, symb_code_eq);
+  if (result->code_to_symb_tab == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol code map");
+      goto fail;
+    }
+  code_tab_initialized = 1;
+#else
+  try
+    {
+      OS_CREATE (result->symbs_os, g->alloc, 0);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->symbs_vlo, g->alloc, 1024);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol descriptor storage");
+      goto fail;
+    }
+  symbs_vlo_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->terms_vlo, g->alloc, 512);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal storage");
+      goto fail;
+    }
+  terms_vlo_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->nonterms_vlo, g->alloc, 512);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate nonterminal storage");
+      goto fail;
+    }
+  nonterms_vlo_initialized = 1;
+
+  try
+    {
+      result->repr_to_symb_tab =
+        create_hash_table (g->alloc, 300, symb_repr_hash, symb_repr_eq);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol representation map");
+      goto fail;
+    }
+  repr_tab_initialized = 1;
+
+  try
+    {
+      result->code_to_symb_tab =
+        create_hash_table (g->alloc, 200, symb_code_hash, symb_code_eq);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol code map");
+      goto fail;
+    }
+  code_tab_initialized = 1;
+#endif
+
 #ifdef SYMB_CODE_TRANS_VECT
   result->symb_code_trans_vect = NULL;
 #endif
-  result->n_nonterms = result->n_terms = 0;
-  return result;
+  result->n_nonterms = 0;
+  result->n_terms = 0;
+
+  *out_symbs = result;
+  return 0;
+
+fail:
+  if (result != NULL)
+    {
+      if (code_tab_initialized && result->code_to_symb_tab != NULL)
+        delete_hash_table (result->code_to_symb_tab);
+      if (repr_tab_initialized && result->repr_to_symb_tab != NULL)
+        delete_hash_table (result->repr_to_symb_tab);
+      if (nonterms_vlo_initialized)
+        VLO_DELETE (result->nonterms_vlo);
+      if (terms_vlo_initialized)
+        VLO_DELETE (result->terms_vlo);
+      if (symbs_vlo_initialized)
+        VLO_DELETE (result->symbs_vlo);
+      if (os_initialized)
+        OS_DELETE (result->symbs_os);
+      yaep_free (g->alloc, result);
+    }
+  return YAEP_NO_MEMORY;
 }
 
 /* Return symbol (or NULL if it does not exist) whose representation
@@ -736,22 +902,112 @@ term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
   return TRUE;
 }
 
-/* Initialize work with terminal sets and returns storage for terminal
+/* Initialize work with terminal sets and return storage for terminal
    sets. */
-static struct term_sets *
-term_set_init (void)
+static int
+term_set_init (struct grammar *g, struct term_sets **out_term_sets)
 {
-  void *mem;
-  struct term_sets *result;
+  struct term_sets *result = NULL;
+  int os_initialized = 0;
+  int tab_vlo_initialized = 0;
+  int tab_initialized = 0;
 
-  mem = yaep_malloc (grammar->alloc, sizeof (struct term_sets));
-  result = (struct term_sets *) mem;
-  OS_CREATE (result->term_set_os, grammar->alloc, 0);
+  assert (g != NULL);
+
+  result = (struct term_sets *) yaep_malloc (g->alloc,
+                                             sizeof (struct term_sets));
+  if (result == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                     "failed to allocate terminal set container");
+      return YAEP_NO_MEMORY;
+    }
+
+  memset (result, 0, sizeof (*result));
+
+#ifndef __cplusplus
+  if (os_create_safe (&result->term_set_os, g->alloc, 0) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
   result->term_set_tab =
-    create_hash_table (grammar->alloc, 1000, term_set_hash, term_set_eq);
-  VLO_CREATE (result->tab_term_set_vlo, grammar->alloc, 4096);
-  result->n_term_sets = result->n_term_sets_size = 0;
-  return result;
+    create_hash_table (g->alloc, 1000, term_set_hash, term_set_eq);
+  if (result->term_set_tab == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create terminal set table");
+      goto fail;
+    }
+  tab_initialized = 1;
+
+  if (vlo_create_safe (&result->tab_term_set_vlo, g->alloc, 4096) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set index storage");
+      goto fail;
+    }
+  tab_vlo_initialized = 1;
+#else
+  try
+    {
+      OS_CREATE (result->term_set_os, g->alloc, 0);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
+  try
+    {
+      result->term_set_tab =
+        create_hash_table (g->alloc, 1000, term_set_hash, term_set_eq);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create terminal set table");
+      goto fail;
+    }
+  tab_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->tab_term_set_vlo, g->alloc, 4096);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set index storage");
+      goto fail;
+    }
+  tab_vlo_initialized = 1;
+#endif
+
+  result->n_term_sets = 0;
+  result->n_term_sets_size = 0;
+
+  *out_term_sets = result;
+  return 0;
+
+fail:
+  if (result != NULL)
+    {
+      if (tab_vlo_initialized)
+        VLO_DELETE (result->tab_term_set_vlo);
+      if (tab_initialized && result->term_set_tab != NULL)
+        delete_hash_table (result->term_set_tab);
+      if (os_initialized)
+        OS_DELETE (result->term_set_os);
+      yaep_free (g->alloc, result);
+    }
+  return YAEP_NO_MEMORY;
 }
 
 /* Return new terminal SET.  Its value is undefined. */
@@ -1013,19 +1269,49 @@ struct rules
 #endif
 };
 
-/* Initialize work with rules and returns pointer to rules storage. */
-static struct rules *
-rule_init (void)
+/* Initialize work with rules and return pointer to rules storage. */
+static int
+rule_init (struct grammar *g, struct rules **out_rules)
 {
-  void *mem;
-  struct rules *result;
+  struct rules *result = NULL;
 
-  mem = yaep_malloc (grammar->alloc, sizeof (struct rules));
-  result = (struct rules *) mem;
-  OS_CREATE (result->rules_os, grammar->alloc, 0);
-  result->first_rule = result->curr_rule = NULL;
-  result->n_rules = result->n_rhs_lens = 0;
-  return result;
+  assert (g != NULL);
+
+  result = (struct rules *) yaep_malloc (g->alloc, sizeof (struct rules));
+  if (result == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule storage");
+      return YAEP_NO_MEMORY;
+    }
+
+  memset (result, 0, sizeof (*result));
+
+#ifndef __cplusplus
+  if (os_create_safe (&result->rules_os, g->alloc, 0) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule buffer");
+      yaep_free (g->alloc, result);
+      return YAEP_NO_MEMORY;
+    }
+#else
+  try
+    {
+      OS_CREATE (result->rules_os, g->alloc, 0);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule buffer");
+      yaep_free (g->alloc, result);
+      return YAEP_NO_MEMORY;
+    }
+#endif
+  result->first_rule = NULL;
+  result->curr_rule = NULL;
+  result->n_rules = 0;
+  result->n_rhs_lens = 0;
+
+  *out_rules = result;
+  return 0;
 }
 
 /* Create new rule with LHS empty rhs. */
@@ -3045,6 +3331,45 @@ error_func_for_allocate (void *ignored)
   yaep_error (YAEP_NO_MEMORY, "no memory");
 }
 
+static void
+error_func_for_allocate_safe (void *userptr)
+{
+  struct grammar *g = (struct grammar *) userptr;
+
+  yaep_set_error (g, YAEP_NO_MEMORY, "no memory");
+}
+
+#ifndef __cplusplus
+static int
+os_create_safe (os_t *os, YaepAllocator *alloc, size_t initial_segment_length)
+{
+  assert (os != NULL);
+
+  os->os_alloc = alloc;
+  return _OS_create_function (os, initial_segment_length);
+}
+
+static int
+vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc, size_t initial_length)
+{
+  size_t length;
+  char *start;
+
+  assert (vlo != NULL);
+
+  length = (initial_length != 0 ? initial_length : VLO_DEFAULT_LENGTH);
+  start = (char *) yaep_malloc (alloc, length);
+  if (start == NULL)
+    return -1;
+
+  vlo->vlo_start = start;
+  vlo->vlo_free = start;
+  vlo->vlo_boundary = start + length;
+  vlo->vlo_alloc = alloc;
+  return 0;
+}
+#endif
+
 /* The following function allocates memory for new grammar. */
 #ifdef __cplusplus
 static
@@ -3053,53 +3378,107 @@ struct grammar *
 yaep_create_grammar (void)
 {
   YaepAllocator *allocator;
+  struct grammar *g = NULL;
+  struct symbs *symbs = NULL;
+  struct term_sets *term_sets = NULL;
+  struct rules *rules = NULL;
+  Yaep_alloc_error previous_error_handler;
+  void *previous_userptr;
 
   yaep_initialize_error_handling ();
   yaep_clear_error ();
+
   allocator = yaep_alloc_new (NULL, NULL, NULL, NULL);
   if (allocator == NULL)
     {
+      yaep_set_error (NULL, YAEP_NO_MEMORY, "failed to create allocator");
       return NULL;
     }
-  grammar = NULL;
-  grammar = (struct grammar *) yaep_malloc (allocator, sizeof (*grammar));
-  if (grammar == NULL)
+
+  previous_error_handler = yaep_alloc_geterrfunc (allocator);
+  previous_userptr = yaep_alloc_getuserptr (allocator);
+  yaep_alloc_seterr (allocator, error_func_for_allocate_safe, NULL);
+
+  g = (struct grammar *) yaep_malloc (allocator, sizeof (*g));
+  if (g == NULL)
     {
+      yaep_alloc_seterr (allocator, previous_error_handler,
+ 			    previous_userptr);
       yaep_alloc_del (allocator);
       return NULL;
     }
-  grammar->alloc = allocator;
-  yaep_alloc_seterr (allocator, error_func_for_allocate,
-		     yaep_alloc_getuserptr (allocator));
-  yaep_copy_error_to_grammar (grammar);
-  {
-    yaep_error_boundary_t boundary;
 
-    yaep_error_boundary_push (&boundary);
-    if (setjmp (boundary.env) != 0)
-      {
-        yaep_error_boundary_pop ();
-        yaep_free_grammar (grammar);
-        return NULL;
-      }
-    grammar->undefined_p = TRUE;
-    grammar->error_code = 0;
-    *grammar->error_message = '\0';
-    grammar->debug_level = 0;
-    grammar->lookahead_level = 1;
-    grammar->one_parse_p = 1;
-    grammar->cost_p = 0;
-    grammar->error_recovery_p = 1;
-    grammar->recovery_token_matches = DEFAULT_RECOVERY_TOKEN_MATCHES;
-    grammar->symbs_ptr = NULL;
-    grammar->term_sets_ptr = NULL;
-    grammar->rules_ptr = NULL;
-    grammar->symbs_ptr = symbs_ptr = symb_init ();
-    grammar->term_sets_ptr = term_sets_ptr = term_set_init ();
-    grammar->rules_ptr = rules_ptr = rule_init ();
-    yaep_error_boundary_pop ();
-  }
-  return grammar;
+  memset (g, 0, sizeof (*g));
+  g->alloc = allocator;
+  g->undefined_p = TRUE;
+  g->error_code = 0;
+  *g->error_message = '\0';
+  g->debug_level = 0;
+  g->lookahead_level = 1;
+  g->one_parse_p = 1;
+  g->cost_p = 0;
+  g->error_recovery_p = 1;
+  g->recovery_token_matches = DEFAULT_RECOVERY_TOKEN_MATCHES;
+
+  grammar = g;
+  yaep_alloc_seterr (allocator, error_func_for_allocate_safe, g);
+  yaep_copy_error_to_grammar (g);
+
+  if (symb_init (g, &symbs) != 0)
+    goto fail;
+  if (term_set_init (g, &term_sets) != 0)
+    goto fail;
+  if (rule_init (g, &rules) != 0)
+    goto fail;
+
+  g->symbs_ptr = symbs;
+  g->term_sets_ptr = term_sets;
+  g->rules_ptr = rules;
+
+  symbs_ptr = symbs;
+  term_sets_ptr = term_sets;
+  rules_ptr = rules;
+
+  yaep_alloc_seterr (allocator, error_func_for_allocate,
+	     yaep_alloc_getuserptr (allocator));
+
+  return g;
+
+fail:
+  if (rules != NULL)
+    {
+      struct rules *prev_rules = rules_ptr;
+      rules_ptr = rules;
+      rule_fin (rules);
+      rules_ptr = prev_rules;
+      rules = NULL;
+    }
+
+  if (term_sets != NULL)
+    {
+      struct term_sets *prev_term_sets = term_sets_ptr;
+      term_sets_ptr = term_sets;
+      term_set_fin (term_sets);
+      term_sets_ptr = prev_term_sets;
+      term_sets = NULL;
+    }
+
+  if (symbs != NULL)
+    {
+      struct symbs *prev_symbs = symbs_ptr;
+      symbs_ptr = symbs;
+      symb_fin (symbs);
+      symbs_ptr = prev_symbs;
+      symbs = NULL;
+    }
+
+  if (g != NULL)
+    yaep_free (allocator, g);
+
+  grammar = NULL;
+  yaep_alloc_seterr (allocator, previous_error_handler, previous_userptr);
+  yaep_alloc_del (allocator);
+  return NULL;
 }
 
 /* The following function makes grammar empty. */
