@@ -2980,9 +2980,6 @@ core_symb_vect_fin (void)
 
 
 
-/* Jump buffer for processing errors. */
-static jmp_buf error_longjump_buff;
-
 static void
 yaep_update_error_context (struct grammar *g,
                            const yaep_error_context_t *ctx)
@@ -3029,7 +3026,7 @@ yaep_error (int code, const char *format, ...)
   va_end (arguments);
   if (grammar != NULL)
     yaep_copy_error_to_grammar (grammar);
-  longjmp (error_longjump_buff, code);
+  yaep_error_boundary_raise (code);
 }
 
 /* The following function processes allocation errors. */
@@ -3068,26 +3065,33 @@ yaep_create_grammar (void)
   yaep_alloc_seterr (allocator, error_func_for_allocate,
 		     yaep_alloc_getuserptr (allocator));
   yaep_copy_error_to_grammar (grammar);
-  if (setjmp (error_longjump_buff) != 0)
-    {
-      yaep_free_grammar (grammar);
-      return NULL;
-    }
-  grammar->undefined_p = TRUE;
-  grammar->error_code = 0;
-  *grammar->error_message = '\0';
-  grammar->debug_level = 0;
-  grammar->lookahead_level = 1;
-  grammar->one_parse_p = 1;
-  grammar->cost_p = 0;
-  grammar->error_recovery_p = 1;
-  grammar->recovery_token_matches = DEFAULT_RECOVERY_TOKEN_MATCHES;
-  grammar->symbs_ptr = NULL;
-  grammar->term_sets_ptr = NULL;
-  grammar->rules_ptr = NULL;
-  grammar->symbs_ptr = symbs_ptr = symb_init ();
-  grammar->term_sets_ptr = term_sets_ptr = term_set_init ();
-  grammar->rules_ptr = rules_ptr = rule_init ();
+  {
+    yaep_error_boundary_t boundary;
+
+    yaep_error_boundary_push (&boundary);
+    if (setjmp (boundary.env) != 0)
+      {
+        yaep_error_boundary_pop ();
+        yaep_free_grammar (grammar);
+        return NULL;
+      }
+    grammar->undefined_p = TRUE;
+    grammar->error_code = 0;
+    *grammar->error_message = '\0';
+    grammar->debug_level = 0;
+    grammar->lookahead_level = 1;
+    grammar->one_parse_p = 1;
+    grammar->cost_p = 0;
+    grammar->error_recovery_p = 1;
+    grammar->recovery_token_matches = DEFAULT_RECOVERY_TOKEN_MATCHES;
+    grammar->symbs_ptr = NULL;
+    grammar->term_sets_ptr = NULL;
+    grammar->rules_ptr = NULL;
+    grammar->symbs_ptr = symbs_ptr = symb_init ();
+    grammar->term_sets_ptr = term_sets_ptr = term_set_init ();
+    grammar->rules_ptr = rules_ptr = rule_init ();
+    yaep_error_boundary_pop ();
+  }
   return grammar;
 }
 
@@ -3369,6 +3373,8 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   int *transl;
   int i, el, code;
 
+  yaep_error_boundary_t boundary;
+
   assert (g != NULL);
   yaep_initialize_error_handling ();
   yaep_clear_error ();
@@ -3377,8 +3383,11 @@ yaep_read_grammar (struct grammar *g, int strict_p,
   symbs_ptr = g->symbs_ptr;
   term_sets_ptr = g->term_sets_ptr;
   rules_ptr = g->rules_ptr;
-  if ((code = setjmp (error_longjump_buff)) != 0)
+  yaep_error_boundary_push (&boundary);
+  code = setjmp (boundary.env);
+  if (code != 0)
     {
+      yaep_error_boundary_pop ();
       return code;
     }
   if (!grammar->undefined_p)
@@ -3533,6 +3542,7 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
 #endif
   grammar->undefined_p = FALSE;
+  yaep_error_boundary_pop ();
   return 0;
 }
 
@@ -6061,15 +6071,21 @@ yaep_parse (struct grammar *g,
   *ambiguous_p = FALSE;
   pl_init ();
   tok_init_p = parse_init_p = FALSE;
-  if ((code = setjmp (error_longjump_buff)) != 0)
-    {
-      pl_fin ();
-      if (parse_init_p)
+  {
+    yaep_error_boundary_t boundary;
+
+    yaep_error_boundary_push (&boundary);
+    code = setjmp (boundary.env);
+    if (code != 0)
+      {
+        yaep_error_boundary_pop ();
+        pl_fin ();
+        if (parse_init_p)
 	yaep_parse_fin ();
-      if (tok_init_p)
+        if (tok_init_p)
 	tok_fin ();
-      return code;
-    }
+        return code;
+      }
   if (grammar->undefined_p)
     yaep_error (YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
   n_goto_successes = 0;
@@ -6157,6 +6173,8 @@ yaep_parse (struct grammar *g,
 #endif
   yaep_parse_fin ();
   tok_fin ();
+  yaep_error_boundary_pop ();
+  }
   return 0;
 }
 

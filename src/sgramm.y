@@ -35,6 +35,8 @@
 
 #include <assert.h>
 
+#include "yaep_error.h"
+
 /* The following is necessary if we use YAEP with byacc/bison/msta
    parser. */
 
@@ -418,10 +420,14 @@ set_sgrammar (struct grammar *g, const char *grammar)
   int i, j, num;
   struct sterm *term, *prev, *arr;
   int code = 256;
+  yaep_error_boundary_t boundary;
 
   ln = 1;
-  if ((code = setjmp (error_longjump_buff)) != 0)
+  yaep_error_boundary_push (&boundary);
+  code = setjmp (boundary.env);
+  if (code != 0)
     {
+      yaep_error_boundary_pop ();
       free_sgrammar ();
       return code;
     }
@@ -472,6 +478,7 @@ set_sgrammar (struct grammar *g, const char *grammar)
 	term->code = code++;
     }
   nsterm = nsrule = 0;
+  yaep_error_boundary_pop ();
   return 0;
 }
 

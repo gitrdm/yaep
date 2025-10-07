@@ -8,9 +8,20 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static yaep_error_update_hook_t yaep_error_update_hook = NULL;
+
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+static _Thread_local yaep_error_boundary_t *yaep_boundary_top = NULL;
+#elif defined(__GNUC__) || defined(__clang__)
+static __thread yaep_error_boundary_t *yaep_boundary_top = NULL;
+#elif defined(_MSC_VER)
+static __declspec(thread) yaep_error_boundary_t *yaep_boundary_top = NULL;
+#else
+#error "Thread-local storage not supported on this compiler"
+#endif
 
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
 static _Thread_local yaep_error_context_t yaep_thread_error_ctx = {0};
@@ -91,4 +102,36 @@ void
 yaep_set_error_update_hook(yaep_error_update_hook_t hook)
 {
     yaep_error_update_hook = hook;
+}
+
+void
+yaep_error_boundary_push(yaep_error_boundary_t *boundary)
+{
+    if (boundary == NULL) {
+        return;
+    }
+
+    boundary->prev = yaep_boundary_top;
+    yaep_boundary_top = boundary;
+}
+
+void
+yaep_error_boundary_pop(void)
+{
+    if (yaep_boundary_top != NULL) {
+        yaep_boundary_top = yaep_boundary_top->prev;
+    }
+}
+
+void
+yaep_error_boundary_raise(int code)
+{
+    yaep_error_boundary_t *boundary = yaep_boundary_top;
+
+    if (boundary == NULL) {
+        /* If no boundary is installed, abort to avoid undefined behaviour. */
+        abort();
+    }
+
+    longjmp(boundary->env, code);
 }

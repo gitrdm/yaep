@@ -10,6 +10,7 @@
 #ifndef YAEP_ERROR_H
 #define YAEP_ERROR_H
 
+#include <setjmp.h>
 #include <stdarg.h>
 
 #include "yaep.h"
@@ -35,6 +36,11 @@ typedef struct {
     char error_message[YAEP_MAX_ERROR_MESSAGE_LENGTH + 1];         /**< Human-readable message */
     struct grammar *grammar_ctx;                                   /**< Grammar context (optional) */
 } yaep_error_context_t;
+
+typedef struct yaep_error_boundary {
+    jmp_buf env;                                                   /**< saved execution context */
+    struct yaep_error_boundary *prev;                              /**< previous boundary */
+} yaep_error_boundary_t;
 
 typedef void (*yaep_error_update_hook_t)(struct grammar *g,
                                          const yaep_error_context_t *ctx);
@@ -80,6 +86,12 @@ void yaep_clear_error(void);
  * @brief Register callback used to synchronize grammar error state.
  */
 void yaep_set_error_update_hook(yaep_error_update_hook_t hook);
+
+void yaep_error_boundary_push(yaep_error_boundary_t *boundary);
+
+void yaep_error_boundary_pop(void);
+
+void yaep_error_boundary_raise(int code);
 
 #ifdef __cplusplus
 }
