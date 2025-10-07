@@ -496,9 +496,9 @@ set_sgrammar (struct grammar *g, const char *grammar)
  * 5. Return success (0) or error code
  *
  * Error Handling:
- * - yyparse() errors: Detected via return value (was: longjmp)
- * - Validation errors: Still use yaep_error (longjmp) temporarily
- * - Future: All errors will be explicit returns
+ * - yyparse() errors: Detected via return value (no longjmp)
+ * - Validation errors: Now use yaep_set_error with explicit return
+ * - All errors propagate via return codes
  *
  * @param user Pointer to set_sgrammar_context structure
  * @return 0 on success, YAEP error code on failure
@@ -572,9 +572,16 @@ set_sgrammar_internal (void *user)
 
 	  strncpy (str, prev->repr, sizeof (str));
 	  str[sizeof (str) - 1] = '\0';
-	  yaep_error (YAEP_REPEATED_TERM_CODE,
-		      "term %s described repeatedly with different code",
-		      str);
+	  
+	  /*
+	   * Terminal has conflicting code definitions.
+	   * Record error and return - no longjmp needed since we're
+	   * already past the yyparse() call.
+	   */
+	  return yaep_set_error
+	    (g, YAEP_REPEATED_TERM_CODE,
+	     "term %s described repeatedly with different code",
+	     str);
 	}
       else if (prev->code != -1)
 	prev->code = term->code;
