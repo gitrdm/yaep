@@ -3690,9 +3690,34 @@ set_loop_p (void)
   while (changed_p);
 }
 
-/* The following function evaluates different sets and flags for
-   grammar and checks the grammar on correctness. */
-static void
+/**
+ * @brief Validate grammar structure and compute derived properties
+ *
+ * Performs comprehensive validation of the grammar and computes sets
+ * (FIRST, FOLLOW) needed for parsing. This function checks for:
+ * - Nonterminals that cannot derive terminal strings
+ * - Nonterminals unreachable from the axiom
+ * - Nonterminals that can only derive themselves (loops)
+ *
+ * Algorithm:
+ * 1. Compute empty, access, and derivation properties
+ * 2. Compute loop detection flags
+ * 3. Validate based on strict_p flag
+ * 4. Create FIRST/FOLLOW sets for parsing
+ *
+ * Error Handling:
+ * Returns error code on validation failure. Previously used yaep_error()
+ * with longjmp; now returns explicit error codes for proper control flow.
+ *
+ * @param strict_p If true, enforce strict checks (all nonterminals must
+ *                 be both derivable and accessible). If false, only check
+ *                 that the axiom is derivable.
+ * @return 0 on success, YAEP error code on validation failure
+ *
+ * Thread Safety: Uses global grammar state (to be fixed in Phase 6)
+ * Side Effects: Modifies grammar symbol properties, creates FIRST/FOLLOW sets
+ */
+static int
 check_grammar (int strict_p)
 {
   struct symb *symb;
@@ -3700,32 +3725,50 @@ check_grammar (int strict_p)
 
   set_empty_access_derives ();
   set_loop_p ();
+  
+  /*
+   * Strict validation: All nonterminals must be both derivable
+   * (can produce terminal strings) and accessible (reachable from axiom).
+   */
   if (strict_p)
     {
       for (i = 0; (symb = nonterm_get (i)) != NULL; i++)
 	{
 	  if (!symb->derivation_p)
-	    yaep_error
-	      (YAEP_NONTERM_DERIVATION,
+	    return yaep_set_error
+	      (grammar, YAEP_NONTERM_DERIVATION,
 	       "nonterm `%s' does not derive any term string", symb->repr);
 	  else if (!symb->access_p)
-	    yaep_error (YAEP_UNACCESSIBLE_NONTERM,
-			"nonterm `%s' is not accessible from axiom",
-			symb->repr);
+	    return yaep_set_error
+	      (grammar, YAEP_UNACCESSIBLE_NONTERM,
+	       "nonterm `%s' is not accessible from axiom",
+	       symb->repr);
 	}
     }
+  /*
+   * Minimal validation: At minimum, the axiom must be derivable.
+   */
   else if (!grammar->axiom->derivation_p)
-    yaep_error (YAEP_NONTERM_DERIVATION,
-		"nonterm `%s' does not derive any term string",
-		grammar->axiom->repr);
+    return yaep_set_error
+      (grammar, YAEP_NONTERM_DERIVATION,
+       "nonterm `%s' does not derive any term string",
+       grammar->axiom->repr);
+  
+  /*
+   * Check for nonterminals that can only derive themselves.
+   * This creates infinite loops in the grammar.
+   */
   for (i = 0; (symb = nonterm_get (i)) != NULL; i++)
     if (symb->u.nonterm.loop_p)
-      yaep_error
-	(YAEP_LOOP_NONTERM,
+      return yaep_set_error
+	(grammar, YAEP_LOOP_NONTERM,
 	 "nonterm `%s' can derive only itself (grammar with loops)",
 	 symb->repr);
+  
   /* We should have correct flags empty_p here. */
   create_first_follow_sets ();
+  
+  return 0;  /* Validation successful */
 }
 
 /* The following are names of additional symbols.  Don't use them in
@@ -3815,44 +3858,71 @@ yaep_read_grammar_internal (void *user)
 
   if (!grammar->undefined_p)
     yaep_empty_grammar ();
+  
+  /*
+   * Read terminal declarations and validate them.
+   * Each terminal must have a unique name and unique non-negative code.
+   */
   while ((name = (*ctx->read_terminal) (&code)) != NULL)
     {
+      /* Terminal codes must be non-negative */
       if (code < 0)
-	yaep_error (YAEP_NEGATIVE_TERM_CODE,
-		    "term `%s' has negative code", name);
+	return yaep_set_error
+	  (grammar, YAEP_NEGATIVE_TERM_CODE,
+	   "term `%s' has negative code", name);
+      
+      /* Terminal names must be unique */
       symb = symb_find_by_repr (name);
       if (symb != NULL)
-	yaep_error (YAEP_REPEATED_TERM_DECL,
-		    "repeated declaration of term `%s'", name);
+	return yaep_set_error
+	  (grammar, YAEP_REPEATED_TERM_DECL,
+	   "repeated declaration of term `%s'", name);
+      
+      /* Terminal codes must be unique */
       if (symb_find_by_code (code) != NULL)
-	yaep_error (YAEP_REPEATED_TERM_CODE,
-		    "repeated code %d in term `%s'", code, name);
+	return yaep_set_error
+	  (grammar, YAEP_REPEATED_TERM_CODE,
+	   "repeated code %d in term `%s'", code, name);
+      
       symb_add_term (name, code);
     }
 
   /* Adding error symbol. */
   if (symb_find_by_repr (TERM_ERROR_NAME) != NULL)
-    yaep_error (YAEP_FIXED_NAME_USAGE,
-		"do not use fixed name `%s'", TERM_ERROR_NAME);
+    return yaep_set_error
+      (grammar, YAEP_FIXED_NAME_USAGE,
+       "do not use fixed name `%s'", TERM_ERROR_NAME);
   if (symb_find_by_code (TERM_ERROR_CODE) != NULL)
     abort ();
   grammar->term_error = symb_add_term (TERM_ERROR_NAME, TERM_ERROR_CODE);
   grammar->term_error_num = grammar->term_error->u.term.term_num;
   grammar->axiom = grammar->end_marker = NULL;
+  
+  /*
+   * Read and process grammar rules.
+   * Validate rule structure and build internal representation.
+   */
   while ((lhs = (*ctx->read_rule) (&rhs, &anode, &anode_cost, &transl)) != NULL)
     {
       symb = symb_find_by_repr (lhs);
       if (symb == NULL)
 	symb = symb_add_nonterm (lhs);
       else if (symb->term_p)
-	yaep_error (YAEP_TERM_IN_RULE_LHS,
-		    "term `%s' in the left hand side of rule", lhs);
+	return yaep_set_error
+	  (grammar, YAEP_TERM_IN_RULE_LHS,
+	   "term `%s' in the left hand side of rule", lhs);
+      
+      /* Validate translation specification */
       if (anode == NULL && transl != NULL && *transl >= 0 && transl[1] >= 0)
-	yaep_error (YAEP_INCORRECT_TRANSLATION,
-		    "rule for `%s' has incorrect translation", lhs);
+	return yaep_set_error
+	  (grammar, YAEP_INCORRECT_TRANSLATION,
+	   "rule for `%s' has incorrect translation", lhs);
+      
+      /* Cost must be non-negative */
       if (anode != NULL && anode_cost < 0)
-	yaep_error (YAEP_NEGATIVE_COST,
-		    "translation for `%s' has negative cost", lhs);
+	return yaep_set_error
+	  (grammar, YAEP_NEGATIVE_COST,
+	   "translation for `%s' has negative cost", lhs);
       if (grammar->axiom == NULL)
 	{
 	  /* We made this here becuase we want that the start rule has
@@ -3861,13 +3931,15 @@ yaep_read_grammar_internal (void *user)
 	  start = symb;
 	  grammar->axiom = symb_find_by_repr (AXIOM_NAME);
 	  if (grammar->axiom != NULL)
-	    yaep_error (YAEP_FIXED_NAME_USAGE,
-			"do not use fixed name `%s'", AXIOM_NAME);
+	    return yaep_set_error
+	      (grammar, YAEP_FIXED_NAME_USAGE,
+	       "do not use fixed name `%s'", AXIOM_NAME);
 	  grammar->axiom = symb_add_nonterm (AXIOM_NAME);
 	  grammar->end_marker = symb_find_by_repr (END_MARKER_NAME);
 	  if (grammar->end_marker != NULL)
-	    yaep_error (YAEP_FIXED_NAME_USAGE,
-			"do not use fixed name `%s'", END_MARKER_NAME);
+	    return yaep_set_error
+	      (grammar, YAEP_FIXED_NAME_USAGE,
+	       "do not use fixed name `%s'", END_MARKER_NAME);
 	  if (symb_find_by_code (END_MARKER_CODE) != NULL)
 	    abort ();
 	  grammar->end_marker = symb_add_term (END_MARKER_NAME,
@@ -3890,22 +3962,24 @@ yaep_read_grammar_internal (void *user)
 	  rhs++;
 	}
       rule_new_stop ();
+      
+      /* Process and validate translation specification */
       if (transl != NULL)
 	{
 	  for (i = 0; (el = transl[i]) >= 0; i++)
 	    if (el >= rule->rhs_len)
 	      {
 		if (el != YAEP_NIL_TRANSLATION_NUMBER)
-		  yaep_error
-		    (YAEP_INCORRECT_SYMBOL_NUMBER,
+		  return yaep_set_error
+		    (grammar, YAEP_INCORRECT_SYMBOL_NUMBER,
 		     "translation symbol number %d in rule for `%s' is out of range",
 		     el, lhs);
 		else
 		  rule->trans_len++;
 	      }
 	    else if (rule->order[el] >= 0)
-	      yaep_error
-		(YAEP_REPEATED_SYMBOL_NUMBER,
+	      return yaep_set_error
+		(grammar, YAEP_REPEATED_SYMBOL_NUMBER,
 		 "repeated translation symbol number %d in rule for `%s'",
 		 el, lhs);
 	    else
@@ -3916,8 +3990,11 @@ yaep_read_grammar_internal (void *user)
 	  assert (i < rule->rhs_len || transl[i] < 0);
 	}
     }
+  
+  /* Grammar must have at least one rule */
   if (grammar->axiom == NULL)
-    yaep_error (YAEP_NO_RULES, "grammar does not contains rules");
+    return yaep_set_error
+      (grammar, YAEP_NO_RULES, "grammar does not contains rules");
   assert (start != NULL);
   /* Adding axiom : error $eof if it is neccessary. */
   for (rule = start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
@@ -3931,7 +4008,15 @@ yaep_read_grammar_internal (void *user)
       rule_new_stop ();
       rule->trans_len = 0;
     }
-  check_grammar (strict_p);
+  
+  /*
+   * Validate grammar structure and compute FIRST/FOLLOW sets.
+   * Now returns error code instead of longjmp.
+   */
+  code = check_grammar (strict_p);
+  if (code != 0)
+    return code;
+  
 #ifdef SYMB_CODE_TRANS_VECT
   symb_finish_adding_terms ();
 #endif
@@ -6537,8 +6622,10 @@ yaep_parse_internal (void *user)
   ctx->tok_init_p = FALSE;
   ctx->parse_init_p = FALSE;
 
+  /* Grammar must be properly initialized before parsing */
   if (grammar->undefined_p)
-    yaep_error (YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
+    return yaep_set_error
+      (grammar, YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
   n_goto_successes = 0;
   tok_init ();
   ctx->tok_init_p = TRUE;
