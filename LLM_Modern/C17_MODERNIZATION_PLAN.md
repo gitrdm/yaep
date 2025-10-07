@@ -27,10 +27,11 @@ This document provides a comprehensive, production-ready plan to modernize the Y
 - ✅ **Thread-local error infrastructure is in place.** `src/yaep_error.c` defines `_Thread_local` error contexts and the boundary stack; `yaep_set_error`, `yaep_clear_error`, and `yaep_copy_error_to_grammar` are live.
 - ✅ **Public entry points use the boundary wrapper.** `yaep_read_grammar` and `yaep_parse` (see `src/yaep.c`) call `yaep_run_with_error_boundary` to contain longjmps inside the new helper.
 - ✅ **Bison error handling fixed (Phase 4 complete).** `yyerror` in `src/sgramm.y` now correctly calls `yaep_set_error` and returns normally to Bison. `set_sgrammar_internal` checks `yyparse()` return value. Grammar description parsing no longer performs longjmp in the Bison path.
-- ⚠️ **`yaep_error` still performs a longjmp.** It calls `yaep_error_boundary_raise`, so the legacy control-flow behavior remains in internal validation code; call sites still assume non-local exits.
-- ⚠️ **Cleanup attributes and explicit propagation are not wired up yet.** No feature-detection macros or RAII helpers have landed, and most internal helpers still signal errors by longjmping.
+- ✅ **Grammar validation converted to explicit returns.** All grammar validation errors in `yaep_read_grammar_internal`, `check_grammar`, and `set_sgrammar_internal` now use `yaep_set_error` and return error codes. Approximately 17 longjmp call sites eliminated.
+- ⚠️ **`yaep_error` still exists but has only 1 remaining call site.** The function still performs longjmp via `yaep_error_boundary_raise`, but is now only called from `error_func_for_allocate` (memory allocation callback).
+- ⚠️ **Cleanup attributes and RAII helpers not yet implemented.** No feature-detection macros or automatic resource cleanup has landed yet.
 
-The remaining work focuses on converting the longjmp-based helpers to explicit error returns, updating the parser/grammar call graph to propagate those codes, and introducing the cleanup/RAII scaffolding that the design below describes.
+The remaining work focuses on addressing the memory allocation error path, introducing cleanup/RAII scaffolding, and eliminating the final longjmp usage.
 
 ## Table of Contents
 
@@ -211,10 +212,11 @@ static int toks_len;                             // Token count
 3. Create error handling infrastructure
 4. Add compiler warnings/sanitizers
 
-**Current Status (2024-11):**
+**Current Status (2024-11 → Oct 2025):**
 - ✅ `CMakeLists.txt` sets `CMAKE_C_STANDARD 17`, `C_STANDARD_REQUIRED ON`, and disables extensions.
 - ☐ No cleanup-attribute detection macros or fallbacks are present yet.
-- ⚠️ `src/yaep_error.[ch]` implement thread-local contexts and boundary helpers, but they still wrap `setjmp`/`longjmp` semantics.
+- ✅ `src/yaep_error.[ch]` implement thread-local contexts and boundary helpers.
+- ⚠️ Error boundary infrastructure still active (wraps remaining longjmp in allocation error).
 - ☐ Warnings/sanitizers remain unchanged; the build scripts still use the legacy flag set.
 
 ### Phase 2: Error Context Migration
@@ -228,10 +230,11 @@ static int toks_len;                             // Token count
 3. Create error propagation macros
 4. Add cleanup attribute support
 
-**Current Status (2024-11):**
+**Current Status (2024-11 → Oct 2025):**
 - ✅ Global `jmp_buf` variables were removed; `yaep_error_boundary_t` and `_Thread_local` stacks now live in `src/yaep_error.c`.
-- ⚠️ `yaep_error` still terminates via `yaep_error_boundary_raise` (which longjmps); callers have not been updated to expect return codes.
-- ☐ No propagation macros exist; call sites continue to invoke `yaep_error(...)` directly.
+- ✅ All grammar/parse validation errors converted to `yaep_set_error` with explicit returns (~17 call sites eliminated).
+- ⚠️ `yaep_error` still exists with 1 remaining call (memory allocation callback) that longjmps.
+- ☐ No propagation macros exist yet to simplify error checking patterns.
 - ☐ Cleanup attribute detection/support remains unimplemented.
 
 ### Phase 3: Function Refactoring (Core)
@@ -245,10 +248,13 @@ static int toks_len;                             // Token count
 3. Refactor `yaep_parse()`
 4. Fix NULL pointer bugs
 
-**Current Status (2024-11):**
-- ⚠️ `yaep_read_grammar`/`yaep_parse` now wrap their internals with `yaep_run_with_error_boundary`, but their internal helpers still raise `yaep_error` instead of returning explicit codes.
-- ☐ `yaep_create_grammar` still depends on the global grammar state and longjmp-based unwinding.
-- ☐ Error-path audits for NULL-pointer/RAII fixes have not been carried out; longjmp still bypasses cleanup in many helpers.
+**Current Status (2024-11 → Oct 2025):**
+- ✅ `yaep_read_grammar`/`yaep_parse` wrap their internals with `yaep_run_with_error_boundary`.
+- ✅ All internal validation helpers now return explicit error codes instead of longjmp.
+- ✅ `check_grammar` converted to return int (was void with longjmp).
+- ⚠️ `yaep_create_grammar` still depends on global grammar state.
+- ⚠️ Memory allocation errors still use longjmp via `error_func_for_allocate`.
+- ☐ Error-path audits for NULL-pointer/RAII fixes have not been carried out yet.
 
 ### Phase 4: Grammar Parser Migration
 **Duration:** 2-3 days  
@@ -303,11 +309,12 @@ static int toks_len;                             // Token count
 ### Immediate Next Steps (priority backlog)
 
 1. ~~Update `yyerror`/`set_sgrammar` to use `yaep_set_error` + explicit returns so grammar parsing no longer depends on longjmp.~~ **✅ DONE (Oct 2025)**
-2. Refactor `yaep_error` to return error codes instead of calling `yaep_error_boundary_raise`, and update callers to propagate the result.
-3. Convert remaining `yaep_error` call in `set_sgrammar_internal` terminal validation to explicit return.
-4. Introduce cleanup-attribute feature detection and start migrating allocator wrappers to RAII helpers (`yaep_alloc_*` safe adapters).
-5. Add thin propagation helpers/macros to replace the direct `yaep_error(...)` calls throughout `yaep.c`.
-6. Extend the test harness to exercise both success and failure paths without assuming non-local exits.
+2. ~~Convert validation errors to explicit return codes.~~ **✅ DONE (Oct 2025)** - All grammar/parse validation now returns errors explicitly.
+3. Address memory allocation error handling (the last `yaep_error` call site).
+4. Introduce cleanup-attribute feature detection and start migrating allocator wrappers to RAII helpers.
+5. Add error propagation macros/helpers to simplify error checking patterns.
+6. Remove `yaep_error_boundary_raise` and the error boundary infrastructure entirely.
+7. Extend the test harness to exercise error paths without assuming longjmp behavior.
 
 ---
 
@@ -1988,7 +1995,7 @@ The result will be a faster, safer, more maintainable codebase suitable for mode
 
 ---
 
-**Document Version:** 0.7 (Phase 4 complete)  
+**Document Version:** 0.8 (Major validation refactoring complete)  
 **Date:** October 7, 2025  
 **Author:** GitHub Copilot  
-**Status:** In Progress - Phase 4 Complete
+**Status:** In Progress - Phases 2-4 Substantially Complete
