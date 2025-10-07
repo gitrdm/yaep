@@ -427,3 +427,19 @@ add_test( NAME yaep++-test49 COMMAND test++49 1 2 )
 file( READ ${TEST_DATA_DIR}/test49.out TEST_OUTPUT )
 rescape( TEST_OUTPUT "${TEST_OUTPUT}" )
 set_tests_properties( yaep++-test49 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}" )
+
+set( _yaep_cpp_test_targets
+	"test++06" "test++07" "test++08" "test++09" "test++10"
+	"test++11" "test++12" "test++13" "test++14" "test++15"
+	"test++16" "test++17" "test++18" "test++19" "test++20"
+	"test++21" "test++22" "test++23" "test++24" "test++25"
+	"test++26" "test++27" "test++28" "test++29" "test++30"
+	"test++31" "test++32" "test++33" "test++34" "test++35"
+	"test++36" "test++37" "test++38" "test++39" "test++40"
+	"test++41" "test++42" "test++43" "test++44" "test++45"
+	"test++46" "test++47" "test++48" "test++49"
+)
+
+foreach( _yaep_target IN LISTS _yaep_cpp_test_targets )
+	yaep_register_test_target( ${_yaep_target} )
+endforeach()

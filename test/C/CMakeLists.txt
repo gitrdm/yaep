@@ -425,3 +425,19 @@ add_test( NAME yaep-test49 COMMAND test49 1 2 )
 file( READ ${TEST_DATA_DIR}/test49.out TEST_OUTPUT )
 rescape( TEST_OUTPUT "${TEST_OUTPUT}" )
 set_tests_properties( yaep-test49 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}" )
+
+set( _yaep_c_test_targets
+	test06 test07 test08 test09 test10
+	test11 test12 test13 test14 test15
+	test16 test17 test18 test19 test20
+	test21 test22 test23 test24 test25
+	test26 test27 test28 test29 test30
+	test31 test32 test33 test34 test35
+	test36 test37 test38 test39 test40
+	test41 test42 test43 test44 test45
+	test46 test47 test48 test49
+)
+
+foreach( _yaep_target IN LISTS _yaep_c_test_targets )
+	yaep_register_test_target( ${_yaep_target} )
+endforeach()
