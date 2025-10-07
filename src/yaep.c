@@ -1226,19 +1226,25 @@ tok_init (void)
 }
 
 /* Add input token with CODE and attribute at the end of input tokens
-   array. */
-static void
+  array.  Return 0 on success, otherwise YAEP error code. */
+static int
 tok_add (int code, void *attr)
 {
+  struct symb *symb;
   struct tok tok;
 
+  symb = symb_find_by_code (code);
+  if (symb == NULL)
+    return yaep_set_error (grammar, YAEP_INVALID_TOKEN_CODE,
+			    "invalid token code %d", code);
+
   tok.attr = attr;
-  tok.symb = symb_find_by_code (code);
-  if (tok.symb == NULL)
-    yaep_error (YAEP_INVALID_TOKEN_CODE, "invalid token code %d", code);
+  tok.symb = symb;
+
   VLO_ADD_MEMORY (toks_vlo, &tok, sizeof (struct tok));
   toks = (struct tok *) VLO_BEGIN (toks_vlo);
   toks_len++;
+  return 0;
 }
 
 /* Finalize work with tokens. */
@@ -3669,16 +3675,20 @@ yaep_parse_fin (void)
   sit_fin ();
 }
 
-/* The following function reads all input tokens. */
-static void
+/* The following function reads all input tokens and returns 0 on success. */
+static int
 read_toks (void)
 {
   int code;
   void *attr;
 
   while ((code = read_token (&attr)) >= 0)
-    tok_add (code, attr);
-  tok_add (END_MARKER_CODE, NULL);
+    {
+      int err = tok_add (code, attr);
+      if (err != 0)
+        return err;
+    }
+  return tok_add (END_MARKER_CODE, NULL);
 }
 
 /* The following function add start situations which is formed from
@@ -6042,6 +6052,8 @@ yaep_parse (struct grammar *g,
 {
   int code, tok_init_p, parse_init_p;
   int tab_collisions, tab_searches;
+  int result = 0;
+  yaep_error_boundary_t boundary;
 
   /* Set up parse allocation */
   yaep_initialize_error_handling ();
@@ -6072,27 +6084,24 @@ yaep_parse (struct grammar *g,
   *ambiguous_p = FALSE;
   pl_init ();
   tok_init_p = parse_init_p = FALSE;
-  {
-    yaep_error_boundary_t boundary;
-
-    yaep_error_boundary_push (&boundary);
-    code = setjmp (boundary.env);
-    if (code != 0)
-      {
-        yaep_error_boundary_pop ();
-        pl_fin ();
-        if (parse_init_p)
-	yaep_parse_fin ();
-        if (tok_init_p)
-	tok_fin ();
-        return code;
-      }
+  yaep_error_boundary_push (&boundary);
+  code = setjmp (boundary.env);
+  if (code != 0)
+    {
+      result = code;
+      goto error;
+    }
   if (grammar->undefined_p)
     yaep_error (YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
   n_goto_successes = 0;
   tok_init ();
   tok_init_p = TRUE;
-  read_toks ();
+  code = read_toks ();
+  if (code != 0)
+    {
+      result = code;
+      goto error;
+    }
   yaep_parse_init (toks_len);
   parse_init_p = TRUE;
   pl_create ();
@@ -6175,8 +6184,16 @@ yaep_parse (struct grammar *g,
   yaep_parse_fin ();
   tok_fin ();
   yaep_error_boundary_pop ();
-  }
   return 0;
+
+error:
+  yaep_error_boundary_pop ();
+  pl_fin ();
+  if (parse_init_p)
+    yaep_parse_fin ();
+  if (tok_init_p)
+    tok_fin ();
+  return result;
 }
 
 /* The following function frees memory allocated for the grammar. */
