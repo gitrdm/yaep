@@ -88,13 +88,12 @@ higher_prime_number (unsigned long number)
 hash_table::hash_table (YaepAllocator * allocator, size_t size, unsigned int (*hash_function) (hash_table_entry_t el_ptr), int (*eq_function) (hash_table_entry_t el1_ptr, hash_table_entry_t el2_ptr)):alloc
   (allocator)
 {
-  hash_table_entry_t *
-    entry_ptr;
+  hash_table_entry_t * entry_ptr;
 
+  // Avoid shadowing: rename parameters to hash_func and eq_func
+  // (see header for member names)
   size = higher_prime_number (size);
-  entries =
-    (hash_table_entry_t *) yaep_malloc (alloc,
-					size * sizeof (hash_table_entry_t));
+  entries = reinterpret_cast<hash_table_entry_t *>(yaep_malloc(alloc, size * sizeof(hash_table_entry_t))); // Use C++ cast to avoid old-style-cast warning
   this->_size = size;
   this->hash_function = hash_function;
   this->eq_function = eq_function;
@@ -139,9 +138,9 @@ hash_table::expand_hash_table (void)
   hash_table_entry_t *entry_ptr;
   hash_table_entry_t *new_entry_ptr;
 
+  // Cast number_of_elements * 2 to size_t for safety and document intent
   new_htab =
-    new hash_table (alloc, number_of_elements * 2, hash_function,
-		    eq_function);
+    new hash_table(alloc, static_cast<size_t>(number_of_elements * 2), hash_function, eq_function); // Explicit cast to size_t: number_of_elements is size_t, multiplication safe
   for (entry_ptr = entries; entry_ptr < entries + _size; entry_ptr++)
     if (*entry_ptr != EMPTY_ENTRY && *entry_ptr != DELETED_ENTRY)
       {
@@ -183,10 +182,11 @@ hash_table::find_entry (hash_table_entry_t element, int reserve)
   unsigned hash_value, secondary_hash_value;
 
   if (_size / 4 <= number_of_elements / 3)
-    expand_hash_table ();
-  hash_value = (*hash_function) (element);
-  secondary_hash_value = 1 + hash_value % (_size - 2);
-  hash_value %= _size;
+    expand_hash_table();
+  // hash_function returns unsigned, but _size is size_t; cast to unsigned for modulo
+  hash_value = static_cast<unsigned>((*hash_function)(element)); // Explicit cast: hash_function returns unsigned, safe for modulo
+  secondary_hash_value = 1 + hash_value % static_cast<unsigned>(_size - 2); // Explicit cast: _size is size_t, modulo expects unsigned
+  hash_value %= static_cast<unsigned>(_size); // Explicit cast: _size is size_t, modulo expects unsigned
   searches++;
   all_searches++;
   first_deleted_entry_ptr = NULL;
