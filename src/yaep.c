@@ -1924,7 +1924,7 @@ sits_hash (int n_sits, struct sit **sits)
   for (i = 0; i < n_sits; i++)
     {
       n = sits[i]->sit_number;
-      result = result * hash_shift + n;
+      result = result * hash_shift + (unsigned)n;
     }
   return result;
 }
