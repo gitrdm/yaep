@@ -1240,7 +1240,10 @@ term_set_insert (term_set_el_t * set)
   entry =
     find_hash_table_entry (term_sets_ptr->term_set_tab, &tab_term_set, TRUE);
   if (*entry != NULL)
-    return -((struct tab_term_set *) *entry)->num - 1;
+    /* Treat stored table entries as const when only reading to avoid
+       casting away qualifiers. The actual objects are owned elsewhere
+       and are mutable, but we only need read access here. */
+    return -((const struct tab_term_set *) *entry)->num - 1;
   else
     {
       OS_TOP_EXPAND (term_sets_ptr->term_set_os,
@@ -1256,7 +1259,8 @@ term_set_insert (term_set_el_t * set)
 			       / sizeof (struct tab_term_set *));
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
-      return ((struct tab_term_set *) *entry)->num;
+  /* See comment above: use a const-qualified view for reads. */
+  return ((const struct tab_term_set *) *entry)->num;
     }
 }
 
@@ -2463,7 +2467,9 @@ set_insert (void)
   entry = find_hash_table_entry (set_dists_tab, new_set, TRUE);
   if (*entry != NULL)
     {
-      new_dists = new_set->dists = ((struct set *) *entry)->dists;
+      /* Read-only access to the stored set's dists; use const to make
+         it explicit we won't mutate the stored object here. */
+      new_dists = new_set->dists = ((const struct set *) *entry)->dists;
       OS_TOP_NULLIFY (set_dists_os);
     }
   else
@@ -2486,7 +2492,9 @@ set_insert (void)
   if (*entry != NULL)
     {
       OS_TOP_NULLIFY (set_cores_os);
-      new_set->core = new_core = ((struct set *) *entry)->core;
+      /* The stored set in the table is not modified here; access via
+         a const-qualified pointer to avoid casting away qualifiers. */
+      new_set->core = new_core = ((const struct set *) *entry)->core;
       new_sits = new_core->sits;
       OS_TOP_NULLIFY (set_sits_os);
       result = FALSE;
@@ -3328,16 +3336,20 @@ process_core_symb_vect_el (struct core_symb_vect *core_symb_vect,
       entry = (*tab)->find_entry (core_symb_vect, TRUE);
 #endif
       if (*entry != NULL)
-	vec->els
-	  = (&core_symb_vect->transitions == vec
-	     ? ((struct core_symb_vect *) *entry)->transitions.els
+    {
+      /* Only reading the stored core_symb_vect vectors here; use a
+         const-qualified view to avoid removing const qualifiers. */
+      vec->els
+        = (&core_symb_vect->transitions == vec
+           ? ((const struct core_symb_vect *) *entry)->transitions.els
 #ifdef TRANSITIVE_TRANSITION
-	     : &core_symb_vect->transitive_transitions == vec
-	     ? ((struct core_symb_vect *) *entry)->transitive_transitions.els
+           : &core_symb_vect->transitive_transitions == vec
+           ? ((const struct core_symb_vect *) *entry)->transitive_transitions.els
 #endif
-	     : ((struct core_symb_vect *) *entry)->reduces.els);
-      else
-	{
+           : ((const struct core_symb_vect *) *entry)->reduces.els);
+    }
+  else
+    {
     /* core_symb_vect is allocated/owned here; cast through void*
        to satisfy the const-qualified hash_table_entry_t type. */
     *entry = (hash_table_entry_t) (void *) core_symb_vect;
