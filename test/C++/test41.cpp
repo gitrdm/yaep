@@ -84,7 +84,8 @@ void add_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
-  assert (level == 0);
+  (void) level; /* Unused - included for API compatibility */
+  
   entry_ptr = table->find_entry (id, 1);
   if (*entry_ptr == NULL)
     {
@@ -107,6 +108,8 @@ int find_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
+  (void) level; /* Unused - included for API compatibility */
+  
   entry_ptr = table->find_entry (id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)
@@ -193,6 +196,9 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_ignored_tok_num, void *start_ignored_tok_attr,
 		   int start_recovered_tok_num, void *start_recovered_tok_attr)
 {
+  (void) start_ignored_tok_attr; /* Unused */
+  (void) start_recovered_tok_attr; /* Unused */
+  
   // Use static_cast for pointer-to-int conversion, document intent.
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);

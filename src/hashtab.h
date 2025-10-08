@@ -114,7 +114,7 @@ extern void delete_hash_table (hash_table_t htab);
 extern hash_table_entry_t *find_hash_table_entry
    (hash_table_t htab, hash_table_entry_t element, int reserve);
 /* Const-qualified probe helper: identical semantics but takes const pointer. */
-inline hash_table_entry_t *
+static inline hash_table_entry_t *
 find_hash_table_entry_c (hash_table_t htab, const void *element, int reserve)
 {
   /* Centralized, documented qualifier discard: the table logic treats the

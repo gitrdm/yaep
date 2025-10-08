@@ -180,6 +180,9 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_ignored_tok_num, void *start_ignored_tok_attr,
 		   int start_recovered_tok_num, void *start_recovered_tok_attr)
 {
+  (void) start_ignored_tok_attr; /* Unused */
+  (void) start_recovered_tok_attr; /* Unused */
+  
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
   else

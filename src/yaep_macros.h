@@ -1,6 +1,6 @@
 /**
  * @file yaep_macros.h
- * @brief Error propagation helpers for the C17 modernization effort.
+ * @brief Error propagation and type-casting helpers for the C17 modernization effort.
  */
 
 #ifndef YAEP_MACROS_H
@@ -24,5 +24,14 @@
 
 #define YAEP_ERROR(code, ...)                                    \
     return yaep_set_error(grammar, (code), __VA_ARGS__)
+
+/* Type-casting macros: Use static_cast in C++, C-style casts in C */
+#ifdef __cplusplus
+  #define YAEP_STATIC_CAST(type, expr) static_cast<type>(expr)
+  #define YAEP_REINTERPRET_CAST(type, expr) reinterpret_cast<type>(expr)
+#else
+  #define YAEP_STATIC_CAST(type, expr) ((type)(expr))
+  #define YAEP_REINTERPRET_CAST(type, expr) ((type)(expr))
+#endif
 
 #endif /* YAEP_MACROS_H */

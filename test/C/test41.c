@@ -80,7 +80,8 @@ void add_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
-  assert (level == 0);
+  (void) level; /* Unused - included for API compatibility */
+  
   /* Use const-friendly probe helper; centralizes the qualifier discard. */
   entry_ptr = find_hash_table_entry_c (table, id, 1);
   if (*entry_ptr == NULL)
@@ -105,6 +106,8 @@ int find_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
+  (void) level; /* Unused - included for API compatibility */
+  
   entry_ptr = find_hash_table_entry_c (table, id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)

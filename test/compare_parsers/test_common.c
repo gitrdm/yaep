@@ -75,7 +75,8 @@ void add_typedef (const char *id, int scope_level)
 {
   hash_table_entry_t *entry_ptr;
 
-  assert (scope_level == 0);
+  (void) scope_level; /* Unused - included for API compatibility */
+  
   entry_ptr = find_hash_table_entry (table, id, 1);
   if (*entry_ptr == NULL)
     {
@@ -99,6 +100,8 @@ int find_typedef (const char *id, int scope_level)
 {
   hash_table_entry_t *entry_ptr;
 
+  (void) scope_level; /* Unused - included for API compatibility */
+  
   entry_ptr = find_hash_table_entry (table, id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)
