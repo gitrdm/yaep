@@ -87,9 +87,11 @@ void add_typedef (const char *id, int level)
   assert (level == 0);
   entry_ptr = table->find_entry (id, 1);
   if (*entry_ptr == NULL)
-    /* implicit conversion from `const char *` to `const void *` is
-       allowed; avoid casting-away-const and keep intent clear */
-    *entry_ptr = id;
+    {
+      /* Store the identifier pointer.  The hash table stores mutable void* but
+         never mutates through it; cast away const exactly once here. */
+      *entry_ptr = const_cast<char*>(id);
+    }
   else
     assert (strcmp (id, (char *) *entry_ptr) == 0);
 #ifdef DEBUG

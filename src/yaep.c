@@ -644,10 +644,12 @@ static struct symb *
 symb_find_by_repr (const char *repr)
 {
   struct symb symb;
-
   symb.repr = repr;
-  return (struct symb *) *find_hash_table_entry (symbs_ptr->repr_to_symb_tab,
-						 &symb, FALSE);
+  /* find_hash_table_entry returns hash_table_entry_t*; underlying table stores (struct symb*).
+    The lookup key is on stack; returned entry already has correct (struct symb *) type.
+    Use intermediate pointer without discarding const. */
+  hash_table_entry_t *entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, FALSE);
+  return entry ? (struct symb *) *entry : NULL;
 }
 
 /* Return symbol (or NULL if it does not exist) which is terminal with
@@ -693,9 +695,9 @@ symb_find_by_code (int code)
   symb.term_p = TRUE;
   symb.u.term.code = code;
   {
-    hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
-                                                   &symb, FALSE);
-    struct symb *res = (struct symb *) *e;
+  hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
+                           &symb, FALSE);
+  struct symb *res = e ? (struct symb *) *e : NULL;
     if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
       {
         fprintf (stderr, "YAEP_DEBUG_SYMB_FIND_BY_CODE code=%d entry=%p res=%p\n",
@@ -2091,15 +2093,16 @@ static hash_table_t set_term_lookahead_tab;	/* key is (core, distances, lookeahe
 static unsigned
 set_core_hash (hash_table_entry_t s)
 {
-  return ((struct set *) s)->core->hash;
+  const struct set *cs = (const struct set *) s;
+  return cs->core->hash;
 }
 
 /* Equality of set cores. */
 static int
 set_core_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct set_core *set_core1 = ((struct set *) s1)->core;
-  struct set_core *set_core2 = ((struct set *) s2)->core;
+  const struct set_core *set_core1 = ((const struct set *) s1)->core;
+  const struct set_core *set_core2 = ((const struct set *) s2)->core;
   struct sit **sit_ptr1, **sit_ptr2, **sit_bound1;
 
   if (set_core1->n_start_sits != set_core2->n_start_sits)
@@ -2117,16 +2120,19 @@ set_core_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 static unsigned
 dists_hash (hash_table_entry_t s)
 {
-  return ((struct set *) s)->dists_hash;
+  const struct set *cs = (const struct set *) s;
+  return cs->dists_hash;
 }
 
 /* Equality of distances. */
 static int
 dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  int *dists1 = ((struct set *) s1)->dists;
-  int *dists2 = ((struct set *) s2)->dists;
-  int n_dists = ((struct set *) s1)->core->n_start_sits;
+  const struct set *set1c = (const struct set *) s1;
+  const struct set *set2c = (const struct set *) s2;
+  int *dists1 = set1c->dists;
+  int *dists2 = set2c->dists;
+  int n_dists = set1c->core->n_start_sits;
   int *bound;
 
   if (n_dists != ((struct set *) s2)->core->n_start_sits)
@@ -2149,10 +2155,12 @@ set_core_dists_hash (hash_table_entry_t s)
 static int
 set_core_dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct set_core *set_core1 = ((struct set *) s1)->core;
-  struct set_core *set_core2 = ((struct set *) s2)->core;
-  int *dists1 = ((struct set *) s1)->dists;
-  int *dists2 = ((struct set *) s2)->dists;
+  const struct set *set1c = (const struct set *) s1;
+  const struct set *set2c = (const struct set *) s2;
+  const struct set_core *set_core1 = set1c->core;
+  const struct set_core *set_core2 = set2c->core;
+  int *dists1 = set1c->dists;
+  int *dists2 = set2c->dists;
 
   return set_core1 == set_core2 && dists1 == dists2;
 }
@@ -2161,11 +2169,17 @@ set_core_dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 static unsigned
 set_term_lookahead_hash (hash_table_entry_t s)
 {
-  struct set *set = ((struct set_term_lookahead *) s)->set;
-  struct symb *term = ((struct set_term_lookahead *) s)->term;
-  int lookahead = ((struct set_term_lookahead *) s)->lookahead;
-
-  return ((set_core_dists_hash (set) * hash_shift
+  const struct set_term_lookahead *triple = (const struct set_term_lookahead *) s;
+  const struct set *set = triple->set;
+  const struct symb *term = triple->term;
+  int lookahead = triple->lookahead;
+  /* NOTE: after changing hash_table_entry_t to 'void *' (was effectively
+     'const void *' previously via pervasive casts) we must explicitly cast
+     away 'const' when passing read-only pointers to helper hash functions
+     that take hash_table_entry_t. These helpers do not mutate the object; the
+     cast simply restores prior permissive behavior under C while keeping the
+     C++ compiler satisfied. */
+  return ((set_core_dists_hash ((hash_table_entry_t)(void*) set) * hash_shift
 	   + term->u.term.term_num) * hash_shift + lookahead);
 }
 
@@ -2173,12 +2187,14 @@ set_term_lookahead_hash (hash_table_entry_t s)
 static int
 set_term_lookahead_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct set *set1 = ((struct set_term_lookahead *) s1)->set;
-  struct set *set2 = ((struct set_term_lookahead *) s2)->set;
-  struct symb *term1 = ((struct set_term_lookahead *) s1)->term;
-  struct symb *term2 = ((struct set_term_lookahead *) s2)->term;
-  int lookahead1 = ((struct set_term_lookahead *) s1)->lookahead;
-  int lookahead2 = ((struct set_term_lookahead *) s2)->lookahead;
+  const struct set_term_lookahead *t1 = (const struct set_term_lookahead *) s1;
+  const struct set_term_lookahead *t2 = (const struct set_term_lookahead *) s2;
+  const struct set *set1 = t1->set;
+  const struct set *set2 = t2->set;
+  const struct symb *term1 = t1->term;
+  const struct symb *term2 = t2->term;
+  int lookahead1 = t1->lookahead;
+  int lookahead2 = t2->lookahead;
 
   return set1 == set2 && term1 == term2 && lookahead1 == lookahead2;
 }
@@ -2512,9 +2528,8 @@ set_insert (void)
   if (*entry != NULL)
     {
       OS_TOP_NULLIFY (set_cores_os);
-      /* The stored set in the table is not modified here; access via
-         a const-qualified pointer to avoid casting away qualifiers. */
-      new_set->core = new_core = ((const struct set *) *entry)->core;
+    /* Reuse existing set core (hash table entry already stores mutable struct set*). */
+    new_set->core = new_core = ((struct set *) *entry)->core;
       new_sits = new_core->sits;
       OS_TOP_NULLIFY (set_sits_os);
       result = FALSE;
@@ -2544,7 +2559,7 @@ set_insert (void)
     }
   else
     {
-      new_set = (struct set *) *entry;
+  new_set = (struct set *) *entry;
       OS_TOP_NULLIFY (sets_os);
     }
 #else
@@ -6187,9 +6202,9 @@ traverse_pruned_translation (struct yaep_tree_node *node)
       break;
     case YAEP_ANODE:
       if (parse_free != NULL
-	  && *(entry = find_hash_table_entry (reserv_mem_tab,
-					      node->val.anode.name,
-					      TRUE)) == NULL)
+  && *(entry = find_hash_table_entry_c (reserv_mem_tab,
+               node->val.anode.name,
+               TRUE)) != NULL)
   /* Store the owned name pointer in the table; document the
      deliberate cast through void* as above. */
     	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
@@ -6236,12 +6251,12 @@ find_minimal_translation (struct yaep_tree_node *root)
       for (node_ptr = (struct yaep_tree_node **) VLO_BEGIN (tnodes_vlo);
 	   node_ptr < (struct yaep_tree_node **) VLO_BOUND (tnodes_vlo);
 	   node_ptr++)
-	if (*find_hash_table_entry (reserv_mem_tab, *node_ptr, TRUE) == NULL)
+  if (*find_hash_table_entry_c (reserv_mem_tab, *node_ptr, TRUE) == NULL)
 	   {
 	     if ((*node_ptr)->type == YAEP_ANODE
-		 && *find_hash_table_entry (reserv_mem_tab,
-					       (*node_ptr)->val.anode.name,
-					       TRUE) == NULL)
+       && *find_hash_table_entry_c (reserv_mem_tab,
+                  (*node_ptr)->val.anode.name,
+                  TRUE) == NULL)
 	       {
 		(*parse_free) ((void *) (*node_ptr)->val.anode.name);
 	       }

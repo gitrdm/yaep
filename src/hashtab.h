@@ -44,7 +44,15 @@
 
 /* The hash table element is represented by the following type. */
 
-typedef const void *hash_table_entry_t;
+/* Hash table entries are stored as void * (mutable).  We frequently need to
+   probe tables with a const-qualified pointer (e.g. a const char * key) even
+   though the table stores a non-const pointer.  To avoid pervasive casts that
+   discard qualifiers, keep the storage type mutable (void *) but provide
+   const-friendly probe helpers that take const void * and internally cast
+   away const without requiring every call site to do so.  This centralizes the
+   (well-defined) cast and quiets -Wcast-qual while preserving type safety at
+   the API boundary. */
+typedef void *hash_table_entry_t;
 
 
 #ifndef __cplusplus
@@ -104,7 +112,15 @@ extern void empty_hash_table (hash_table_t htab);
 extern void delete_hash_table (hash_table_t htab);
 
 extern hash_table_entry_t *find_hash_table_entry
-  (hash_table_t htab, hash_table_entry_t element, int reserve);
+   (hash_table_t htab, hash_table_entry_t element, int reserve);
+/* Const-qualified probe helper: identical semantics but takes const pointer. */
+inline hash_table_entry_t *
+find_hash_table_entry_c (hash_table_t htab, const void *element, int reserve)
+{
+   /* Safe: table never mutates memory through the element pointer, it only
+       hashes and compares it via user-supplied callbacks. */
+   return find_hash_table_entry (htab, (hash_table_entry_t) (void *) element, reserve);
+}
 
 extern void remove_element_from_hash_table_entry (hash_table_t htab,
                                                   hash_table_entry_t element);
@@ -198,9 +214,26 @@ public:
   /* Destructor. */
   ~hash_table (void);
 
-  void empty (void);
+   void empty (void);
 
-  hash_table_entry_t *find_entry (hash_table_entry_t element, int reserve);
+   /* Primary mutable probe */
+   hash_table_entry_t *find_entry (hash_table_entry_t element, int reserve);
+
+   /* Overload accepting a const-qualified element pointer.  This permits
+       calling code with const data (e.g. const char*) to probe the table
+       without performing a cast that discards qualifiers at each call site.
+       The table never mutates through the element pointer; it is only used
+       for hashing/equality, so the const_cast here is well-defined. */
+   inline hash_table_entry_t *find_entry (const void *element, int reserve)
+      {
+         return find_entry (static_cast<hash_table_entry_t>(const_cast<void*>(element)), reserve);
+      }
+
+   /* Named helper retained for symmetry with the C build. */
+   inline hash_table_entry_t *find_entry_c (const void *element, int reserve)
+      {
+         return find_entry (element, reserve);
+      }
   
   void remove_element_from_entry (hash_table_entry_t element);
 
@@ -258,6 +291,14 @@ private:
 };
 
 typedef class hash_table *hash_table_t;
+
+/* Free helper for const-qualified probe in C++ build to mirror the C helper.
+    Defined after class so we can delegate to its method. */
+inline hash_table_entry_t *
+find_hash_table_entry_c (hash_table_t htab, const void *element, int reserve)
+{
+   return htab->find_entry (element, reserve);
+}
 
 
 #endif /* #ifndef __cplusplus */
