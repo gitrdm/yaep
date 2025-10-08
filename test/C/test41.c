@@ -815,7 +815,7 @@ static const char *description =
 int main (int argc, char **argv)
 {
   ticker_t t;
-  int code, ambiguous_p;
+  int ambiguous_p;
   struct yaep_tree_node *root;
   struct grammar *g;
 #ifdef linux
