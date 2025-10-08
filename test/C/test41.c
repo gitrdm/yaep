@@ -119,6 +119,9 @@ int find_typedef (const char *id, int level)
   return *entry_ptr != NULL;
 }
 
+/* Forward declaration for lexer function */
+int get_lex (void);
+
 int
 get_lex (void)
 {

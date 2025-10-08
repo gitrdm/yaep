@@ -44,6 +44,9 @@ static int level = 0;
 #include "y.tab.c"
 #undef yylex
 
+/* Forward declaration for lexer function */
+int get_lex (void);
+
 int
 get_lex (void)
 {

@@ -100,6 +100,9 @@
 		   
 #include "test_common.c"
 
+/* Forward declaration for lexer function */
+int get_lex (void);
+
 int
 get_lex (void)
 {
