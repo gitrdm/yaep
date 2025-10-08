@@ -34,6 +34,51 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Option to enable strict warnings for C/C++ builds. This helps find
+# portability and correctness issues under C17/C++17.  Enabled by
+# default so the CI/devs see and can fix warnings; toggle off if you
+# need a noiseless build temporarily.
+option(YAEP_STRICT_WARNINGS "Enable strict compiler warnings (GCC/Clang)" ON)
+
+if (YAEP_STRICT_WARNINGS)
+	if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+		set(_yaep_c_warnings
+			-Wall
+			-Wextra
+			-Wpedantic
+			-Wconversion
+			-Wsign-conversion
+			-Wshadow
+			-Wcast-qual
+			-Wcast-align
+			-Wformat=2
+			-Wmissing-prototypes
+			-Wmissing-declarations
+			-Wstrict-prototypes
+		)
+		string (REPLACE ";" " " _yaep_c_warnings_str "${_yaep_c_warnings}")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_yaep_c_warnings_str}")
+	endif()
+
+	if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		set(_yaep_cxx_warnings
+			-Wall
+			-Wextra
+			-Wpedantic
+			-Wconversion
+			-Wsign-conversion
+			-Wshadow
+			-Wold-style-cast
+			-Wcast-qual
+			-Wcast-align
+			-Wformat=2
+			-Wmissing-declarations
+		)
+		string (REPLACE ";" " " _yaep_cxx_warnings_str "${_yaep_cxx_warnings}")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_yaep_cxx_warnings_str}")
+	endif()
+endif()
+
 include( GNUInstallDirs )
 
 add_subdirectory( src )

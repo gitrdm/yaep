@@ -48,6 +48,7 @@
 #ifdef __cplusplus
 #include <new>
 #endif
+#include <unistd.h>
 
 #include "allocate.h"
 #include "hashtab.h"
@@ -263,24 +264,27 @@ void yaep_free_grammar (struct grammar *g);
 /* Expand VLO to contain N_ELS integers.  Initilize the new elements
    as zero. Return TRUE if we really made an expansion.  */
 static int
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
 expand_int_vlo (vlo_t * vlo, int n_els)
 {
 #ifndef __cplusplus
-  int i, prev_n_els = VLO_LENGTH (*vlo) / sizeof (int);
+  size_t i, prev_n_els = VLO_LENGTH (*vlo) / sizeof (int);
 
-  if (prev_n_els >= n_els)
+  if ((int) prev_n_els >= n_els)
     return FALSE;
-  VLO_EXPAND (*vlo, (n_els - prev_n_els) * sizeof (int));
-  for (i = prev_n_els; i < n_els; i++)
+  VLO_EXPAND (*vlo, (n_els - (int) prev_n_els) * sizeof (int));
+  for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) VLO_BEGIN (*vlo))[i] = 0;
   return TRUE;
 #else
-  int i, prev_n_els = vlo->length () / sizeof (int);
+  size_t i, prev_n_els = vlo->length () / sizeof (int);
 
-  if (prev_n_els >= n_els)
+  if ((int) prev_n_els >= n_els)
     return FALSE;
-  vlo->expand ((n_els - prev_n_els) * sizeof (int));
-  for (i = prev_n_els; i < n_els; i++)
+  vlo->expand ((n_els - (int) prev_n_els) * sizeof (int));
+  for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) vlo->begin ())[i] = 0;
   return TRUE;
 #endif
@@ -1623,7 +1627,7 @@ tok_add (int code, void *attr)
             void *bt[32];
             int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
             fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", (void *) symb);
-            backtrace_symbols_fd (bt, n, fileno (stderr));
+            backtrace_symbols_fd (bt, n, STDERR_FILENO);
             fflush (stderr);
             /* Abort so ASan/runner reports the exact site in native tooling. */
             abort ();
@@ -1651,7 +1655,7 @@ tok_add (int code, void *attr)
             int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
             fprintf (stderr, "YAEP_DEBUG_SYMB_NOT_IN_VLO symb=%p toks=%p toks_len=%d n_symbs=%zu\n",
                      (void *) symb, (void *) toks, toks_len, n_symbs);
-            backtrace_symbols_fd (bt, n, fileno (stderr));
+            backtrace_symbols_fd (bt, n, STDERR_FILENO);
             fflush (stderr);
             abort ();
           }
@@ -2222,10 +2226,11 @@ sit_dist_insert (struct sit *sit, int dist)
 }
 
 /* Finish the set of pairs (sit, dist).  */
+#define sit_dist_set_fin sit_dist_set_fin
 static void
 sit_dist_set_fin (void)
 {
-  int i, len = VLO_LENGTH (sit_dist_vec_vlo) / sizeof (vlo_t);
+  size_t i, len = VLO_LENGTH (sit_dist_vec_vlo) / sizeof (vlo_t);
 
   for (i = 0; i < len; i++)
 #ifndef __cplusplus
@@ -2515,6 +2520,8 @@ static void
 set_print (FILE * f, struct set *set, int set_dist, int nonstart_p,
 	   int lookahead_p)
 {
+  /* set_dist is currently unused in some build configurations */
+  (void) set_dist;
   int i;
   int num, n_start_sits, n_sits, n_all_dists;
   struct sit **sits;
@@ -4387,7 +4394,8 @@ collect_core_symbols (void)
 static void
 form_transitive_transition_vectors (void)
 {
-  int i, j, k, sit_ind;
+  size_t i, j, k;
+  int sit_ind;
   struct symb *symb, *new_symb;
   struct sit *sit;
   struct core_symb_vect *core_symb_vect, *symb_core_symb_vect;
