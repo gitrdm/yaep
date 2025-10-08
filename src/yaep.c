@@ -456,7 +456,7 @@ symb_code_hash (hash_table_entry_t s)
   const struct symb *symb = ((const struct symb *) s);
 
   assert (symb->term_p);
-  return symb->u.term.code;
+  return (unsigned)symb->u.term.code;
 }
 
 /* Equality of terminal codes. */
@@ -2192,7 +2192,7 @@ set_term_lookahead_hash (hash_table_entry_t s)
   union { const struct set *cs; void *v; } u;
   u.cs = set;
   return ((set_core_dists_hash ((hash_table_entry_t) u.v) * hash_shift
-	   + term->u.term.term_num) * hash_shift + lookahead);
+	   + (unsigned)term->u.term.term_num) * hash_shift + (unsigned)lookahead);
 }
 
 /* Equality of tripes (set, term, lookahead). */
