@@ -1539,7 +1539,7 @@ rule_print (FILE * f, struct rule *rule, int trans_p)
 	  for (j = 0; j < rule->rhs_len; j++)
 	    if (rule->order[j] == i)
 	      {
-		fprintf (f, " %d:", j);
+		fprintf (f, " %ld:", (long) j);
 		symb_print (f, rule->rhs[j], FALSE);
 		break;
 	      }
@@ -5817,7 +5817,7 @@ trans_visit_node_hash (hash_table_entry_t n)
 }
 
 /* Equality of translation visit nodes. */
-int
+static int
 trans_visit_node_eq (hash_table_entry_t n1, hash_table_entry_t n2)
 {
   const struct trans_visit_node *tn1 = ((const struct trans_visit_node *) n1);
@@ -6182,7 +6182,7 @@ prune_to_minimal (struct yaep_tree_node *node, int *cost)
 static void
 traverse_pruned_translation (struct yaep_tree_node *node)
 {
-  struct yaep_tree_node *child, *alt;
+  struct yaep_tree_node *child;
   hash_table_entry_t *entry;
   int i;
 
