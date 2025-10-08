@@ -197,14 +197,19 @@ def read_grammar_from_lists(grammar_ptr, strict_p, terminals, rules):
     rules: list of dicts with keys:
         'lhs': str (nonterminal)
         'rhs': list[str] (symbols)
-        'abs_node': str? (abstract node name)
-        'anode_cost': int? (cost, default 1)
-        'transl': list[int]? (translation indexes, or None for NIL, or single int for reuse)
-
     Returns the YAEP return code (int).
     """
     # State to keep C arrays alive during callbacks
-    state = {'terminals': terminals, 'rules': rules, 'term_idx': 0, 'rule_idx': 0}
+    # CRITICAL: We must keep all C string allocations alive until yaep_read_grammar
+    # completes, otherwise YAEP will access freed memory (use-after-free bug).
+    # The 'keepalive' list ensures strings persist for the entire call.
+    state = {
+        'terminals': terminals,
+        'rules': rules,
+        'term_idx': 0,
+        'rule_idx': 0,
+        'keepalive': []  # Keep C strings alive
+    }
 
     @_ffi.callback("const char *(int *)")
     def read_terminal(code_ptr):
@@ -216,7 +221,11 @@ def read_grammar_from_lists(grammar_ptr, strict_p, terminals, rules):
             code_ptr[0] = int(code)
         else:
             code_ptr[0] = -1  # Let YAEP assign
-        return _ffi.new("char[]", name.encode('utf-8'))
+        
+        # Keep the C string alive by storing it in keepalive list
+        name_c = _ffi.new("char[]", name.encode('utf-8'))
+        state['keepalive'].append(name_c)
+        return name_c
 
     @_ffi.callback("const char *(const char ***, const char **, int *, int **)")  
     def read_rule(rhs_ptr, abs_node_ptr, anode_cost_ptr, transl_ptr):
@@ -225,17 +234,20 @@ def read_grammar_from_lists(grammar_ptr, strict_p, terminals, rules):
         rule = state['rules'][state['rule_idx']]
         state['rule_idx'] += 1
 
-        # RHS: array of strings
+        # RHS: array of strings - keep all C strings alive
         rhs = rule['rhs']
         rhs_c = [_ffi.new("char[]", s.encode('utf-8')) for s in rhs]
+        state['keepalive'].extend(rhs_c)  # Keep alive
         rhs_c.append(_ffi.NULL)  # End marker
         rhs_array = _ffi.new("const char *[]", rhs_c)
+        state['keepalive'].append(rhs_array)  # Keep alive
         rhs_ptr[0] = rhs_array
 
-        # abs_node
+        # abs_node - keep C string alive
         abs_node = rule.get('abs_node')
         if abs_node:
             abs_node_c = _ffi.new("char[]", abs_node.encode('utf-8'))
+            state['keepalive'].append(abs_node_c)  # Keep alive
             abs_node_ptr[0] = _ffi.cast("const char *", abs_node_c)
         else:
             abs_node_ptr[0] = _ffi.NULL
@@ -251,9 +263,13 @@ def read_grammar_from_lists(grammar_ptr, strict_p, terminals, rules):
         else:
             transl_c = [int(x) for x in transl] + [-1]  # End marker
             transl_array = _ffi.new("int[]", transl_c)
+            state['keepalive'].append(transl_array)  # Keep alive
             transl_ptr[0] = transl_array
 
-        return _ffi.new("char[]", rule['lhs'].encode('utf-8'))
+        # LHS - keep C string alive
+        lhs_c = _ffi.new("char[]", rule['lhs'].encode('utf-8'))
+        state['keepalive'].append(lhs_c)  # Keep alive
+        return lhs_c
 
     return int(_lib.yaep_read_grammar(grammar_ptr, int(strict_p), read_terminal, read_rule))
 
