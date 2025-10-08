@@ -193,7 +193,7 @@ loop:
 	}
 
 	if (c != 0)
-		/*putchar(c1)*/;
+		{ /*putchar(c1)*/; }
 }
 
 void
