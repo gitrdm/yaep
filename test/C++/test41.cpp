@@ -177,9 +177,9 @@ static os_t *mem_os;
 static void *
 test_parse_alloc (int size)
 {
+  // Use static_cast for size and document intent. No warning for void* return.
   void *result;
-
-  mem_os->top_expand (size);
+  mem_os->top_expand (static_cast<size_t>(size));
   result = mem_os->top_begin ();
   mem_os->top_finish ();
   return result;
@@ -191,13 +191,14 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_ignored_tok_num, void *start_ignored_tok_attr,
 		   int start_recovered_tok_num, void *start_recovered_tok_attr)
 {
+  // Use static_cast for pointer-to-int conversion, document intent.
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
   else
     fprintf
       (stderr,
        "Syntax error on token %d(ln %d):ignore %d tokens starting with token = %d\n",
-       err_tok_num, (int) (ptrdiff_t) err_tok_attr,
+       err_tok_num, static_cast<int>(reinterpret_cast<ptrdiff_t>(err_tok_attr)),
        start_recovered_tok_num - start_ignored_tok_num, start_ignored_tok_num);
 }
 
@@ -207,7 +208,8 @@ test_read_token (void **attr)
 {
   int code;
 
-  *attr = (void *) (ptrdiff_t) line;
+  // Use static_cast for int-to-pointer conversion, document intent.
+  *attr = reinterpret_cast<void *>(static_cast<ptrdiff_t>(line));
   code = get_lex ();
   if (code <= 0)
     return -1;
