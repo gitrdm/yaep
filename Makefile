@@ -106,11 +106,11 @@ OPTIONS=-Isrc -I$(srcdir)/src \
 
 # C compiler and its flag used for compilation of C files.
 CC = gcc
-CFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG 
+CFLAGS = -g  -std=c17 -Ofast $(OPTIONS) -DNDEBUG -fPIC
 
 # C++ compiler and its flag used for compilation of C++ files.
 CXX = g++
-CXXFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG
+CXXFLAGS = -g  -std=c++17 -Ofast $(OPTIONS) -DNDEBUG -fPIC
 
 # Yacc
 YACC=bison -y
@@ -199,22 +199,28 @@ additional_doc_files = yaep.sgml.in yaep_part.sgml.in\
 
 # All C object files
 Cobjects = $(Cdir)/allocate.o  $(Cdir)/vlobject.o  $(Cdir)/objstack.o $(Cdir)/hashtab.o \
-	$(Cdir)/yaep_unicode.o $(Cdir)/utf8proc.o
+	$(Cdir)/yaep_error.o $(Cdir)/yaep_unicode.o $(Cdir)/utf8proc.o
 Callobjects = $(Cobjects) $(Cdir)/yaep.o
 
 # All C++ object files
 Cppobjects = $(Cxxdir)/allocate.o  $(Cxxdir)/vlobject.o  $(Cxxdir)/objstack.o $(Cxxdir)/hashtab.o \
-	$(Cxxdir)/yaep_unicode.o $(Cxxdir)/utf8proc.o
+	$(Cxxdir)/yaep_error.o $(Cxxdir)/yaep_unicode.o $(Cxxdir)/utf8proc.o
 Cppallobjects = $(Cppobjects) $(Cxxdir)/yaep.o
 
 # C Library
 Clibrary = libyaep.a
+Csharedlibrary = libyaep.so
 
 # C++ Library
 Cpplibrary = libyaep++.a
+Cppsharedlibrary = libyaep++.so
+
+# Shared library version
+SOVERSION = 1
+VERSION = 1.0.0
 
 # Default entry
-all: $(Cdir)  $(Cxxdir)  src/$(Clibrary)  src/$(Cpplibrary) src/yaep_test src/yaep++_test
+all: $(Cdir)  $(Cxxdir)  src/$(Clibrary) src/$(Csharedlibrary) src/$(Cpplibrary) src/$(Cppsharedlibrary) src/yaep_test src/yaep++_test
 
 $(Cdir):
 	-mkdir -p $(Cdir)
@@ -227,8 +233,17 @@ src/$(Clibrary): $(Callobjects)
 	$(AR) rc src/$(Clibrary) $(Callobjects)
 	$(RANLIB) src/$(Clibrary)
 
+src/$(Csharedlibrary): $(Callobjects)
+	rm -f src/$(Csharedlibrary) src/$(Csharedlibrary).$(VERSION) src/$(Csharedlibrary).$(SOVERSION)
+	$(CC) -shared -Wl,-soname,$(Csharedlibrary).$(SOVERSION) -o src/$(Csharedlibrary).$(VERSION) $(Callobjects)
+	ln -sf $(Csharedlibrary).$(VERSION) src/$(Csharedlibrary).$(SOVERSION)
+	ln -sf $(Csharedlibrary).$(SOVERSION) src/$(Csharedlibrary)
+
 $(Cxxdir)/allocate.o: $(Cxxdir) $(Cdir)/allocate.o
 	cp $(Cdir)/allocate.o $(Cxxdir)
+
+$(Cxxdir)/yaep_error.o: $(Cxxdir) $(Cdir)/yaep_error.o
+	cp $(Cdir)/yaep_error.o $(Cxxdir)
 
 $(Cxxdir)/yaep_unicode.o: $(Cxxdir) $(Cdir)/yaep_unicode.o
 	cp $(Cdir)/yaep_unicode.o $(Cxxdir)
@@ -240,6 +255,12 @@ src/$(Cpplibrary): $(Cppallobjects)
 	rm -f src/$(Cpplibrary)
 	$(AR) rc src/$(Cpplibrary) $(Cppallobjects)
 	$(RANLIB) src/$(Cpplibrary)
+
+src/$(Cppsharedlibrary): $(Cppallobjects)
+	rm -f src/$(Cppsharedlibrary) src/$(Cppsharedlibrary).$(VERSION) src/$(Cppsharedlibrary).$(SOVERSION)
+	$(CXX) -shared -Wl,-soname,$(Cppsharedlibrary).$(SOVERSION) -o src/$(Cppsharedlibrary).$(VERSION) $(Cppallobjects)
+	ln -sf $(Cppsharedlibrary).$(VERSION) src/$(Cppsharedlibrary).$(SOVERSION)
+	ln -sf $(Cppsharedlibrary).$(SOVERSION) src/$(Cppsharedlibrary)
 
 src/sgramm.c: $(srcdir)/src/sgramm.y
 	$(YACC) $(srcdir)/src/sgramm.y
@@ -271,6 +292,12 @@ install: all
 	-mkdir -p $(libdir)
 	$(INSTALLDATA) src/$(Clibrary) $(libdir)/$(Clibrary)
 	$(INSTALLDATA) src/$(Cpplibrary) $(libdir)/$(Cpplibrary)
+	$(INSTALL) -m 755 src/$(Csharedlibrary).$(VERSION) $(libdir)/$(Csharedlibrary).$(VERSION)
+	ln -sf $(Csharedlibrary).$(VERSION) $(libdir)/$(Csharedlibrary).$(SOVERSION)
+	ln -sf $(Csharedlibrary).$(SOVERSION) $(libdir)/$(Csharedlibrary)
+	$(INSTALL) -m 755 src/$(Cppsharedlibrary).$(VERSION) $(libdir)/$(Cppsharedlibrary).$(VERSION)
+	ln -sf $(Cppsharedlibrary).$(VERSION) $(libdir)/$(Cppsharedlibrary).$(SOVERSION)
+	ln -sf $(Cppsharedlibrary).$(SOVERSION) $(libdir)/$(Cppsharedlibrary)
 	-mkdir -p $(includedir)
 	$(INSTALLDATA) $(srcdir)/src/yaep.h $(includedir)/yaep.h
 	-mkdir -p $(docdir)
@@ -287,6 +314,8 @@ install: all
 uninstall:
 	rm -f $(libdir)/$(Clibrary)
 	rm -f $(libdir)/$(Cpplibrary)
+	rm -f $(libdir)/$(Csharedlibrary) $(libdir)/$(Csharedlibrary).$(SOVERSION) $(libdir)/$(Csharedlibrary).$(VERSION)
+	rm -f $(libdir)/$(Cppsharedlibrary) $(libdir)/$(Cppsharedlibrary).$(SOVERSION) $(libdir)/$(Cppsharedlibrary).$(VERSION)
 	-rmdir $(libdir)
 	rm -f $(includedir)/yaep.h
 	-rmdir $(includedir)
@@ -308,7 +337,7 @@ uninstall:
 
 # Delete all temporary files and the libraries.
 clean:
-	rm -f $(Callobjects) src/$(Clibrary) $(Cppallobjects) src/$(Cpplibrary) src/yaep_test src/yaep++_test
+	rm -f $(Callobjects) src/$(Clibrary) src/$(Csharedlibrary) src/$(Csharedlibrary).* $(Cppallobjects) src/$(Cpplibrary) src/$(Cppsharedlibrary) src/$(Cppsharedlibrary).* src/yaep_test src/yaep++_test
 	cd test/C && make clean
 	cd test/C++ && make clean
 	rm -rf $(distdir) $(distdir).tar.gz
@@ -520,6 +549,8 @@ src/C/objstack.o: $(top_srcdir)/src/objstack.c  $(top_srcdir)/src/allocate.h  $(
 	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/objstack.c
 src/C/hashtab.o: $(top_srcdir)/src/hashtab.c  $(top_srcdir)/src/allocate.h  $(top_srcdir)/src/hashtab.h
 	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/hashtab.c
+src/C/yaep_error.o: $(top_srcdir)/src/yaep_error.c  $(top_srcdir)/src/yaep_error.h
+	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/yaep_error.c
 src/C/yaep_unicode.o: $(top_srcdir)/src/unicode/yaep_unicode.c  $(top_srcdir)/src/unicode/yaep_unicode.h  $(top_srcdir)/third_party/utf8proc/utf8proc.h
 	$(CC) -c $(CFLAGS) -o $@ $(top_srcdir)/src/unicode/yaep_unicode.c
 src/C/utf8proc.o: $(top_srcdir)/third_party/utf8proc/utf8proc.c  $(top_srcdir)/third_party/utf8proc/utf8proc.h  $(top_srcdir)/third_party/utf8proc/utf8proc_data.c

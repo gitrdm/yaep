@@ -26,7 +26,7 @@
 #
 
 CC = gcc
-CFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG 
+CFLAGS = -g  -std=c17 -Ofast $(OPTIONS) -DNDEBUG -fPIC
 
 srcdir = .
 top_srcdir = ../..

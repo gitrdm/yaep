@@ -26,7 +26,7 @@
 #
 
 CXX = g++
-CXXFLAGS = -g  -Ofast $(OPTIONS) -DNDEBUG
+CXXFLAGS = -g  -std=c++17 -Ofast $(OPTIONS) -DNDEBUG
 
 srcdir = .
 top_srcdir = ../..
