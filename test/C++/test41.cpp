@@ -39,6 +39,11 @@ extern "C" {
 #include "ansic.c"
 }
 
+/* Forward declarations to satisfy -Wmissing-declarations/-Wmissing-prototypes
+  and to make the intent explicit for maintainers. */
+static int get_lex (void);
+static int test_read_token (void **attr);
+
 static os_t *lexs;
 static struct lex *list;
 static struct lex *curr = NULL;
@@ -51,7 +56,9 @@ static hash_table_t table;
 static unsigned
 hash (hash_table_entry_t el)
 {
-  const char *id = (char *) el;
+  /* el is a `const void *` per the hash table API; use a C++ cast to
+     convert to `const char *` without discarding qualifiers. */
+  const char *id = static_cast<const char *> (el);
   unsigned result, i;
 
   for (result = i = 0;*id++ != '\0'; i++)
@@ -62,7 +69,9 @@ hash (hash_table_entry_t el)
 static int
 eq (hash_table_entry_t el1, hash_table_entry_t el2)
 {
-  return strcmp ((char *) el1, (char *) el2) == 0;
+  /* Compare two const-char strings stored as hash_table_entry_t */
+  return strcmp (static_cast<const char *> (el1),
+                 static_cast<const char *> (el2)) == 0;
 }
 
 static void initiate_typedefs( YaepAllocator * alloc ) {
@@ -78,7 +87,9 @@ void add_typedef (const char *id, int level)
   assert (level == 0);
   entry_ptr = table->find_entry (id, 1);
   if (*entry_ptr == NULL)
-    *entry_ptr = (hash_table_entry_t) id;
+    /* implicit conversion from `const char *` to `const void *` is
+       allowed; avoid casting-away-const and keep intent clear */
+    *entry_ptr = id;
   else
     assert (strcmp (id, (char *) *entry_ptr) == 0);
 #ifdef DEBUG
@@ -136,7 +147,8 @@ static void store_lexs( YaepAllocator * alloc ) {
     if (code == IDENTIFIER)
       {
         lexs->top_add_memory (get_yytext (), strlen (get_yytext ()) + 1);
-        lex.id = (char *) lexs->top_begin ();
+        /* top_begin returns void*; use static_cast in C++ to get char* */
+        lex.id = static_cast<char *> (lexs->top_begin ());
         lexs->top_finish ();
       }
     else
@@ -147,9 +159,10 @@ static void store_lexs( YaepAllocator * alloc ) {
     lex.next = NULL;
     lexs->top_add_memory (&lex, sizeof (lex));
     if (prev == NULL)
-      prev = list = (struct lex *) lexs->top_begin ();
+      /* Convert void* result from top_begin to struct lex* */
+      prev = list = static_cast<struct lex *> (lexs->top_begin ());
     else {
-      prev = prev->next = (struct lex *) lexs->top_begin ();
+      prev = prev->next = static_cast<struct lex *> (lexs->top_begin ());
     }
     lexs->top_finish ();
   }
