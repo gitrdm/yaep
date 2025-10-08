@@ -62,6 +62,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "allocate.h"
 
@@ -92,9 +93,16 @@ struct _os_auxiliary_struct
 
 /* This macro is auxiliary.  Its value is aligned address nearest to `a'. */
 
+#ifdef __cplusplus
+/* In C++ use uintptr_t and reinterpret_cast to avoid old-style-cast warnings. */
+#define _OS_ALIGNED_ADDRESS(a) \
+  (reinterpret_cast<void*>(((uintptr_t) ((char *) (a) + (_OS_ALIGNMENT - 1))) \
+                           & (~(uintptr_t) (_OS_ALIGNMENT - 1))))
+#else
 #define _OS_ALIGNED_ADDRESS(a)\
   ((void *) (((size_t) ((char *) (a) + (_OS_ALIGNMENT - 1)))\
              & (~(size_t) (_OS_ALIGNMENT - 1))))
+#endif
 
 /* This macro value is default size of memory segments which will be
    allocated for OS when the stack is created (with zero initial
@@ -388,7 +396,7 @@ public:
   inline void top_finish (void)
   {
     assert (os_top_object_start != NULL);
-    os_top_object_start = (char *) _OS_ALIGNED_ADDRESS (os_top_object_free);
+    os_top_object_start = reinterpret_cast<char *>(_OS_ALIGNED_ADDRESS (os_top_object_free));
     os_top_object_free = os_top_object_start;
   }
 
@@ -399,9 +407,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? os_top_object_free - os_top_object_start : (abort (), 0));
+            ? (size_t) (os_top_object_free - os_top_object_start) : (abort (), 0));
 #else
-    return (os_top_object_free - os_top_object_start);
+    return (size_t) (os_top_object_free - os_top_object_start);
 #endif
   }
 
@@ -413,9 +421,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? (void *) os_top_object_start : (abort (), (void *) 0));
+            ? reinterpret_cast<void *>(os_top_object_start) : (abort (), reinterpret_cast<void *>(0)));
 #else
-    return ((void *) os_top_object_start);
+    return reinterpret_cast<void *>(os_top_object_start);
 #endif
   }
 
@@ -427,9 +435,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? (void *) (os_top_object_free - 1) : (abort (), (void *) 0));
+            ? reinterpret_cast<void *>(os_top_object_free - 1) : (abort (), reinterpret_cast<void *>(0)));
 #else
-    return ((void *) (os_top_object_free - 1));
+    return reinterpret_cast<void *>(os_top_object_free - 1);
 #endif
   }
 
@@ -442,9 +450,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? (void *) os_top_object_free : (abort (), (void *) 0));
+            ? reinterpret_cast<void *>(os_top_object_free) : (abort (), reinterpret_cast<void *>(0)));
 #else
-    return ((void *) os_top_object_free);
+    return reinterpret_cast<void *>(os_top_object_free);
 #endif
   }
 
@@ -482,7 +490,7 @@ public:
     assert (os_top_object_start != NULL);
     if (os_top_object_free >= os_boundary)
       _OS_expand_memory (1);
-    *os_top_object_free++ = b;
+    *os_top_object_free++ = static_cast<char>(b);
   }
 
   /* This function adds memory bytes to the end of variable length
