@@ -4273,7 +4273,11 @@ yaep_read_grammar_internal (void *user)
   return 0;
 }
 
-#include "sgramm.c"
+#ifdef CMAKE_BINARY_DIR
+#  include "sgramm.c"
+#else
+#  include "../build/src/sgramm.c"
+#endif
 
 /* The following functions set up parameter which affect parser work
    and return the previous parameter value. */
