@@ -71,11 +71,11 @@ static void initiate_typedefs( YaepAllocator * alloc ) {
 
 /* Now we ignore level */
 static
-void add_typedef (const char *id, int level)
+void add_typedef (const char *id, int scope_level)
 {
   hash_table_entry_t *entry_ptr;
 
-  assert (level == 0);
+  assert (scope_level == 0);
   entry_ptr = find_hash_table_entry (table, id, 1);
   if (*entry_ptr == NULL)
     *entry_ptr = (hash_table_entry_t) id;
@@ -90,7 +90,7 @@ void add_typedef (const char *id, int level)
 inline
 #endif
 static
-int find_typedef (const char *id, int level)
+int find_typedef (const char *id, int scope_level)
 {
   hash_table_entry_t *entry_ptr;
 

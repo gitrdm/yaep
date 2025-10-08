@@ -47,19 +47,19 @@
 
 /* The constructor of OS with given initial segment length. */
 
-os::os (YaepAllocator * allocator, size_t initial_segment_length):os_alloc (allocator)
+os::os (YaepAllocator * allocator, size_t in_initial_segment_length):os_alloc (allocator)
 {
-  if (initial_segment_length == 0)
-    initial_segment_length = OS_DEFAULT_SEGMENT_LENGTH;
+  if (in_initial_segment_length == 0)
+    in_initial_segment_length = OS_DEFAULT_SEGMENT_LENGTH;
   os_current_segment =
     (_os_segment *) yaep_malloc (os_alloc,
-				 initial_segment_length + sizeof (_os_segment));
+				 in_initial_segment_length + sizeof (_os_segment));
   os_current_segment->os_previous_segment = NULL;
   os_top_object_start
     = (char *) _OS_ALIGNED_ADDRESS (os_current_segment->os_segment_contest);
   os_top_object_free = os_top_object_start;
-  os_boundary = os_top_object_start + initial_segment_length;
-  this->initial_segment_length = initial_segment_length;
+  os_boundary = os_top_object_start + in_initial_segment_length;
+  this->initial_segment_length = in_initial_segment_length;
 }
 
 /* The destructor frees memory allocated for OS. */

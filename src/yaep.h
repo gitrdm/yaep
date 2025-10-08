@@ -344,7 +344,7 @@ public:
 						     int **transl));
 
   /* See comments for function yaep_parse_grammar. */
-  int parse_grammar (int strict_p, const char *description);
+  int parse_grammar (int strict_p, const char *grammar_description);
 
   /* See comments for corresponding C functions. */
   int set_lookahead_level (int level);

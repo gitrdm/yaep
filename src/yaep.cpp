@@ -94,9 +94,9 @@ yaep::read_grammar (int strict_p,
 }
 
 int
-yaep::parse_grammar (int strict_p, const char *description)
+yaep::parse_grammar (int strict_p, const char *grammar_description)
 {
-  return yaep_parse_grammar (this->grammar, strict_p, description);
+  return yaep_parse_grammar (this->grammar, strict_p, grammar_description);
 }
 
 int

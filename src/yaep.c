@@ -60,6 +60,19 @@
 #include "yaep_macros.h"
 #include <execinfo.h>
 
+/* Cast helpers for C vs C++ compilation.
+   In C++, use static_cast to avoid -Wold-style-cast.
+   In C, use traditional C casts. */
+#ifdef __cplusplus
+# define STATIC_CAST(type, expr) static_cast<type>(expr)
+# define CONST_CAST(type, expr) const_cast<type>(expr)
+# define REINTERPRET_CAST(type, expr) reinterpret_cast<type>(expr)
+#else
+# define STATIC_CAST(type, expr) ((type)(expr))
+# define CONST_CAST(type, expr) ((type)(expr))
+# define REINTERPRET_CAST(type, expr) ((type)(expr))
+#endif
+
 /* Helper: number of elements stored in a VLO for element type `el`.
   Cast to size_t to avoid sign/width conversion warnings when used in
   size/loop index contexts. */
@@ -285,7 +298,7 @@ expand_int_vlo (vlo_t * vlo, int n_els)
   VLO_EXPAND (*vlo, (n_els - (int) prev_n_els) * sizeof (int));
   /* Cast n_els to size_t to avoid sign/width conversion warning. */
   for (i = prev_n_els; i < (size_t) n_els; i++)
-    ((int *) VLO_BEGIN (*vlo))[i] = 0;
+    STATIC_CAST(int *, VLO_BEGIN (*vlo))[i] = 0;
   return TRUE;
 #else
   size_t i, prev_n_els = vlo->length () / sizeof (int);
@@ -813,7 +826,7 @@ symb_get (int n)
   if (n < 0 || (VLO_LENGTH (symbs_ptr->symbs_vlo) / sizeof (struct symb *)
 		<= (size_t) n))
     return NULL;
-  symb = ((struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo))[n];
+  symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->symbs_vlo))[n];
   assert (symb->num == n);
   return symb;
 }
@@ -828,7 +841,7 @@ term_get (int n)
   if (n < 0 || (VLO_LENGTH (symbs_ptr->terms_vlo)
 		/ sizeof (struct symb *) <= (size_t) n))
     return NULL;
-  symb = ((struct symb **) VLO_BEGIN (symbs_ptr->terms_vlo))[n];
+  symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->terms_vlo))[n];
   assert (symb->term_p && symb->u.term.term_num == n);
   return symb;
 }
@@ -843,7 +856,7 @@ nonterm_get (int n)
   if (n < 0 || (VLO_LENGTH (symbs_ptr->nonterms_vlo) / sizeof (struct symb *)
 		<= (size_t) n))
     return NULL;
-  symb = ((struct symb **) VLO_BEGIN (symbs_ptr->nonterms_vlo))[n];
+  symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->nonterms_vlo))[n];
   assert (!symb->term_p && symb->u.nonterm.nonterm_num == n);
   return symb;
 }
@@ -2246,29 +2259,29 @@ sit_dist_insert (struct sit *sit, int dist)
       VLO_EXPAND (sit_dist_vec_vlo, (sit_number + 1 - len) * sizeof (vlo_t));
       for (i = len; i <= sit_number; i++)
 #ifndef __cplusplus
-	VLO_CREATE (((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[i],
+	VLO_CREATE (STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[i],
 		    grammar->alloc, 64);
 #else
-	((vlo_t **) VLO_BEGIN (sit_dist_vec_vlo))[i] =
+	STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[i] =
 	  new vlo (grammar->alloc, 64);
 #endif
     }
 #ifndef __cplusplus
-  check_dist_vlo = &((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
+  check_dist_vlo = &STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
   len = VLO_NELS (*check_dist_vlo, int);
   if (len <= dist)
     {
       /* Expand VLO to accommodate new distance, avoid conversion warnings. */
       VLO_EXPAND (*check_dist_vlo, (dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
-        ((int *) VLO_BEGIN (*check_dist_vlo))[i] = 0;
+        STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[i] = 0;
     }
-  if (((int *) VLO_BEGIN (*check_dist_vlo))[dist] == curr_sit_dist_vec_check)
+  if (STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[dist] == curr_sit_dist_vec_check)
     return FALSE;
-  ((int *) VLO_BEGIN (*check_dist_vlo))[dist] = curr_sit_dist_vec_check;
+  STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[dist] = curr_sit_dist_vec_check;
   return TRUE;
 #else
-  check_dist_vlo = ((vlo_t **) VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
+  check_dist_vlo = STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
   len = check_dist_vlo->length () / sizeof (int);
   if (len <= dist)
     {
@@ -2292,9 +2305,9 @@ sit_dist_set_fin (void)
 
   for (i = 0; i < len; i++)
 #ifndef __cplusplus
-    VLO_DELETE (((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[i]);
+    VLO_DELETE (STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[i]);
 #else
-    delete ((vlo_t **) VLO_BEGIN (sit_dist_vec_vlo))[i];
+    delete STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[i];
 #endif
   VLO_DELETE (sit_dist_vec_vlo);
 }
@@ -2750,12 +2763,12 @@ vlo_array_expand (void)
   if ((unsigned) vlo_array_len >= VLO_NELS (vlo_array, vlo_t))
     {
       VLO_EXPAND (vlo_array, sizeof (vlo_t));
-      vlo_ptr = &((vlo_t *) VLO_BEGIN (vlo_array))[vlo_array_len];
+      vlo_ptr = &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[vlo_array_len];
       VLO_CREATE (*vlo_ptr, grammar->alloc, 64);
     }
   else
     {
-      vlo_ptr = &((vlo_t *) VLO_BEGIN (vlo_array))[vlo_array_len];
+      vlo_ptr = &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[vlo_array_len];
       VLO_NULLIFY (*vlo_ptr);
     }
 #else
@@ -2795,7 +2808,7 @@ vlo_array_el (int index)
 {
   assert (index >= 0 && vlo_array_len > index);
 #ifndef __cplusplus
-  return &((vlo_t *) VLO_BEGIN (vlo_array))[index];
+  return &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[index];
 #else
   return ((vlo_t **) vlo_array->begin ())[index];
 #endif
@@ -4519,7 +4532,7 @@ form_transitive_transition_vectors (void)
   collect_core_symbols ();
   for (i = 0; i < VLO_NELS (core_symbols_vlo, struct symb *); i++)
     {
-      symb = ((struct symb **) VLO_BEGIN (core_symbols_vlo))[i];
+      symb = STATIC_CAST(struct symb **, VLO_BEGIN (core_symbols_vlo))[i];
       core_symb_vect = core_symb_vect_find (new_core, symb);
       if (core_symb_vect == NULL)
 	core_symb_vect = core_symb_vect_new (new_core, symb);
@@ -4531,7 +4544,7 @@ form_transitive_transition_vectors (void)
    j < VLO_NELS (core_symbol_queue_vlo, struct symb *);
    j++)
 	{
-	  symb = ((struct symb **) VLO_BEGIN (core_symbol_queue_vlo))[j];
+	  symb = STATIC_CAST(struct symb **, VLO_BEGIN (core_symbol_queue_vlo))[j];
 	  symb_core_symb_vect = core_symb_vect_find (new_core, symb);
 	  if (symb_core_symb_vect == NULL)
 	    continue;
@@ -4549,14 +4562,14 @@ form_transitive_transition_vectors (void)
 	      if (sit->empty_tail_p)
 		{
 		  new_symb = sit->rule->lhs;
-		  if (((int *) VLO_BEGIN (core_symbol_check_vlo))[new_symb->
+		  if (STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo))[new_symb->
 								  num] !=
 		      core_symbol_check)
 		    {
 		      /* Put the LHS symbol into queue.  */
 		      VLO_ADD_MEMORY (core_symbol_queue_vlo,
 				      &new_symb, sizeof (new_symb));
-		      ((int *) VLO_BEGIN (core_symbol_check_vlo))[new_symb->
+		      STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo))[new_symb->
 								  num] =
 			core_symbol_check;
 		    }
@@ -7293,7 +7306,7 @@ static int nrule;
 /* The following function imported by Earley's algorithm (see comments
    in the interface file). */
 const char *
-read_rule (const char ***rhs, const char **anode, int *anode_cost,
+read_rule (const char ***rhs, const char **anode, int *out_anode_cost,
 	   int **transl)
 {
   static const char *rhs_1[] = { "T", NULL };
@@ -7315,7 +7328,7 @@ read_rule (const char ***rhs, const char **anode, int *anode_cost,
     case 1:
       *rhs = rhs_1;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_1;
       return "E";
     case 2:
@@ -7326,7 +7339,7 @@ read_rule (const char ***rhs, const char **anode, int *anode_cost,
     case 3:
       *rhs = rhs_3;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_3;
       return "T";
     case 4:
@@ -7337,13 +7350,13 @@ read_rule (const char ***rhs, const char **anode, int *anode_cost,
     case 5:
       *rhs = rhs_5;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_5;
       return "F";
     case 6:
       *rhs = rhs_6;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_6;
       return "F";
     default:
