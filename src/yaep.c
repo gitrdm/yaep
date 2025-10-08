@@ -64,6 +64,7 @@
   Cast to size_t to avoid sign/width conversion warnings when used in
   size/loop index contexts. */
 #define VLO_NELS(vlo, el) ((size_t) (VLO_LENGTH (vlo) / sizeof (el)))
+/* Cast to size_t to avoid sign/width conversion warnings when used in size/loop index contexts. */
 
 
 /* If YAEP_FUZZ_WRITEBACKTRACES is set in the environment, print a short
@@ -277,9 +278,12 @@ expand_int_vlo (vlo_t * vlo, int n_els)
 #ifndef __cplusplus
   size_t i, prev_n_els = VLO_NELS (*vlo, int);
 
+  /* Cast prev_n_els to int to avoid sign/width conversion warning. */
   if ((int) prev_n_els >= n_els)
     return FALSE;
+  /* Cast prev_n_els to int to avoid sign/width conversion warning. */
   VLO_EXPAND (*vlo, (n_els - (int) prev_n_els) * sizeof (int));
+  /* Cast n_els to size_t to avoid sign/width conversion warning. */
   for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) VLO_BEGIN (*vlo))[i] = 0;
   return TRUE;
@@ -734,6 +738,11 @@ symb_add_term (const char *name, int code)
     parser owns; perform a deliberate cast through (void*) with a
     comment so future maintainers understand we are not discarding
     const accidentally but intentionally storing owned mutable data. */
+  /* The hash table API stores entries as 'const void *'.  Here we
+    insert newly-allocated mutable objects into the table which the
+    parser owns; perform a deliberate cast through (void*) with a
+    comment so future maintainers understand we are not discarding
+    const accidentally but intentionally storing owned mutable data. */
   *repr_entry = (hash_table_entry_t) (void *) result;
   *code_entry = (hash_table_entry_t) (void *) result;
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-symbs", result);
@@ -772,6 +781,9 @@ symb_add_nonterm (const char *name)
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
   result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
+  /* See note above about deliberate cast-through-void: we store an
+    owned, mutable struct symb pointer in the table (table's public
+    typedef is const-qualified). */
   /* See note above about deliberate cast-through-void: we store an
     owned, mutable struct symb pointer in the table (table's public
     typedef is const-qualified). */
@@ -1251,6 +1263,8 @@ term_set_insert (term_set_el_t * set)
       tab_term_set_ptr =
 	(struct tab_term_set *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
       OS_TOP_FINISH (term_sets_ptr->term_set_os);
+    /* Insert owned tab_term_set_ptr into the table. Cast through
+      (void*) to make the intention explicit and avoid warnings. */
     /* Insert owned tab_term_set_ptr into the table. Cast through
       (void*) to make the intention explicit and avoid warnings. */
     *entry = (hash_table_entry_t) (void *) tab_term_set_ptr;
@@ -1819,6 +1833,7 @@ sit_create (struct rule *rule, int pos, int context)
 
   assert (context >= 0);
   context_sit_table_ptr = sit_table + context;
+  /* Cast pointers to char* for pointer arithmetic, as required by C standard. */
   if ((char *) context_sit_table_ptr >= (char *) VLO_BOUND (sit_table_vlo))
     {
       struct sit ***bound, ***ptr;
@@ -1826,8 +1841,8 @@ sit_create (struct rule *rule, int pos, int context)
 
       assert ((grammar->lookahead_level <= 1 && context == 0)
 	      || (grammar->lookahead_level > 1 && context >= 0));
-      diff
-	= (char *) context_sit_table_ptr - (char *) VLO_BOUND (sit_table_vlo);
+    /* Compute difference in bytes between pointers. */
+    diff = (int)((uintptr_t)context_sit_table_ptr - (uintptr_t)VLO_BOUND (sit_table_vlo));
       diff += sizeof (struct sit **);
       if (grammar->lookahead_level > 1 && diff == sizeof (struct sit **))
 	diff *= 10;
@@ -2227,9 +2242,10 @@ sit_dist_insert (struct sit *sit, int dist)
   len = VLO_NELS (*check_dist_vlo, int);
   if (len <= dist)
     {
+      /* Expand VLO to accommodate new distance, avoid conversion warnings. */
       VLO_EXPAND (*check_dist_vlo, (dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
-	((int *) VLO_BEGIN (*check_dist_vlo))[i] = 0;
+        ((int *) VLO_BEGIN (*check_dist_vlo))[i] = 0;
     }
   if (((int *) VLO_BEGIN (*check_dist_vlo))[dist] == curr_sit_dist_vec_check)
     return FALSE;
@@ -2351,8 +2367,10 @@ static void
 set_new_add_start_sit (struct sit *sit, int dist)
 {
   assert (!new_set_ready_p);
+  /* Expand object stack for new distance entry. */
   OS_TOP_EXPAND (set_dists_os, sizeof (int));
   new_dists = (int *) OS_TOP_BEGIN (set_dists_os);
+  /* Expand object stack for new sit pointer. */
   OS_TOP_EXPAND (set_sits_os, sizeof (struct sit *));
   new_sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
   new_sits[new_n_start_sits] = sit;
@@ -2477,6 +2495,8 @@ set_insert (void)
       OS_TOP_FINISH (set_dists_os);
     /* new_set is owned and mutable; store it in the table via a
       deliberate cast to hash_table_entry_t (through void*). */
+    /* new_set is owned and mutable; store it in the table via a
+      deliberate cast to hash_table_entry_t (through void*). */
     *entry = (hash_table_entry_t) (void *) new_set;
       n_set_dists++;
       n_set_dists_len += new_n_start_sits;
@@ -2506,6 +2526,7 @@ set_insert (void)
       new_core->n_sits = new_n_start_sits;
       new_core->n_all_dists = new_n_start_sits;
       new_core->parent_indexes = NULL;
+  /* See above: store owned mutable set in hash table. */
   /* See above: store owned mutable set in hash table. */
   *entry = (hash_table_entry_t) (void *) new_set;
       n_set_core_start_sits += new_n_start_sits;
