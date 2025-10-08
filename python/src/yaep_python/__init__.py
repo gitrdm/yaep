@@ -1,17 +1,15 @@
 from . import _cffi
 from typing import Iterable, Optional, Tuple, Any, List, Dict, Callable
 
-# YAEP public error codes (a few are mirrored here for convenience)
-YAEP_INVALID_UTF8 = 18
+# NOTE: The current YAEP C library does not have UTF-8 validation support.
+# UTF-8 validation was previously implemented but was removed due to segfaults
+# and memory leaks. Error codes only go up to YAEP_INVALID_TOKEN_CODE (17).
+# The YAEP_INVALID_UTF8 error code (18) and YaepInvalidUTF8Error exception
+# have been removed to match the actual C library capabilities.
 
 
 class YaepError(Exception):
 	"""Base class for YAEP-related exceptions."""
-
-
-class YaepInvalidUTF8Error(YaepError):
-	"""Raised when YAEP reports invalid UTF-8 in input bytes."""
-	pass
 
 
 class ParseNode:
@@ -82,11 +80,14 @@ class Grammar:
 		return int(_cffi.parse_grammar(self._g, strict, description))
 
 	def parse_description_bytes(self, buf: bytes, strict: bool = True) -> int:
-		rc = int(_cffi.parse_grammar_bytes(self._g, strict, buf))
-		if rc == YAEP_INVALID_UTF8:
-			# Raise a richer Python exception with YAEP's diagnostic message
-			raise YaepInvalidUTF8Error(self.error_message() or "YAEP_INVALID_UTF8")
-		return rc
+		"""Parse a grammar description from raw bytes.
+		
+		Note: The current YAEP C library does not perform UTF-8 validation.
+		Invalid byte sequences will be passed through to the parser which may
+		treat them as regular characters. Previous versions of YAEP had UTF-8
+		validation but it was removed due to bugs.
+		"""
+		return int(_cffi.parse_grammar_bytes(self._g, strict, buf))
 
 	def parse(self, tokens: Iterable[int]) -> Tuple[int, Optional[ParseTree], Optional[Tuple[int, int, int]]]:
 		"""Parse a stream of integer token codes.

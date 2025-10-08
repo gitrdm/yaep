@@ -254,7 +254,7 @@ src/sgramm.c: $(srcdir)/src/sgramm.y
 	mv y.tab.c $@
 
 # Test the packages.
-test: all test-c test-cpp test-speed
+test: all test-c test-cpp test-speed test-python
 
 src/yaep_test: $(Cobjects)
 	   $(CC) $(CFLAGS) -DYAEP_TEST -DYAEP_DEBUG $(Cobjects) $(top_srcdir)/src/yaep.c -o $@
@@ -272,6 +272,27 @@ yaepcpp-tst: src/yaep++_test
 
 test-speed:
 	cd test/compare_parsers && $(SHELL) compare_parsers.sh
+
+# Test Python wrapper if available
+test-python:
+	@if [ -d "$(srcdir)/python" ] && command -v python3 >/dev/null 2>&1; then \
+		echo "Running Python wrapper tests..."; \
+		cd $(srcdir)/python && \
+		python3 -c "import pytest" 2>/dev/null && \
+		{ \
+			echo "Installing yaep_python in development mode..."; \
+			python3 -m pip install -e . --quiet && \
+			echo "Running all Python tests..."; \
+			LD_LIBRARY_PATH=$(abs_builddir)/src:$$LD_LIBRARY_PATH \
+			python3 -m pytest tests/ -v || exit 1; \
+		} || echo "pytest not found - skipping Python tests (install with: pip install pytest)"; \
+	elif [ ! -d "$(srcdir)/python" ]; then \
+		echo "Python wrapper not found - skipping Python tests"; \
+	else \
+		echo "Python3 not found - skipping Python tests"; \
+	fi
+
+.PHONY: test-python
 
 # Creation of installation directories and the library of reusable
 # functions, header files, and their man files to target directories.

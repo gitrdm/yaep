@@ -2684,7 +2684,10 @@ static void
 pl_fin (void)
 {
   if (pl != NULL)
-    yaep_free (grammar->alloc, pl);
+    {
+      yaep_free (grammar->alloc, pl);
+      pl = NULL;  /* Prevent double-free */
+    }
 }
 
 

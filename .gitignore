@@ -65,3 +65,17 @@ test/*.out
 test/*_test
 test/*_dbg
 
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.eggs/
+dist/
+build/
+*.egg
+.tox/
+.coverage
+.coverage.*
+htmlcov/

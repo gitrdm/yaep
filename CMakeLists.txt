@@ -84,3 +84,8 @@ include( GNUInstallDirs )
 add_subdirectory( src )
 add_subdirectory( test )
 add_subdirectory( doc )
+
+# Add Python wrapper tests if the python/ directory exists
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/python/CMakeLists.txt")
+	add_subdirectory( python )
+endif()
