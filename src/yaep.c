@@ -411,8 +411,10 @@ static int vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc,
 static unsigned
 symb_repr_hash (hash_table_entry_t s)
 {
+  /* Read-only access to symbol repr; use const pointer to make
+     intent explicit and avoid casting away const elsewhere. */
   unsigned result = jauquet_prime_mod32;
-  const char *str = ((struct symb *) s)->repr;
+  const char *str = ((const struct symb *) s)->repr;
   int i;
 
   for (i = 0; str[i] != '\0'; i++)
@@ -424,14 +426,17 @@ symb_repr_hash (hash_table_entry_t s)
 static int
 symb_repr_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  return strcmp (((struct symb *) s1)->repr, ((struct symb *) s2)->repr) == 0;
+  const struct symb *a = ((const struct symb *) s1);
+  const struct symb *b = ((const struct symb *) s2);
+  return strcmp (a->repr, b->repr) == 0;
 }
 
 /* Hash of terminal code. */
 static unsigned
 symb_code_hash (hash_table_entry_t s)
 {
-  struct symb *symb = ((struct symb *) s);
+  /* Only reads the symbol structure to obtain its code. */
+  const struct symb *symb = ((const struct symb *) s);
 
   assert (symb->term_p);
   return symb->u.term.code;
@@ -441,8 +446,8 @@ symb_code_hash (hash_table_entry_t s)
 static int
 symb_code_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct symb *symb1 = ((struct symb *) s1);
-  struct symb *symb2 = ((struct symb *) s2);
+  const struct symb *symb1 = ((const struct symb *) s1);
+  const struct symb *symb2 = ((const struct symb *) s2);
 
   assert (symb1->term_p && symb2->term_p);
   return symb1->u.term.code == symb2->u.term.code;
@@ -959,13 +964,15 @@ struct term_sets
 static unsigned
 term_set_hash (hash_table_entry_t s)
 {
-  term_set_el_t *set = ((struct tab_term_set *) s)->set;
-  term_set_el_t *bound;
+  /* Read-only access to the term-set bits; keep pointers const to
+     avoid casting away qualifiers at call sites. */
+  const term_set_el_t *set = ((const struct tab_term_set *) s)->set;
+  const term_set_el_t *bound;
   int size;
   unsigned result = jauquet_prime_mod32;
 
   size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+    / (CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     result = result * hash_shift + *set++;
@@ -976,13 +983,13 @@ term_set_hash (hash_table_entry_t s)
 static int
 term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  term_set_el_t *set1 = ((struct tab_term_set *) s1)->set;
-  term_set_el_t *set2 = ((struct tab_term_set *) s2)->set;
-  term_set_el_t *bound;
+  const term_set_el_t *set1 = ((const struct tab_term_set *) s1)->set;
+  const term_set_el_t *set2 = ((const struct tab_term_set *) s2)->set;
+  const term_set_el_t *bound;
   int size;
 
   size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+    / (CHAR_BIT * sizeof (term_set_el_t)));
   bound = set1 + size;
   while (set1 < bound)
     if (*set1++ != *set2++)
@@ -2886,28 +2893,32 @@ static hash_table_t reduce_els_tab;	/* key is elements. */
 static unsigned
 core_symb_vect_hash (hash_table_entry_t t)
 {
-  struct core_symb_vect *core_symb_vect = (struct core_symb_vect *) t;
+  /* Read-only hash computation for core_symb_vect. */
+  const struct core_symb_vect *core_symb_vect = (const struct core_symb_vect *) t;
 
   return ((jauquet_prime_mod32 * hash_shift
-	   + (unsigned) core_symb_vect->set_core) * hash_shift
-	  + (unsigned) core_symb_vect->symb);
+     + (unsigned) core_symb_vect->set_core) * hash_shift
+    + (unsigned) core_symb_vect->symb);
 }
 
 /* Equality of core_symb_vects. */
 static int
 core_symb_vect_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  struct core_symb_vect *core_symb_vect1 = (struct core_symb_vect *) t1;
-  struct core_symb_vect *core_symb_vect2 = (struct core_symb_vect *) t2;
+  const struct core_symb_vect *core_symb_vect1 = (const struct core_symb_vect *) t1;
+  const struct core_symb_vect *core_symb_vect2 = (const struct core_symb_vect *) t2;
 
   return (core_symb_vect1->set_core == core_symb_vect2->set_core
-	  && core_symb_vect1->symb == core_symb_vect2->symb);
+    && core_symb_vect1->symb == core_symb_vect2->symb);
 }
 #endif
 
-/* Return hash of vector V.  */
+/* Return hash of vector V.  
+   This function does not modify the vect contents, so accept a const
+   pointer to avoid forcing callers with const data to cast away
+   qualifiers. */
 static unsigned
-vect_els_hash (struct vect *v)
+vect_els_hash (const struct vect *v)
 {
   unsigned result = jauquet_prime_mod32;
   int i;
@@ -2917,9 +2928,11 @@ vect_els_hash (struct vect *v)
   return result;
 }
 
-/* Return TRUE if V1 is equal to V2.  */
-static unsigned
-vect_els_eq (struct vect *v1, struct vect *v2)
+/* Return TRUE if V1 is equal to V2.  
+   Read-only comparison; accept const pointers so callers with const
+   vectors don't need to cast. */
+static int
+vect_els_eq (const struct vect *v1, const struct vect *v2)
 {
   int i;
   if (v1->len != v2->len)
@@ -2935,15 +2948,17 @@ vect_els_eq (struct vect *v1, struct vect *v2)
 static unsigned
 transition_els_hash (hash_table_entry_t t)
 {
-  return vect_els_hash (&((struct core_symb_vect *) t)->transitions);
+  const struct core_symb_vect *cv = (const struct core_symb_vect *) t;
+  return vect_els_hash (&cv->transitions);
 }
 
 /* Equality of transition vector elements. */
 static int
 transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  return vect_els_eq (&((struct core_symb_vect *) t1)->transitions,
-		      &((struct core_symb_vect *) t2)->transitions);
+  const struct core_symb_vect *cv1 = (const struct core_symb_vect *) t1;
+  const struct core_symb_vect *cv2 = (const struct core_symb_vect *) t2;
+  return vect_els_eq (&cv1->transitions, &cv2->transitions);
 }
 
 #ifdef TRANSITIVE_TRANSITION
@@ -5551,27 +5566,32 @@ static hash_table_t parse_state_tab;	/* Key is rule, orig, pl_ind. */
 static unsigned
 parse_state_hash (hash_table_entry_t s)
 {
-  struct parse_state *state = ((struct parse_state *) s);
+  /* Treat the incoming entry as const because the hash function only
+     reads fields; this avoids casting away const at call sites and
+     documents that we won't mutate the stored object here. */
+  const struct parse_state *state = ((const struct parse_state *) s);
 
   /* The table contains only states with dot at the end of rule. */
   assert (state->pos == state->rule->rhs_len);
   return (((jauquet_prime_mod32 * hash_shift +
-	    (unsigned) (size_t) state->rule) * hash_shift +
-	   state->orig) * hash_shift + state->pl_ind);
+      (unsigned) (size_t) state->rule) * hash_shift +
+     state->orig) * hash_shift + state->pl_ind);
 }
 
 /* Equality of parse states. */
 static int
 parse_state_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct parse_state *state1 = ((struct parse_state *) s1);
-  struct parse_state *state2 = ((struct parse_state *) s2);
+  /* Equality comparison only reads the structures; keep pointers const
+     to avoid casting away qualifiers and to make intent explicit. */
+  const struct parse_state *state1 = ((const struct parse_state *) s1);
+  const struct parse_state *state2 = ((const struct parse_state *) s2);
 
   /* The table contains only states with dot at the end of rule. */
   assert (state1->pos == state1->rule->rhs_len
-	  && state2->pos == state2->rule->rhs_len);
+    && state2->pos == state2->rule->rhs_len);
   return (state1->rule == state2->rule && state1->orig == state2->orig
-	  && state1->pl_ind == state2->pl_ind);
+    && state1->pl_ind == state2->pl_ind);
 }
 
 /* The following function initializes work with parser states. */
@@ -5703,15 +5723,19 @@ static int n_trans_visit_nodes;
 static unsigned
 trans_visit_node_hash (hash_table_entry_t n)
 {
-  return (size_t) ((struct trans_visit_node *) n)->node;
+  /* The hash only needs to read the node pointer; use a const view to
+     avoid casting away qualifiers and to make intent explicit. */
+  const struct trans_visit_node *tn = ((const struct trans_visit_node *) n);
+  return (size_t) tn->node;
 }
 
 /* Equality of translation visit nodes. */
-static int
+int
 trans_visit_node_eq (hash_table_entry_t n1, hash_table_entry_t n2)
 {
-  return (((struct trans_visit_node *) n1)->node
-	  == ((struct trans_visit_node *) n2)->node);
+  const struct trans_visit_node *tn1 = ((const struct trans_visit_node *) n1);
+  const struct trans_visit_node *tn2 = ((const struct trans_visit_node *) n2);
+  return (tn1->node == tn2->node);
 }
 
 /* The following function checks presence translation visit node with
