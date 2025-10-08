@@ -305,7 +305,7 @@ expand_int_vlo (vlo_t * vlo, int n_els)
 
   if ((int) prev_n_els >= n_els)
     return FALSE;
-  vlo->expand ((n_els - (int) prev_n_els) * sizeof (int));
+  vlo->expand ((size_t)((n_els - (int) prev_n_els) * sizeof (int)));
   for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) vlo->begin ())[i] = 0;
   return TRUE;
@@ -1151,7 +1151,7 @@ term_set_create (void)
   size = 8;
   /* Make it 64 bit multiple to have the same statistics for 64 bit
      machines. */
-  size = ((symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8;
+  size = (size_t)(((symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8);
   OS_TOP_EXPAND (term_sets_ptr->term_set_os, size);
   result = (term_set_el_t *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
   OS_TOP_FINISH (term_sets_ptr->term_set_os);
@@ -1861,7 +1861,7 @@ sit_create (struct rule *rule, int pos, int context)
       diff += (int)sizeof (struct sit **);
       if (grammar->lookahead_level > 1 && diff == (int)sizeof (struct sit **))
 	diff *= 10;
-      VLO_EXPAND (sit_table_vlo, diff);
+      VLO_EXPAND (sit_table_vlo, (size_t)diff);
       sit_table = (struct sit ***) VLO_BEGIN (sit_table_vlo);
       bound = (struct sit ***) VLO_BOUND (sit_table_vlo);
       context_sit_table_ptr = sit_table + context;
@@ -2284,7 +2284,7 @@ sit_dist_insert (struct sit *sit, int dist)
   len = check_dist_vlo->length () / sizeof (int);
   if (len <= dist)
     {
-      check_dist_vlo->expand ((dist + 1 - len) * sizeof (int));
+      check_dist_vlo->expand ((size_t)((dist + 1 - len) * sizeof (int)));
       for (i = len; i <= dist; i++)
 	((int *) check_dist_vlo->begin ())[i] = 0;
     }
@@ -2349,13 +2349,13 @@ set_init (int n_toks)
   set_core_tab =
     create_hash_table (grammar->alloc, 2000, set_core_hash, set_core_eq);
   set_dists_tab =
-    create_hash_table (grammar->alloc, n < 20000 ? 20000 : n, dists_hash,
+    create_hash_table (grammar->alloc, (size_t)(n < 20000 ? 20000 : n), dists_hash,
 		       dists_eq);
   set_tab =
-    create_hash_table (grammar->alloc, n < 20000 ? 20000 : n,
+    create_hash_table (grammar->alloc, (size_t)(n < 20000 ? 20000 : n),
 		       set_core_dists_hash, set_core_dists_eq);
   set_term_lookahead_tab =
-    create_hash_table (grammar->alloc, n < 30000 ? 30000 : n,
+    create_hash_table (grammar->alloc, (size_t)(n < 30000 ? 30000 : n),
 		       set_term_lookahead_hash, set_term_lookahead_eq);
   n_set_cores = n_set_core_start_sits = 0;
   n_set_dists = n_set_dists_len = n_parent_indexes = 0;
@@ -2473,7 +2473,7 @@ setup_set_dists_hash (hash_table_entry_t s)
   dist_bound = dist_ptr + n_dists;
   result = jauquet_prime_mod32;
   while (dist_ptr < dist_bound)
-    result = result * hash_shift + *dist_ptr++;
+    result = result * hash_shift + (unsigned)*dist_ptr++;
   set->dists_hash = result;
 }
 
@@ -2996,7 +2996,7 @@ vect_els_hash (const struct vect *v)
   int i;
 
   for (i = 0; i < v->len; i++)
-    result = result * hash_shift + v->els[i];
+    result = result * hash_shift + (unsigned)v->els[i];
   return result;
 }
 
@@ -3201,24 +3201,24 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
       core_symb_vect_ptr = core_symb_table + set_core->num;
       bound = (struct core_symb_vect ***) VLO_BOUND (core_symb_table_vlo);
 #else
-      core_symb_table_vlo->expand (diff);
+      core_symb_table_vlo->expand ((size_t)diff);
       core_symb_table
 	= (struct core_symb_vect ***) core_symb_table_vlo->begin ();
       core_symb_vect_ptr = core_symb_table + set_core->num;
       bound = (struct core_symb_vect ***) core_symb_table_vlo->bound ();
 #endif
-      ptr = bound - diff / sizeof (struct core_symb_vect **);
+      ptr = bound - diff / (int)sizeof (struct core_symb_vect **);
       while (ptr < bound)
 	{
 #ifndef __cplusplus
 	  OS_TOP_EXPAND (core_symb_tab_rows,
-			 (symbs_ptr->n_terms + symbs_ptr->n_nonterms)
+			 (size_t)(symbs_ptr->n_terms + symbs_ptr->n_nonterms)
 			 * sizeof (struct core_symb_vect *));
 	  *ptr = OS_TOP_BEGIN (core_symb_tab_rows);
 	  OS_TOP_FINISH (core_symb_tab_rows);
 #else
 	  core_symb_tab_rows->top_expand
-	    ((symbs_ptr->n_terms + symbs_ptr->n_nonterms)
+	    ((size_t)(symbs_ptr->n_terms + symbs_ptr->n_nonterms)
 	     * sizeof (struct core_symb_vect *));
 	  *ptr = (struct core_symb_vect **) core_symb_tab_rows->top_begin ();
 	  core_symb_tab_rows->top_finish ();
@@ -3405,11 +3405,11 @@ process_core_symb_vect_el (struct core_symb_vect *core_symb_vect,
        to satisfy the const-qualified hash_table_entry_t type. */
     *entry = (hash_table_entry_t) (void *) core_symb_vect;
 #ifndef __cplusplus
-	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, vec->len * sizeof (int));
+	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, (size_t)vec->len * sizeof (int));
 	  vec->els = OS_TOP_BEGIN (vect_els_os);
 	  OS_TOP_FINISH (vect_els_os);
 #else
-	  vect_els_os->top_add_memory (vec->els, vec->len * sizeof (int));
+	  vect_els_os->top_add_memory (vec->els, (size_t)vec->len * sizeof (int));
 	  vec->els = (int *) vect_els_os->top_begin ();
 	  vect_els_os->top_finish ();
 #endif
@@ -5691,7 +5691,7 @@ parse_state_hash (hash_table_entry_t s)
   assert (state->pos == state->rule->rhs_len);
   return (((jauquet_prime_mod32 * hash_shift +
       (unsigned) (size_t) state->rule) * hash_shift +
-     state->orig) * hash_shift + state->pl_ind);
+     (unsigned)state->orig) * hash_shift + (unsigned)state->pl_ind);
 }
 
 /* Equality of parse states. */
@@ -5719,11 +5719,11 @@ parse_state_init (void)
   if (!grammar->one_parse_p)
 #ifndef __cplusplus
     parse_state_tab =
-      create_hash_table (grammar->alloc, toks_len * 2, parse_state_hash,
+      create_hash_table (grammar->alloc, (size_t)toks_len * 2, parse_state_hash,
 			 parse_state_eq);
 #else
     parse_state_tab =
-      new hash_table (grammar->alloc, toks_len * 2, parse_state_hash,
+      new hash_table (grammar->alloc, (size_t)toks_len * 2, parse_state_hash,
 		      parse_state_eq);
 #endif
 }
@@ -6029,11 +6029,11 @@ print_parse (FILE * f, struct yaep_tree_node *root)
 {
 #ifndef __cplusplus
   trans_visit_nodes_tab =
-    create_hash_table (grammar->alloc, toks_len * 2, trans_visit_node_hash,
+    create_hash_table (grammar->alloc, (size_t)toks_len * 2, trans_visit_node_hash,
 		       trans_visit_node_eq);
 #else
   trans_visit_nodes_tab =
-    new hash_table (grammar->alloc, toks_len * 2, trans_visit_node_hash,
+    new hash_table (grammar->alloc, (size_t)toks_len * 2, trans_visit_node_hash,
 		    trans_visit_node_eq);
 #endif
   n_trans_visit_nodes = 0;
@@ -6102,9 +6102,9 @@ copy_anode (struct yaep_tree_node **place, struct yaep_tree_node *anode,
   int i;
 
   node = ((struct yaep_tree_node *)
-	  (*parse_alloc) (sizeof (struct yaep_tree_node)
-			  + sizeof (struct yaep_tree_node *)
-			  * (rule->trans_len + 1)));
+	  (*parse_alloc) ((size_t)sizeof (struct yaep_tree_node)
+			  + (size_t)sizeof (struct yaep_tree_node *)
+			  * (size_t)(rule->trans_len + 1)));
   *node = *anode;
   node->val.anode.children
     = ((struct yaep_tree_node **)
@@ -6271,14 +6271,14 @@ find_minimal_translation (struct yaep_tree_node *root)
     {
 #ifndef __cplusplus
       reserv_mem_tab =
-	create_hash_table (grammar->alloc, toks_len * 4, reserv_mem_hash,
+	create_hash_table (grammar->alloc, (size_t)toks_len * 4, reserv_mem_hash,
 			   reserv_mem_eq);
 #else
       reserv_mem_tab =
-	new hash_table (grammar->alloc, toks_len * 4, reserv_mem_hash,
+	new hash_table (grammar->alloc, (size_t)toks_len * 4, reserv_mem_hash,
 			reserv_mem_eq);
 #endif
-      VLO_CREATE (tnodes_vlo, grammar->alloc, toks_len * 4 * sizeof (void *));
+      VLO_CREATE (tnodes_vlo, grammar->alloc, (size_t)toks_len * 4 * sizeof (void *));
     }
   root = prune_to_minimal (root, &cost);
   traverse_pruned_translation (root);
@@ -6373,7 +6373,7 @@ make_parse (int *ambiguous_p)
          generation of several parses. */
       mem =
 	yaep_malloc (grammar->alloc,
-		     sizeof (struct yaep_tree_node *) * toks_len);
+		     (size_t)sizeof (struct yaep_tree_node *) * (size_t)toks_len);
       term_node_array = (struct yaep_tree_node **) mem;
       for (i = 0; i < toks_len; i++)
 	term_node_array[i] = NULL;
@@ -6411,7 +6411,7 @@ make_parse (int *ambiguous_p)
 	  || grammar->debug_level > 3)
 	{
 	  fprintf (stderr, "Processing top %ld, set place = %d, sit = ",
-		   (long) VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1,
+		   (long) (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1),
 		   state->pl_ind);
 	  rule_dot_print (stderr, state->rule, state->pos);
 	  fprintf (stderr, ", %d\n", state->orig);
@@ -6434,7 +6434,7 @@ make_parse (int *ambiguous_p)
 	      || grammar->debug_level > 3)
 	    {
 	      fprintf (stderr, "Poping top %ld, set place = %d, sit = ",
-		       (long) VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1,
+		       (long) (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1),
 		       state->pl_ind);
 	      rule_dot_print (stderr, state->rule, 0);
 	      fprintf (stderr, ", %d\n", state->orig);
@@ -6609,7 +6609,7 @@ make_parse (int *ambiguous_p)
 		      ((struct parse_state **) VLO_BOUND (orig_states))[-1]
 			= orig_state;
 		    }
-		  for (j = (VLO_LENGTH (orig_states)
+		  for (j = (int)(VLO_LENGTH (orig_states)
 			    / sizeof (struct parse_state *) - 1); j >= 0; j--)
 		    if (((struct parse_state **)
 			 VLO_BEGIN (orig_states))[j]->pl_ind == sit_orig)
@@ -6643,8 +6643,8 @@ make_parse (int *ambiguous_p)
 			{
 			  fprintf (stderr,
 				   "  Adding top %ld, set place = %d, modified sit = ",
-				   (long) VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1,
+				   (long) (VLO_LENGTH (stack) /
+				   sizeof (struct parse_state *) - 1),
 				   sit_orig);
 			  rule_dot_print (stderr, state->rule, state->pos);
 			  fprintf (stderr, ", %d\n", state->orig);
@@ -6671,9 +6671,9 @@ make_parse (int *ambiguous_p)
 		      n_parse_abstract_nodes++;
 		      node
 			= ((struct yaep_tree_node *)
-			   (*parse_alloc) (sizeof (struct yaep_tree_node)
-					   + sizeof (struct yaep_tree_node *)
-					   * (sit_rule->trans_len + 1)));
+			   (*parse_alloc) ((size_t)sizeof (struct yaep_tree_node)
+					   + (size_t)sizeof (struct yaep_tree_node *)
+					   * (size_t)(sit_rule->trans_len + 1)));
 		      state->anode = node;
 		      if (table_state != NULL)
 			table_state->anode = node;
@@ -6682,7 +6682,7 @@ make_parse (int *ambiguous_p)
 			{
 			  sit_rule->caller_anode
 			    = ((char *)
-			       (*parse_alloc) (strlen (sit_rule->anode) + 1));
+			       (*parse_alloc) ((size_t)(strlen (sit_rule->anode) + 1)));
 			  strcpy (sit_rule->caller_anode, sit_rule->anode);
 			}
 		      node->val.anode.name = sit_rule->caller_anode;
@@ -6764,8 +6764,8 @@ make_parse (int *ambiguous_p)
 		    {
 		      fprintf (stderr,
 			       "  Adding top %ld, set place = %d, sit = ",
-			       (long) VLO_LENGTH (stack) /
-			       sizeof (struct parse_state *) - 1, pl_ind);
+			       (long) (VLO_LENGTH (stack) /
+			       sizeof (struct parse_state *) - 1), pl_ind);
 		      sit_print (stderr, sit, grammar->debug_level > 5);
 		      fprintf (stderr, ", %d\n", sit_orig);
 		    }
@@ -6849,7 +6849,7 @@ parse_alloc_default (int nmemb)
 
   assert (nmemb > 0);
 
-  result = malloc (nmemb);
+  result = malloc ((size_t)nmemb);
   if (result == NULL)
     {
       exit (1);
@@ -7269,7 +7269,7 @@ test_parse_alloc (int size)
 {
   void *result;
 
-  OS_TOP_EXPAND (mem_os, size);
+  OS_TOP_EXPAND (mem_os, (size_t)size);
   result = OS_TOP_BEGIN (mem_os);
   OS_TOP_FINISH (mem_os);
   return result;
