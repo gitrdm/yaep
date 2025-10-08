@@ -105,6 +105,13 @@ else
   C_DEBUG_DEFINE=
 fi
 
+# Set -fPIC for position-independent code (required for shared libraries)
+if test "$GCC" = yes; then
+  GCC_FPIC="-fPIC"
+else
+  GCC_FPIC=""
+fi
+
 AC_SUBST(GCC_FPIC)
 AC_SUBST(LIB_SUFFIX)
 AC_SUBST(MAKELIB)

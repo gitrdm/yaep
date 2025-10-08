@@ -62,8 +62,13 @@ set( YAEP_LIB_SOURCES
 	yaep_error.c
 	yaep.c
 )
+# Build both static and shared libraries
 add_library( yaep_static STATIC ${YAEP_LIB_SOURCES} )
 set_target_properties( yaep_static PROPERTIES OUTPUT_NAME ${YAEP_LIB_STATIC} )
+
+add_library( yaep_shared SHARED ${YAEP_LIB_SOURCES} )
+set_target_properties( yaep_shared PROPERTIES OUTPUT_NAME ${YAEP_LIB} )
+set_target_properties( yaep_shared PROPERTIES VERSION 1.0.0 SOVERSION 1 )
 
 # C++
 set( YAEPXX_LIB "${PROJECT_NAME}++" )
@@ -80,14 +85,19 @@ set( YAEPXX_LIB_SOURCES
 	yaep_error.c
 	yaep.cpp
 )
+# Build both static and shared libraries
 add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )
 set_target_properties( yaep++_static PROPERTIES OUTPUT_NAME ${YAEPXX_LIB_STATIC} )
+
+add_library( yaep++_shared SHARED ${YAEPXX_LIB_SOURCES} )
+set_target_properties( yaep++_shared PROPERTIES OUTPUT_NAME ${YAEPXX_LIB} )
+set_target_properties( yaep++_shared PROPERTIES VERSION 1.0.0 SOVERSION 1 )
 
 # Install
 set( YAEP_INCLUDE
 	yaep.h
 )
-install( TARGETS yaep_static yaep++_static DESTINATION ${CMAKE_INSTALL_LIBDIR} )
+install( TARGETS yaep_static yaep_shared yaep++_static yaep++_shared DESTINATION ${CMAKE_INSTALL_LIBDIR} )
 install( FILES ${YAEP_INCLUDE} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}" )
 
 # Build test binaries from the same sources
