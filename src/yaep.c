@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #ifdef __cplusplus
 #include <new>
@@ -56,7 +57,14 @@
 #include "yaep_cleanup.h"
 #include "yaep_error.h"
 #include "yaep_macros.h"
+#include <execinfo.h>
 
+
+/* If YAEP_FUZZ_WRITEBACKTRACES is set in the environment, print a short
+  backtrace and contextual information whenever we are about to write a
+  `struct symb *` into the `symbs` VLO. The full implementation is
+  defined later after the `symb` and `symbs_ptr` types are available. */
+
 
 
 #ifndef NO_INLINE
@@ -200,6 +208,35 @@ static struct grammar *grammar;
 static struct symbs *symbs_ptr;
 static struct term_sets *term_sets_ptr;
 static struct rules *rules_ptr;
+
+/* If YAEP_FUZZ_WRITEBACKTRACES is set in the environment, print a short
+   backtrace and contextual information whenever we are about to write a
+   `struct symb *` into the `symbs` VLO. This is intended to capture the
+   writer stack so we can later correlate unexpected/poisoned pointers
+   observed in tokens with the site that created the symbol pointer. */
+static void
+maybe_write_backtrace_for_symb_push (const char *label, struct symb *ptr)
+{
+  if (getenv ("YAEP_FUZZ_WRITEBACKTRACES") == NULL)
+    return;
+
+  void *frames[16];
+  int nframes = backtrace (frames, sizeof (frames) / sizeof (frames[0]));
+  char **symbols = backtrace_symbols (frames, nframes);
+
+  fprintf (stderr, "YAEP_WRITEBACKTRACE %s: pushing symb=%p into symbs_vlo\n",
+           label, (void *) ptr);
+  if (symbols != NULL)
+    {
+      for (int i = 0; i < nframes; ++i)
+        fprintf (stderr, "  #%02d %s\n", i, symbols[i]);
+      free (symbols);
+    }
+
+  /* Print symbs_ptr so we can later inspect the VLO from a debug run. */
+  fprintf (stderr, "  symbs_ptr=%p\n", (void *) symbs_ptr);
+  fflush (stderr);
+}
 
 /* The following is set up the parser amnd used globally. */
 static int (*read_token) (void **attr);
@@ -611,19 +648,44 @@ symb_find_by_code (int code)
       if ((code < symbs_ptr->symb_code_trans_vect_start)
           || (code >= symbs_ptr->symb_code_trans_vect_end))
         {
+          if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+            {
+              fprintf (stderr, "YAEP_DEBUG_SYMB_VEC_MISS code=%d start=%d end=%d\n",
+                       code, symbs_ptr->symb_code_trans_vect_start,
+                       symbs_ptr->symb_code_trans_vect_end);
+              fflush (stderr);
+            }
           return NULL;
         }
       else
         {
-          return symbs_ptr->symb_code_trans_vect
+          struct symb *res = symbs_ptr->symb_code_trans_vect
             [code - symbs_ptr->symb_code_trans_vect_start];
+          if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+            {
+              fprintf (stderr, "YAEP_DEBUG_SYMB_VEC_LOOKUP code=%d idx=%d res=%p\n",
+                       code, code - symbs_ptr->symb_code_trans_vect_start,
+                       (void *) res);
+              fflush (stderr);
+            }
+          return res;
         }
     }
 #endif
   symb.term_p = TRUE;
   symb.u.term.code = code;
-  return (struct symb *) *find_hash_table_entry (symbs_ptr->code_to_symb_tab,
-						 &symb, FALSE);
+  {
+    hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
+                                                   &symb, FALSE);
+    struct symb *res = (struct symb *) *e;
+    if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+      {
+        fprintf (stderr, "YAEP_DEBUG_SYMB_FIND_BY_CODE code=%d entry=%p res=%p\n",
+                 code, (void *) e, (void *) res);
+        fflush (stderr);
+      }
+    return res;
+  }
 }
 
 /* The function creates new terminal symbol and returns reference for
@@ -655,8 +717,16 @@ symb_add_term (const char *name, int code)
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   *repr_entry = (hash_table_entry_t) result;
   *code_entry = (hash_table_entry_t) result;
+  maybe_write_backtrace_for_symb_push ("symb_add_term-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
+  maybe_write_backtrace_for_symb_push ("symb_add_term-pre-terms", result);
   VLO_ADD_MEMORY (symbs_ptr->terms_vlo, &result, sizeof (struct symb *));
+  if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+    {
+  fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_TERM repr='%s' code=%d result=%p symbs_ptr=%p\n",
+       name, code, (void *) result, (void *) symbs_ptr);
+      fflush (stderr);
+    }
   return result;
 }
 
@@ -684,8 +754,16 @@ symb_add_nonterm (const char *name)
   result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   *entry = (hash_table_entry_t) result;
+  maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
+  maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-nonterms", result);
   VLO_ADD_MEMORY (symbs_ptr->nonterms_vlo, &result, sizeof (struct symb *));
+  if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+    {
+  fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_NONTERM repr='%s' result=%p symbs_ptr=%p\n",
+       name, (void *) result, (void *) symbs_ptr);
+      fflush (stderr);
+    }
   return result;
 }
 
@@ -773,7 +851,12 @@ symb_finish_adding_terms (void)
       symbs_ptr->symb_code_trans_vect_end = max_code + 1;
       mem = yaep_malloc (grammar->alloc,
           sizeof (struct symb*) * (max_code - min_code + 1));
-      symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
+    symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
+    /* Zero-initialize the vector so codes without corresponding
+     terminals map to NULL instead of containing uninitialized
+     memory (which can lead to ASan/Valgrind-reported invalid
+     reads). */
+    memset (mem, 0, sizeof (struct symb*) * (max_code - min_code + 1));
       for (i = 0; (symb = term_get (i)) != NULL; i++)
 	symbs_ptr->symb_code_trans_vect[symb->u.term.code - min_code] = symb;
     }
@@ -1526,6 +1609,54 @@ tok_add (int code, void *attr)
   VLO_ADD_MEMORY (toks_vlo, &tok, sizeof (struct tok));
   toks = (struct tok *) VLO_BEGIN (toks_vlo);
   toks_len++;
+  if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+    {
+      fprintf (stderr, "YAEP_DEBUG_TOK_ADD code=%d attr=%p symb=%p toks=%p toks_len=%d\n",
+               code, attr, (void *) symb, (void *) toks, toks_len);
+      fflush (stderr);
+      /* Detect ASan-poisoned pointer pattern (0xbebebebebebebebe) early and
+         print a backtrace to help locate the corruption site. */
+      {
+        uintptr_t s = (uintptr_t) symb;
+        if ((s & 0xffffffffULL) == 0xbebebebeULL || s == (uintptr_t)0xbebebebebebebebeULL)
+          {
+            void *bt[32];
+            int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
+            fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", (void *) symb);
+            backtrace_symbols_fd (bt, n, fileno (stderr));
+            fflush (stderr);
+            /* Abort so ASan/runner reports the exact site in native tooling. */
+            abort ();
+          }
+      }
+      /* Verify the symbol pointer is one of those recorded in symbs_vlo.
+         This detects cases where a bad pointer gets stored in toks[].symb
+         even if it doesn't match the exact ASan poison pattern. */
+      {
+        size_t n_symbs = VLO_LENGTH (symbs_ptr->symbs_vlo) / sizeof (struct symb *);
+        struct symb **symb_arr = (struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo);
+        size_t si;
+        int found = 0;
+        for (si = 0; si < n_symbs; ++si)
+          {
+            if (symb_arr[si] == symb)
+              {
+                found = 1;
+                break;
+              }
+          }
+        if (!found)
+          {
+            void *bt[32];
+            int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
+            fprintf (stderr, "YAEP_DEBUG_SYMB_NOT_IN_VLO symb=%p toks=%p toks_len=%d n_symbs=%zu\n",
+                     (void *) symb, (void *) toks, toks_len, n_symbs);
+            backtrace_symbols_fd (bt, n, fileno (stderr));
+            fflush (stderr);
+            abort ();
+          }
+      }
+    }
   return 0;
 }
 
@@ -5230,6 +5361,16 @@ build_pl (void)
   for (tok_curr = pl_curr = 0; tok_curr < toks_len; tok_curr++)
     {
       term = toks[tok_curr].symb;
+      /* Early debug snapshot to help fuzz triage. Guarded by
+         YAEP_FUZZ_DEBUG to avoid noisy output in normal runs. */
+      if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+        {
+          fprintf (stderr, "YAEP_DEBUG_LOOP tok=%d toks_len=%d toks=%p toks[idx]=%p term=%p\n",
+                   tok_curr, toks_len, (void *) toks,
+                   (void *) (tok_curr < toks_len ? &toks[tok_curr] : NULL),
+                   (void *) term);
+          fflush (stderr);
+        }
       if (grammar->lookahead_level != 0)
 	lookahead_term_num = (tok_curr < toks_len - 1
 			      ? toks[tok_curr +
@@ -5257,8 +5398,22 @@ build_pl (void)
 	new_set_term_lookahead->result[i] = NULL;
       new_set_term_lookahead->curr = 0;
       entry =
-	find_hash_table_entry (set_term_lookahead_tab, new_set_term_lookahead,
-			       TRUE);
+    find_hash_table_entry (set_term_lookahead_tab, new_set_term_lookahead,
+               TRUE);
+
+      /* Optional runtime debug logging for fuzz triage. If the
+         environment variable YAEP_FUZZ_DEBUG is set, emit a single
+         line with key pointers and token info which helps trace the
+         state leading to crashes without changing program flow. */
+      if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+        {
+          const char *trepr = (term && term->repr) ? term->repr : "(null)";
+          fprintf (stderr, "YAEP_DEBUG tok=%d pl=%d term=%p repr='%s' set=%p entry=%p *entry=%p\n",
+                   tok_curr, pl_curr, (void *) term, trepr, (void *) set,
+                   (void *) entry, (void *) (entry ? *entry : NULL));
+          /* fflush to ensure log reaches fuzzer output */
+          fflush (stderr);
+        }
       if (*entry != NULL)
 	{
 	  struct set *tab_set;
