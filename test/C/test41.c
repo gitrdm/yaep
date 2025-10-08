@@ -50,13 +50,16 @@ int line = 1;
 
 static hash_table_t table;
 
+/* Use const-correctness for hash/eq helpers so we don't cast away
+   qualifiers; these functions treat the hash_table_entry_t as opaque
+   pointer to string data. */
 static unsigned
 hash (hash_table_entry_t el)
 {
-  const char *id = (char *) el;
+  const char *id = (const char *) el;
   unsigned result, i;
 
-  for (result = i = 0;*id++ != '\0'; i++)
+  for (result = i = 0; *id != '\0'; ++id, ++i)
     result += ((unsigned char) *id << (i % CHAR_BIT));
   return result;
 }
@@ -64,7 +67,7 @@ hash (hash_table_entry_t el)
 static int
 eq (hash_table_entry_t el1, hash_table_entry_t el2)
 {
-  return strcmp ((char *) el1, (char *) el2) == 0;
+  return strcmp ((const char *) el1, (const char *) el2) == 0;
 }
 
 static void initiate_typedefs( YaepAllocator * alloc ) {

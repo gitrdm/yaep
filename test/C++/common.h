@@ -33,13 +33,20 @@
 
 #include"yaep.h"
 
+/* Allocate memory for parser tests.
+   Keep the API compatible with existing test harness (int size) but
+   perform allocation with size_t to avoid sign/width conversion
+   warnings and make the intention explicit for future maintainers. */
 static void *
 test_parse_alloc (int size)
 {
   void * result;
-
-  assert ((size > 0) && ((unsigned int) size == (size_t) size));
-  result = malloc (size);
+  /* Validate the caller passed a positive size.  Cast to size_t for
+     the allocation to eliminate conversion warnings and document the
+     root cause (size is a signed value in the test API). */
+  assert (size > 0);
+  size_t sz = static_cast<size_t> (size);
+  result = malloc (sz);
   assert (result != NULL);
 
   return result;
@@ -54,9 +61,17 @@ test_parse_free (void * mem)
 /* Printing syntax error. */
 static void
 test_syntax_error (int err_tok_num, void *err_tok_attr,
-		   int start_ignored_tok_num, void *start_ignored_tok_attr,
-		   int start_recovered_tok_num, void *start_recovered_tok_attr)
+           int start_ignored_tok_num, void *start_ignored_tok_attr,
+           int start_recovered_tok_num, void *start_recovered_tok_attr)
 {
+  /* These error-handler hooks are part of the test API; many tests do
+     not use all parameters.  Silence unused-parameter warnings by
+     explicitly casting to void so future maintainers see this was
+     intentional. */
+  (void) err_tok_attr;
+  (void) start_ignored_tok_attr;
+  (void) start_recovered_tok_attr;
+
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
   else
@@ -86,7 +101,18 @@ test_read_token (void **attr)
     }
 }
 
-static void
+/* Many test helper functions in this header are convenience wrappers
+  used by a subset of tests only.  Mark them as potentially unused so
+  unused-function warnings don't clutter the build output for other
+  tests.  Use a macro so the annotation is easy to find and portable.
+*/
+#if defined(__GNUC__) || defined(__clang__)
+# define YAEP_TEST_UNUSED __attribute__((unused))
+#else
+# define YAEP_TEST_UNUSED
+#endif
+
+static YAEP_TEST_UNUSED void
 test_standard_parse (const char *input, const char *description)
 {
   yaep *e;
@@ -110,7 +136,7 @@ test_standard_parse (const char *input, const char *description)
   delete e;
 }
 
-static void
+static YAEP_TEST_UNUSED void
 test_standard_read
   (const char *input, const char *(*read_terminal) (int *),
    const char *(*read_rule) (const char ***, const char **, int *, int **))
@@ -136,7 +162,7 @@ test_standard_read
   delete e;
 }
 
-static void
+static YAEP_TEST_UNUSED void
 test_complex_parse
   (const char *input, const char *description,
    int one_parse, int ambiguous, int print_cost, int recovery_match,
