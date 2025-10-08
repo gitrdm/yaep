@@ -27,10 +27,19 @@ bison_target( sgramm sgramm.y ${CMAKE_CURRENT_BINARY_DIR}/sgramm.c )
 if( NOT ${BISON_sgramm_DEFINED} )
 	message( FATAL_ERROR "Failed to add rule for sgramm.c" )
 endif()
-add_custom_target( sgramm_c DEPENDS ${BISON_sgramm_OUTPUTS} ) # FIXME: yaep.c includes sgramm.c directly, so we need a custom target
 
 # Ensure CMAKE_BINARY_DIR is defined for all targets that need it
 add_compile_definitions(CMAKE_BINARY_DIR=\"${CMAKE_CURRENT_BINARY_DIR}\")
+
+# CRITICAL: yaep.c and yaep.cpp directly #include "sgramm.c" 
+# We must explicitly declare this dependency so CMake generates sgramm.c BEFORE compiling yaep.c
+# This prevents race conditions in parallel builds
+set_source_files_properties(
+	yaep.c
+	yaep.cpp
+	PROPERTIES
+	OBJECT_DEPENDS "${BISON_sgramm_OUTPUTS}"
+)
 
 # Now build libraries
 include_directories(
@@ -54,7 +63,6 @@ set( YAEP_LIB_SOURCES
 	yaep.c
 )
 add_library( yaep_static STATIC ${YAEP_LIB_SOURCES} )
-add_dependencies( yaep_static sgramm_c ) # FIXME: yaep.c includes sgramm.c directly; would be cleaner if sgramm was its own object
 set_target_properties( yaep_static PROPERTIES OUTPUT_NAME ${YAEP_LIB_STATIC} )
 
 # C++
@@ -73,7 +81,6 @@ set( YAEPXX_LIB_SOURCES
 	yaep.cpp
 )
 add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )
-add_dependencies( yaep++_static sgramm_c ) # FIXME: yaep.cpp includes sgramm.c via yaep.c; would be cleaner if sgramm was its own object
 set_target_properties( yaep++_static PROPERTIES OUTPUT_NAME ${YAEPXX_LIB_STATIC} )
 
 # Install
