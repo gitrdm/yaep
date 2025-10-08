@@ -114,6 +114,8 @@ static char *slhs;
 
 /* Forward declarations. */
 extern int yyerror (const char *str);
+/* Added to avoid implicit declaration warning for error boundary helper. */
+extern int yaep_run_with_error_boundary(void (*fn)(void *), void *arg);
 extern int yylex (void);
 extern int yyparse (void);
 
@@ -511,13 +513,14 @@ static int set_sgrammar_internal (void *user);
 /* The following is major function which parses the description and
    transforms it into IR. */
 static int
-set_sgrammar (struct grammar *g, const char *grammar)
+set_sgrammar (struct grammar *g, const char *grammar_str)
 {
+  /* Renamed parameter to grammar_str to avoid shadowing global 'grammar'. */
   struct set_sgrammar_context ctx;
   int code;
 
   ctx.grammar = g;
-  ctx.description = grammar;
+  ctx.description = grammar_str;
 
   /* All internal error handling now uses explicit return codes,
    * so we can call set_sgrammar_internal directly without the
@@ -677,9 +680,10 @@ sread_terminal (int *code)
 }
 
 static const char *
-sread_rule (const char ***rhs, const char **abs_node, int *anode_cost,
-	    int **transl)
+sread_rule (const char ***rhs, const char **abs_node, int *anode_cost_out,
+           int **transl)
 {
+  /* Renamed parameter to anode_cost_out to avoid shadowing global 'anode_cost'. */
   struct srule *rule;
   const char *lhs;
 
@@ -689,7 +693,7 @@ sread_rule (const char ***rhs, const char **abs_node, int *anode_cost,
   lhs = rule->lhs;
   *rhs = (const char **) rule->rhs;
   *abs_node = rule->anode;
-  *anode_cost = rule->anode_cost;
+  *anode_cost_out = rule->anode_cost;
   *transl = rule->trans;
   nsrule++;
   return lhs;
