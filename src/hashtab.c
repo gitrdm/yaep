@@ -208,7 +208,11 @@ find_hash_table_entry (hash_table_t htab,
 {
   hash_table_entry_t *entry_ptr;
   hash_table_entry_t *first_deleted_entry_ptr;
-  unsigned hash_value, secondary_hash_value;
+  /* Use size_t for hash_value arithmetic since table sizes are size_t.
+    This avoids narrowing/conversion warnings when htab->size is a
+    size_t and ensures arithmetic won't overflow on platforms where
+    size_t differs from unsigned. */
+  size_t hash_value, secondary_hash_value;
 
   assert (htab != NULL);
   if (htab->size / 4 <= htab->number_of_elements / 3)
