@@ -10,9 +10,48 @@
 *.o
 # static libraries
 *.a
-# compiled YAEP libraries in repo tree
+*.so
+*.so.*
+*.exe
+*.out
+*.log
+
+# Test and fuzz artifacts
+test/*.out
+fuzz/build/
+fuzz/build_debug/
+fuzz/corpus/
+fuzz/results/
+fuzz/telemetry.csv
+fuzz/*
+crash-*
+leak-*
+slow-unit-*
+timeout-*
+oom-*
+src/sgramm.c
+test/C/*.bin
+test/C++/*.bin
+test/compare_parsers/compare_parsers.sh
+test/compare_parsers/y.tab.c
+test/ansic.c
+test/compare_parsers/small_test.i
+
+# Binary executables (main targets and test binaries)
+src/yaep
+src/yaep_test
+src/yaep++
+src/yaep++_test
 src/*.a
 src/**/*.a
+src/*.so
+src/*.so.*
+src/*.exe
+src/*.out
+test/*.exe
+test/*.out
+test/*_test
+test/*_dbg
 
 # Executables and temporary outputs
 a.out

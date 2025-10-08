@@ -27,10 +27,19 @@ bison_target( sgramm sgramm.y ${CMAKE_CURRENT_BINARY_DIR}/sgramm.c )
 if( NOT ${BISON_sgramm_DEFINED} )
 	message( FATAL_ERROR "Failed to add rule for sgramm.c" )
 endif()
-add_custom_target( sgramm_c DEPENDS ${BISON_sgramm_OUTPUTS} ) # FIXME: yaep.c includes sgramm.c directly, so we need a custom target
 
 # Ensure CMAKE_BINARY_DIR is defined for all targets that need it
 add_compile_definitions(CMAKE_BINARY_DIR=\"${CMAKE_CURRENT_BINARY_DIR}\")
+
+# CRITICAL: yaep.c and yaep.cpp directly #include "sgramm.c" 
+# We must explicitly declare this dependency so CMake generates sgramm.c BEFORE compiling yaep.c
+# This prevents race conditions in parallel builds
+set_source_files_properties(
+	yaep.c
+	yaep.cpp
+	PROPERTIES
+	OBJECT_DEPENDS "${BISON_sgramm_OUTPUTS}"
+)
 
 # Now build libraries
 include_directories(
@@ -57,16 +66,15 @@ set( YAEP_LIB_SOURCES
 	unicode/yaep_unicode.c
 )
 
+# Build both static and shared libraries
 add_library( yaep_static STATIC ${YAEP_LIB_SOURCES} )
-add_dependencies( yaep_static sgramm_c )
 target_link_libraries( yaep_static PUBLIC utf8proc )
 set_target_properties( yaep_static PROPERTIES OUTPUT_NAME ${YAEP_LIB_STATIC} )
 
-# Also build a shared library for language bindings / runtime loading
-add_library( yaep SHARED ${YAEP_LIB_SOURCES} )
-add_dependencies( yaep sgramm_c )
-target_link_libraries( yaep PUBLIC utf8proc )
-set_target_properties( yaep PROPERTIES OUTPUT_NAME ${YAEP_LIB} POSITION_INDEPENDENT_CODE ON)
+add_library( yaep_shared SHARED ${YAEP_LIB_SOURCES} )
+target_link_libraries( yaep_shared PUBLIC utf8proc )
+set_target_properties( yaep_shared PROPERTIES OUTPUT_NAME ${YAEP_LIB} )
+set_target_properties( yaep_shared PROPERTIES VERSION 1.0.0 SOVERSION 1 )
 
 # C++
 set( YAEPXX_LIB "${PROJECT_NAME}++" )
@@ -85,22 +93,21 @@ set( YAEPXX_LIB_SOURCES
 	unicode/yaep_unicode.c
 )
 
+# Build both static and shared libraries
 add_library( yaep++_static STATIC ${YAEPXX_LIB_SOURCES} )
-add_dependencies( yaep++_static sgramm_c )
 target_link_libraries( yaep++_static PUBLIC utf8proc )
 set_target_properties( yaep++_static PROPERTIES OUTPUT_NAME ${YAEPXX_LIB_STATIC} )
 
-# Shared C++ variant
-add_library( "${YAEPXX_LIB}" SHARED ${YAEPXX_LIB_SOURCES} )
-add_dependencies( "${YAEPXX_LIB}" sgramm_c )
-target_link_libraries( "${YAEPXX_LIB}" PUBLIC utf8proc )
-set_target_properties( "${YAEPXX_LIB}" PROPERTIES OUTPUT_NAME "${YAEPXX_LIB}" POSITION_INDEPENDENT_CODE ON)
+add_library( yaep++_shared SHARED ${YAEPXX_LIB_SOURCES} )
+target_link_libraries( yaep++_shared PUBLIC utf8proc )
+set_target_properties( yaep++_shared PROPERTIES OUTPUT_NAME ${YAEPXX_LIB} )
+set_target_properties( yaep++_shared PROPERTIES VERSION 1.0.0 SOVERSION 1 )
 
 # Install
 set( YAEP_INCLUDE
 	yaep.h
 )
-install( TARGETS yaep_static yaep++_static DESTINATION ${CMAKE_INSTALL_LIBDIR} )
+install( TARGETS yaep_static yaep_shared yaep++_static yaep++_shared DESTINATION ${CMAKE_INSTALL_LIBDIR} )
 install( FILES ${YAEP_INCLUDE} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${PROJECT_NAME}" )
 
 # Build test binaries from the same sources

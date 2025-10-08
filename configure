@@ -6424,6 +6424,13 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
   C_DEBUG_DEFINE=
 fi
 
+# Set -fPIC for position-independent code (required for shared libraries)
+if test "$GCC" = yes; then
+  GCC_FPIC="-fPIC"
+else
+  GCC_FPIC=""
+fi
+
 
 
 
