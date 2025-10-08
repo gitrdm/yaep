@@ -32,8 +32,9 @@
    terminal. */
 static int nterm;
 
-/* The following function imported by YAEP (see comments in the interface file). */
-const char *
+/* Test-local helper; mark static to avoid -Wmissing-declarations and
+  to document that this symbol isn't part of the public test API. */
+static const char *
 read_terminal (int *code)
 {
   nterm++;
@@ -53,8 +54,9 @@ read_terminal (int *code)
    terminal. */
 static int nrule;
 
-/* The following function imported by YAEP (see comments in the interface file). */
-const char *
+/* Test-local helper; intentionally static to keep the symbol local and
+  quiet the C++ missing-declarations warnings. */
+static const char *
 read_rule (const char ***rhs, const char **anode, int *anode_cost, int **transl)
 {
   static const char *rhs_1 [] = {"T", NULL};
