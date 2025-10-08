@@ -305,7 +305,7 @@ expand_int_vlo (vlo_t * vlo, int n_els)
 
   if ((int) prev_n_els >= n_els)
     return FALSE;
-  vlo->expand ((size_t)((n_els - (int) prev_n_els) * sizeof (int)));
+  vlo->expand ((size_t)(n_els - (int) prev_n_els) * sizeof (int));
   for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) vlo->begin ())[i] = 0;
   return TRUE;
@@ -1151,7 +1151,7 @@ term_set_create (void)
   size = 8;
   /* Make it 64 bit multiple to have the same statistics for 64 bit
      machines. */
-  size = (size_t)(((symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8);
+  size = (size_t)((symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8u;
   OS_TOP_EXPAND (term_sets_ptr->term_set_os, size);
   result = (term_set_el_t *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
   OS_TOP_FINISH (term_sets_ptr->term_set_os);
@@ -2284,7 +2284,7 @@ sit_dist_insert (struct sit *sit, int dist)
   len = check_dist_vlo->length () / sizeof (int);
   if (len <= dist)
     {
-      check_dist_vlo->expand ((size_t)((dist + 1 - len) * sizeof (int)));
+      check_dist_vlo->expand ((size_t)(dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
 	((int *) check_dist_vlo->begin ())[i] = 0;
     }
@@ -3191,8 +3191,8 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
       diff = ((char *) core_symb_vect_ptr
 	      - (char *) core_symb_table_vlo->bound ());
 #endif
-      diff += sizeof (struct core_symb_vect **);
-      if (diff == sizeof (struct core_symb_vect **))
+      diff += (int)sizeof (struct core_symb_vect **);
+      if (diff == (int)sizeof (struct core_symb_vect **))
 	diff *= 10;
 #ifndef __cplusplus
       VLO_EXPAND (core_symb_table_vlo, diff);
@@ -6710,8 +6710,8 @@ make_parse (int *ambiguous_p)
 			{
 			  fprintf (stderr,
 				   "  Adding top %ld, set place = %d, sit = ",
-				   (long) VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1, pl_ind);
+				   (long) (VLO_LENGTH (stack) /
+				   sizeof (struct parse_state *) - 1), pl_ind);
 			  sit_print (stderr, sit, grammar->debug_level > 5);
 			  fprintf (stderr, ", %d\n", sit_orig);
 			}
@@ -7191,7 +7191,7 @@ free_tree_sweep (struct yaep_tree_node *node, void (*free_fn) (void *),
     }
 
   assert (node->type & _yaep_VISITED);
-  type = (enum yaep_tree_node_type) (node->type & ~_yaep_VISITED);
+  type = (enum yaep_tree_node_type) (node->type & 0x7Fu);
 
   switch (type)
     {
