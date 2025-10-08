@@ -38,14 +38,14 @@ static const char *typedef_flag = NULL;
 static int after_struct_flag = 0;
 static int level = 0;
 
+/* Forward declaration for lexer function */
+int get_lex (void);
+
 #include "test_common.c"
 
 #define yylex get_lex
 #include "y.tab.c"
 #undef yylex
-
-/* Forward declaration for lexer function */
-int get_lex (void);
 
 int
 get_lex (void)

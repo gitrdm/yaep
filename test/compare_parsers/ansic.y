@@ -26,6 +26,9 @@
 
 %{
 #define YYSTYPE string_t
+
+/* Forward declaration for parser error function */
+void yyerror (const char *s);
 %}
 
 %token IDENTIFIER CONSTANT STRING_LITERAL SIZEOF

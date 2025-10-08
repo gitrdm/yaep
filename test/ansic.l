@@ -24,6 +24,11 @@
 
 */
 
+%top{
+#define _POSIX_C_SOURCE 200809L
+#include <unistd.h>
+}
+
 D			[0-9]
 L			[a-zA-Z_]
 H			[a-fA-F0-9]
