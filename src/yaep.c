@@ -729,8 +729,13 @@ symb_add_term (const char *name, int code)
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
   result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
-  *repr_entry = (hash_table_entry_t) result;
-  *code_entry = (hash_table_entry_t) result;
+  /* The hash table API stores entries as 'const void *'.  Here we
+    insert newly-allocated mutable objects into the table which the
+    parser owns; perform a deliberate cast through (void*) with a
+    comment so future maintainers understand we are not discarding
+    const accidentally but intentionally storing owned mutable data. */
+  *repr_entry = (hash_table_entry_t) (void *) result;
+  *code_entry = (hash_table_entry_t) (void *) result;
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-terms", result);
@@ -767,7 +772,10 @@ symb_add_nonterm (const char *name)
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
   result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
-  *entry = (hash_table_entry_t) result;
+  /* See note above about deliberate cast-through-void: we store an
+    owned, mutable struct symb pointer in the table (table's public
+    typedef is const-qualified). */
+  *entry = (hash_table_entry_t) (void *) result;
   maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-nonterms", result);
@@ -1240,7 +1248,9 @@ term_set_insert (term_set_el_t * set)
       tab_term_set_ptr =
 	(struct tab_term_set *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
       OS_TOP_FINISH (term_sets_ptr->term_set_os);
-      *entry = (hash_table_entry_t) tab_term_set_ptr;
+    /* Insert owned tab_term_set_ptr into the table. Cast through
+      (void*) to make the intention explicit and avoid warnings. */
+    *entry = (hash_table_entry_t) (void *) tab_term_set_ptr;
       tab_term_set_ptr->set = set;
       tab_term_set_ptr->num = (VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
 			       / sizeof (struct tab_term_set *));
@@ -2459,7 +2469,9 @@ set_insert (void)
   else
     {
       OS_TOP_FINISH (set_dists_os);
-      *entry = (hash_table_entry_t) new_set;
+    /* new_set is owned and mutable; store it in the table via a
+      deliberate cast to hash_table_entry_t (through void*). */
+    *entry = (hash_table_entry_t) (void *) new_set;
       n_set_dists++;
       n_set_dists_len += new_n_start_sits;
     }
@@ -2486,7 +2498,8 @@ set_insert (void)
       new_core->n_sits = new_n_start_sits;
       new_core->n_all_dists = new_n_start_sits;
       new_core->parent_indexes = NULL;
-      *entry = (hash_table_entry_t) new_set;
+  /* See above: store owned mutable set in hash table. */
+  *entry = (hash_table_entry_t) (void *) new_set;
       n_set_core_start_sits += new_n_start_sits;
       result = TRUE;
     }
@@ -2495,7 +2508,7 @@ set_insert (void)
   entry = find_hash_table_entry (set_tab, new_set, TRUE);
   if (*entry == NULL)
     {
-      *entry = (hash_table_entry_t) new_set;
+  *entry = (hash_table_entry_t) (void *) new_set;
       n_sets++;
       n_sets_start_sits += new_n_start_sits;
       OS_TOP_FINISH (sets_os);
@@ -3325,7 +3338,9 @@ process_core_symb_vect_el (struct core_symb_vect *core_symb_vect,
 	     : ((struct core_symb_vect *) *entry)->reduces.els);
       else
 	{
-	  *entry = (hash_table_entry_t) core_symb_vect;
+    /* core_symb_vect is allocated/owned here; cast through void*
+       to satisfy the const-qualified hash_table_entry_t type. */
+    *entry = (hash_table_entry_t) (void *) core_symb_vect;
 #ifndef __cplusplus
 	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, vec->len * sizeof (int));
 	  vec->els = OS_TOP_BEGIN (vect_els_os);
@@ -5463,7 +5478,10 @@ build_pl (void)
       else
 	{
 	  OS_TOP_FINISH (set_term_lookahead_os);
-	  *entry = (hash_table_entry_t) new_set_term_lookahead;
+       /* Cache the newly-created mutable lookahead struct in the
+         table. Deliberately cast through (void*) to document that
+         this is owned mutable data stored in a const-typed slot. */
+       *entry = (hash_table_entry_t) (void *) new_set_term_lookahead;
 	  n_set_term_lookaheads++;
 	}
 
@@ -5762,7 +5780,9 @@ visit_node (struct yaep_tree_node *node)
       n_trans_visit_nodes++;
       OS_TOP_ADD_MEMORY (trans_visit_nodes_os,
 			 &trans_visit_node, sizeof (trans_visit_node));
-      *entry = (hash_table_entry_t) OS_TOP_BEGIN (trans_visit_nodes_os);
+    /* Store newly-created trans_visit_node (owned/mutable) in the
+      global table; cast via void* to make the intent explicit. */
+    *entry = (hash_table_entry_t) (void *) OS_TOP_BEGIN (trans_visit_nodes_os);
       OS_TOP_FINISH (trans_visit_nodes_os);
     }
   return (struct trans_visit_node *) *entry;
@@ -6101,7 +6121,9 @@ traverse_pruned_translation (struct yaep_tree_node *node)
   if (parse_free != NULL
       && *(entry =
 	   find_hash_table_entry (reserv_mem_tab, node, TRUE)) == NULL)
-    *entry = (hash_table_entry_t) node;
+   /* Insert owned mutable node pointer into the table; cast through
+     void* to satisfy the public const-qualified entry type. */
+   *entry = (hash_table_entry_t) (void *) node;
   switch (node->type)
     {
     case YAEP_NIL:
@@ -6113,7 +6135,9 @@ traverse_pruned_translation (struct yaep_tree_node *node)
 	  && *(entry = find_hash_table_entry (reserv_mem_tab,
 					      node->val.anode.name,
 					      TRUE)) == NULL)
-	*entry = (hash_table_entry_t) node->val.anode.name;
+  /* Store the owned name pointer in the table; document the
+     deliberate cast through void* as above. */
+    	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
       for (i = 0; (child = node->val.anode.children[i]) != NULL; i++)
 	traverse_pruned_translation (child);
       assert (node->val.anode.cost < 0);
