@@ -4296,10 +4296,27 @@ yaep_read_grammar_internal (void *user)
   return 0;
 }
 
+/* Suppress warnings from generated grammar parser code.
+   sgramm.c is Bison-generated and contains unavoidable old-style casts,
+   const-qualifier discards in qsort callbacks, and sign conversions.
+   Rather than modify generated code, we bracket it with pragma guards. */
+#ifdef __cplusplus
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wcomment"
+#endif
+
 #ifdef CMAKE_BINARY_DIR
 #  include "sgramm.c"
 #else
 #  include "../build/src/sgramm.c"
+#endif
+
+#ifdef __cplusplus
+#pragma GCC diagnostic pop
 #endif
 
 /* The following functions set up parameter which affect parser work
