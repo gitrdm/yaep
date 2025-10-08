@@ -4066,7 +4066,7 @@ yaep_read_grammar_internal (void *user)
 {
   struct yaep_read_grammar_context *ctx = (struct yaep_read_grammar_context *) user;
   const char *name, *lhs, **rhs, *anode;
-  struct symb *symb, *start;
+  struct symb *symb, *start = NULL; /* Initialize start to detect missing first rule safely */
   struct rule *rule;
   int anode_cost;
   int *transl;
@@ -4218,7 +4218,12 @@ yaep_read_grammar_internal (void *user)
   if (grammar->axiom == NULL)
     return yaep_set_error
       (grammar, YAEP_NO_RULES, "grammar does not contains rules");
-  assert (start != NULL);
+  if (start == NULL)
+    {
+      /* Defensive: if no rules were encountered, we already emit YAEP_NO_RULES above; reaching
+         here with start NULL would indicate an internal logic change. */
+      return yaep_set_error (grammar, YAEP_NO_RULES, "no start symbol established");
+    }
   /* Adding axiom : error $eof if it is neccessary. */
   for (rule = start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
     if (rule->rhs[0] == grammar->term_error)
@@ -4289,13 +4294,13 @@ yaep_read_grammar_internal (void *user)
 static
 #endif
 int
-yaep_set_lookahead_level (struct grammar *grammar, int level)
+yaep_set_lookahead_level (struct grammar *g, int level)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->lookahead_level;
-  grammar->lookahead_level = (level < 0 ? 0 : level > 2 ? 2 : level);
+  assert (g != NULL);
+  old = g->lookahead_level;
+  g->lookahead_level = (level < 0 ? 0 : level > 2 ? 2 : level);
   return old;
 }
 
@@ -4303,13 +4308,13 @@ yaep_set_lookahead_level (struct grammar *grammar, int level)
 static
 #endif
 int
-yaep_set_debug_level (struct grammar *grammar, int level)
+yaep_set_debug_level (struct grammar *g, int level)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->debug_level;
-  grammar->debug_level = level;
+  assert (g != NULL);
+  old = g->debug_level;
+  g->debug_level = level;
   return old;
 }
 
@@ -4317,13 +4322,13 @@ yaep_set_debug_level (struct grammar *grammar, int level)
 static
 #endif
 int
-yaep_set_one_parse_flag (struct grammar *grammar, int flag)
+yaep_set_one_parse_flag (struct grammar *g, int flag)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->one_parse_p;
-  grammar->one_parse_p = flag;
+  assert (g != NULL);
+  old = g->one_parse_p;
+  g->one_parse_p = flag;
   return old;
 }
 
@@ -4331,13 +4336,13 @@ yaep_set_one_parse_flag (struct grammar *grammar, int flag)
 static
 #endif
 int
-yaep_set_cost_flag (struct grammar *grammar, int flag)
+yaep_set_cost_flag (struct grammar *g, int flag)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->cost_p;
-  grammar->cost_p = flag;
+  assert (g != NULL);
+  old = g->cost_p;
+  g->cost_p = flag;
   return old;
 }
 
@@ -4345,13 +4350,13 @@ yaep_set_cost_flag (struct grammar *grammar, int flag)
 static
 #endif
 int
-yaep_set_error_recovery_flag (struct grammar *grammar, int flag)
+yaep_set_error_recovery_flag (struct grammar *g, int flag)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->error_recovery_p;
-  grammar->error_recovery_p = flag;
+  assert (g != NULL);
+  old = g->error_recovery_p;
+  g->error_recovery_p = flag;
   return old;
 }
 
@@ -4359,13 +4364,13 @@ yaep_set_error_recovery_flag (struct grammar *grammar, int flag)
 static
 #endif
 int
-yaep_set_recovery_match (struct grammar *grammar, int n_toks)
+yaep_set_recovery_match (struct grammar *g, int n_toks)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->recovery_token_matches;
-  grammar->recovery_token_matches = n_toks;
+  assert (g != NULL);
+  old = g->recovery_token_matches;
+  g->recovery_token_matches = n_toks;
   return old;
 }
 
@@ -6101,8 +6106,8 @@ static vlo_t *tnodes_vlo;
 static struct yaep_tree_node *
 prune_to_minimal (struct yaep_tree_node *node, int *cost)
 {
-  struct yaep_tree_node *child, *alt, *next_alt, *result;
-  int i, min_cost;
+  struct yaep_tree_node *child, *alt, *next_alt, *result = NULL;
+  int i, min_cost = INT_MAX; /* Initialize to sentinel so comparisons are well-defined */
 
   assert (node != NULL);
   switch (node->type)
@@ -6129,25 +6134,26 @@ prune_to_minimal (struct yaep_tree_node *node, int *cost)
 	}
       return node;
     case YAEP_ALT:
-      for (alt = node; alt != NULL; alt = next_alt)
+  for (alt = node; alt != NULL; alt = next_alt)
 	{
 	  if (parse_free != NULL)
 	    VLO_ADD_MEMORY (tnodes_vlo, &alt, sizeof (alt));
 	  next_alt = alt->val.alt.next;
 	  alt->val.alt.node = prune_to_minimal (alt->val.alt.node, cost);
-	  if (alt == node || min_cost > *cost)
+    if (alt == node || min_cost > *cost)
 	    {
 	      min_cost = *cost;
 	      alt->val.alt.next = NULL;
 	      result = alt;
 	    }
-	  else if (min_cost == *cost && !grammar->one_parse_p)
+    else if (min_cost == *cost && !grammar->one_parse_p)
 	    {
 	      alt->val.alt.next = result;
 	      result = alt;
 	    }
 	}
-      *cost = min_cost;
+      *cost = (min_cost == INT_MAX ? 0 : min_cost);
+      assert (result != NULL); /* result must be set because at least one alt exists */
       return (result->val.alt.next == NULL ? result->val.alt.node : result);
     default:
       assert (FALSE);
@@ -6273,7 +6279,7 @@ make_parse (int *ambiguous_p)
   struct yaep_tree_node *parent_anode, *anode, root_anode;
   int parent_disp;
   int saved_one_parse_p;
-  struct yaep_tree_node **term_node_array;
+  struct yaep_tree_node **term_node_array = NULL; /* Initialize to ensure safe free guard */
 #ifndef __cplusplus
   vlo_t stack, orig_states;
 #else
@@ -6732,7 +6738,8 @@ make_parse (int *ambiguous_p)
   if (!grammar->one_parse_p)
     {
       VLO_DELETE (orig_states);
-      yaep_free (grammar->alloc, term_node_array);
+      if (term_node_array != NULL)
+        yaep_free (grammar->alloc, term_node_array);
     }
   parse_state_fin ();
   grammar->one_parse_p = saved_one_parse_p;
@@ -7116,8 +7123,8 @@ free_tree_reduce (struct yaep_tree_node *node)
 }
 
 static void
-free_tree_sweep (struct yaep_tree_node *node, void (*parse_free) (void *),
-		 void (*termcb) (struct yaep_term *))
+free_tree_sweep (struct yaep_tree_node *node, void (*free_fn) (void *),
+     void (*termcb) (struct yaep_term *))
 {
   enum yaep_tree_node_type type;
   struct yaep_tree_node *next;
@@ -7145,49 +7152,49 @@ free_tree_sweep (struct yaep_tree_node *node, void (*parse_free) (void *),
       break;
 
     case YAEP_ANODE:
-      parse_free (node->val._anode_name.name);
+  free_fn (node->val._anode_name.name);
       for (childp = node->val.anode.children; *childp != NULL; ++childp)
-	{
-	  free_tree_sweep (*childp, parse_free, termcb);
-	}
+  {
+    free_tree_sweep (*childp, free_fn, termcb);
+  }
       break;
 
     case YAEP_ALT:
-      free_tree_sweep (node->val.alt.node, parse_free, termcb);
+  free_tree_sweep (node->val.alt.node, free_fn, termcb);
       next = node->val.alt.next;
-      parse_free (node);
-      free_tree_sweep (next, parse_free, termcb);
+  free_fn (node);
+  free_tree_sweep (next, free_fn, termcb);
       return;			/* Tail recursion */
 
     default:
       assert ("This should not happen" == NULL);
     }
 
-  parse_free (node);
+  free_fn (node);
 }
 
 #ifdef __cplusplus
 static
 #endif
 void
-yaep_free_tree (struct yaep_tree_node *root, void (*parse_free) (void *),
-		void (*termcb) (struct yaep_term *))
+yaep_free_tree (struct yaep_tree_node *root, void (*free_fn) (void *),
+    void (*termcb) (struct yaep_term *))
 {
   if (root == NULL)
     {
       return;
     }
-  if (parse_free == NULL)
-    {
-      parse_free = parse_free_default;
-    }
+  if (free_fn == NULL)
+  {
+    free_fn = parse_free_default;
+  }
 
   /* Since the parse tree is actually a DAG, we must carefully avoid
    * double free errors. Therefore, we walk the parse tree twice.
    * On the first walk, we reduce the DAG to an actual tree.
    * On the second walk, we recursively free the tree nodes. */
   free_tree_reduce (root);
-  free_tree_sweep (root, parse_free, termcb);
+  free_tree_sweep (root, free_fn, termcb);
 }
 
 /* This page contains a test code for Earley's algorithm.  To use it,

@@ -47,3 +47,4 @@ $(head -50 build_warnings.log)
 | Batch | Category | Before | After | Delta | Notes |
 |-------|----------|--------|-------|-------|-------|
 | P1 Batch1 | maybe-uninitialized | 4 (est) | 0 | -4 | Initialized start/min_cost/result/term_node_array; guarded free; fresh build shows none |
+| P1 Batch2 | shadow | 95 (raw, dupes across objects) | 0 | -95 | Renamed parameters (g, initial_size, hash_func, eq_func, free_fn) eliminating all -Wshadow |
