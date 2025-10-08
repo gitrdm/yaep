@@ -7002,6 +7002,8 @@ yaep_parse_internal (void *user)
   ctx->parse_init_p = FALSE;
   tok_fin ();
   ctx->tok_init_p = FALSE;
+  /* Free parser list memory allocated in pl_create() to avoid leak (Valgrind baseline). */
+  pl_fin ();
   return 0;
 }
 
