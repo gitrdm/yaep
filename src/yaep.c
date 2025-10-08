@@ -1006,8 +1006,8 @@ term_set_hash (hash_table_entry_t s)
   int size;
   unsigned result = jauquet_prime_mod32;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-    / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / (int)(CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     result = result * hash_shift + *set++;
@@ -1023,8 +1023,8 @@ term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
   const term_set_el_t *bound;
   int size;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-    / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / (int)(CHAR_BIT * sizeof (term_set_el_t)));
   bound = set1 + size;
   while (set1 < bound)
     if (*set1++ != *set2++)
@@ -1170,8 +1170,8 @@ term_set_clear (term_set_el_t * set)
   term_set_el_t *bound;
   int size;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
+	  / (int)(CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     *set++ = 0;
@@ -1187,8 +1187,8 @@ term_set_copy (term_set_el_t * dest, term_set_el_t * src)
   term_set_el_t *bound;
   int size;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
+	  / (int)(CHAR_BIT * sizeof (term_set_el_t)));
   bound = dest + size;
   while (dest < bound)
     *dest++ = *src++;
@@ -1205,8 +1205,8 @@ term_set_or (term_set_el_t * set, term_set_el_t * op)
   term_set_el_t *bound;
   int size, changed_p;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
+	  / (int)(CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   changed_p = 0;
   while (set < bound)
@@ -1519,7 +1519,7 @@ rule_new_stop (void)
 
   OS_TOP_FINISH (rules_ptr->rules_os);
   OS_TOP_EXPAND (rules_ptr->rules_os,
-		 rules_ptr->curr_rule->rhs_len * sizeof (int));
+		 (size_t)rules_ptr->curr_rule->rhs_len * sizeof (int));
   rules_ptr->curr_rule->order = (int *) OS_TOP_BEGIN (rules_ptr->rules_os);
   OS_TOP_FINISH (rules_ptr->rules_os);
   for (i = 0; i < rules_ptr->curr_rule->rhs_len; i++)
@@ -1858,17 +1858,17 @@ sit_create (struct rule *rule, int pos, int context)
 	      || (grammar->lookahead_level > 1 && context >= 0));
     /* Compute difference in bytes between pointers. */
     diff = (int)((uintptr_t)context_sit_table_ptr - (uintptr_t)VLO_BOUND (sit_table_vlo));
-      diff += sizeof (struct sit **);
-      if (grammar->lookahead_level > 1 && diff == sizeof (struct sit **))
+      diff += (int)sizeof (struct sit **);
+      if (grammar->lookahead_level > 1 && diff == (int)sizeof (struct sit **))
 	diff *= 10;
       VLO_EXPAND (sit_table_vlo, diff);
       sit_table = (struct sit ***) VLO_BEGIN (sit_table_vlo);
       bound = (struct sit ***) VLO_BOUND (sit_table_vlo);
       context_sit_table_ptr = sit_table + context;
-      ptr = bound - diff / sizeof (struct sit **);
+      ptr = bound - diff / (int)sizeof (struct sit **);
       while (ptr < bound)
 	{
-	  OS_TOP_EXPAND (sits_os, (rules_ptr->n_rhs_lens + rules_ptr->n_rules)
+	  OS_TOP_EXPAND (sits_os, (size_t)(rules_ptr->n_rhs_lens + rules_ptr->n_rules)
 			 * sizeof (struct sit *));
 	  *ptr = (struct sit **) OS_TOP_BEGIN (sits_os);
 	  OS_TOP_FINISH (sits_os);
