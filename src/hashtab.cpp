@@ -216,7 +216,7 @@ hash_table::find_entry (hash_table_entry_t element, int reserve)
 	first_deleted_entry_ptr = entry_ptr;
       hash_value += secondary_hash_value;
       if (hash_value >= _size)
-	hash_value -= _size;
+	hash_value -= static_cast<unsigned>(_size);
     }
   return entry_ptr;
 }

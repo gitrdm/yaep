@@ -1010,7 +1010,7 @@ term_set_hash (hash_table_entry_t s)
     / (int)(CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
-    result = result * hash_shift + *set++;
+    result = result * hash_shift + (unsigned)*set++;
   return result;
 }
 
@@ -1284,7 +1284,7 @@ term_set_insert (term_set_el_t * set)
       (void*) to make the intention explicit and avoid warnings. */
     *entry = (hash_table_entry_t) (void *) tab_term_set_ptr;
       tab_term_set_ptr->set = set;
-      tab_term_set_ptr->num = (VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+      tab_term_set_ptr->num = (int)(VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
 			       / sizeof (struct tab_term_set *));
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
@@ -1884,10 +1884,10 @@ sit_create (struct rule *rule, int pos, int context)
   OS_TOP_FINISH (sits_os);
   n_all_sits++;
   sit->rule = rule;
-  sit->pos = pos;
+  sit->pos = (short)pos;
   sit->sit_number = n_all_sits;
   sit->context = context;
-  sit->empty_tail_p = sit_set_lookahead (sit);
+  sit->empty_tail_p = (char)sit_set_lookahead (sit);
 #ifdef TRANSITIVE_TRANSITION
   sit->sit_check = 0;
 #endif
