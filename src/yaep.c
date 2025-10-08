@@ -2252,7 +2252,7 @@ sit_dist_insert (struct sit *sit, int dist)
 
   sit_number = sit->sit_number;
   /* Expand the set to accommodate possibly a new situation.  */
-  len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
+  len = (int)VLO_NELS (sit_dist_vec_vlo, vlo_t);
   if (len <= sit_number)
     {
       VLO_EXPAND (sit_dist_vec_vlo, (size_t)(sit_number + 1 - len) * sizeof (vlo_t));
@@ -2267,7 +2267,7 @@ sit_dist_insert (struct sit *sit, int dist)
     }
 #ifndef __cplusplus
   check_dist_vlo = &STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = VLO_NELS (*check_dist_vlo, int);
+  len = (int)VLO_NELS (*check_dist_vlo, int);
   if (len <= dist)
     {
       /* Expand VLO to accommodate new distance, avoid conversion warnings. */
@@ -2281,7 +2281,7 @@ sit_dist_insert (struct sit *sit, int dist)
   return TRUE;
 #else
   check_dist_vlo = STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = check_dist_vlo->length () / sizeof (int);
+  len = (int)(check_dist_vlo->length () / sizeof (int));
   if (len <= dist)
     {
       check_dist_vlo->expand ((size_t)(dist + 1 - len) * sizeof (int));
@@ -3185,10 +3185,10 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
       int diff, i;
 
 #ifndef __cplusplus
-      diff = ((char *) core_symb_vect_ptr
+      diff = (int)((char *) core_symb_vect_ptr
 	      - (char *) VLO_BOUND (core_symb_table_vlo));
 #else
-      diff = ((char *) core_symb_vect_ptr
+      diff = (int)((char *) core_symb_vect_ptr
 	      - (char *) core_symb_table_vlo->bound ());
 #endif
       diff += (int)sizeof (struct core_symb_vect **);
@@ -3797,7 +3797,7 @@ create_first_follow_sets (void)
 		    if (first_continue_p)
 		      changed_p |= term_set_or (symb->u.nonterm.first,
 						rhs_symb->u.nonterm.first);
-		    for (k = j + 1; k < rhs_len; k++)
+		    for (k = (int)(j + 1); k < rhs_len; k++)
 		      {
 			next_rhs_symb = rhs[k];
 			if (next_rhs_symb->term_p)
@@ -3863,12 +3863,12 @@ set_empty_access_derives (void)
 	    if (empty_p)
 	      {
 		empty_changed_p |= symb->empty_p ^ empty_p;
-		symb->empty_p = empty_p;
+		symb->empty_p = (char)empty_p;
 	      }
 	    if (derivation_p)
 	      {
 		derivation_changed_p |= symb->derivation_p ^ derivation_p;
-		symb->derivation_p = derivation_p;
+		symb->derivation_p = (char)derivation_p;
 	      }
 	  }
     }
@@ -4942,7 +4942,7 @@ save_original_sets (void)
   int length, curr_pl;
 
   assert (pl_curr >= 0 && original_last_pl_el <= start_pl_curr);
-  length = VLO_NELS (original_pl_tail_stack, struct set *);
+  length = (int)VLO_NELS (original_pl_tail_stack, struct set *);
   for (curr_pl = start_pl_curr - length; curr_pl >= pl_curr; curr_pl--)
     {
       VLO_ADD_MEMORY (original_pl_tail_stack, &pl[curr_pl],
@@ -5842,7 +5842,7 @@ trans_visit_node_hash (hash_table_entry_t n)
   /* The hash only needs to read the node pointer; use a const view to
      avoid casting away qualifiers and to make intent explicit. */
   const struct trans_visit_node *tn = ((const struct trans_visit_node *) n);
-  return (size_t) tn->node;
+  return (unsigned)(size_t) tn->node;
 }
 
 /* Equality of translation visit nodes. */
@@ -6102,9 +6102,9 @@ copy_anode (struct yaep_tree_node **place, struct yaep_tree_node *anode,
   int i;
 
   node = ((struct yaep_tree_node *)
-	  (*parse_alloc) ((size_t)sizeof (struct yaep_tree_node)
+	  (*parse_alloc) ((int)((size_t)sizeof (struct yaep_tree_node)
 			  + (size_t)sizeof (struct yaep_tree_node *)
-			  * (size_t)(rule->trans_len + 1)));
+			  * (size_t)(rule->trans_len + 1))));
   *node = *anode;
   node->val.anode.children
     = ((struct yaep_tree_node **)
@@ -6124,7 +6124,7 @@ static hash_table_t reserv_mem_tab;
 static unsigned
 reserv_mem_hash (hash_table_entry_t m)
 {
-  return (size_t) m;
+  return (unsigned)(size_t) m;
 }
 
 /* The equity of the memory reference. */
@@ -6671,9 +6671,9 @@ make_parse (int *ambiguous_p)
 		      n_parse_abstract_nodes++;
 		      node
 			= ((struct yaep_tree_node *)
-			   (*parse_alloc) ((size_t)sizeof (struct yaep_tree_node)
+			   (*parse_alloc) ((int)((size_t)sizeof (struct yaep_tree_node)
 					   + (size_t)sizeof (struct yaep_tree_node *)
-					   * (size_t)(sit_rule->trans_len + 1)));
+					   * (size_t)(sit_rule->trans_len + 1))));
 		      state->anode = node;
 		      if (table_state != NULL)
 			table_state->anode = node;
@@ -6682,7 +6682,7 @@ make_parse (int *ambiguous_p)
 			{
 			  sit_rule->caller_anode
 			    = ((char *)
-			       (*parse_alloc) ((size_t)(strlen (sit_rule->anode) + 1)));
+			       (*parse_alloc) ((int)((size_t)(strlen (sit_rule->anode) + 1))));
 			  strcpy (sit_rule->caller_anode, sit_rule->anode);
 			}
 		      node->val.anode.name = sit_rule->caller_anode;
