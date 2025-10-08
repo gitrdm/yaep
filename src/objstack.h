@@ -94,10 +94,12 @@ struct _os_auxiliary_struct
 /* This macro is auxiliary.  Its value is aligned address nearest to `a'. */
 
 #ifdef __cplusplus
-/* In C++ use uintptr_t and reinterpret_cast to avoid old-style-cast warnings. */
+/* In C++ use uintptr_t and explicit C++ casts to avoid old-style-cast warnings.
+   Keep the original semantics but use reinterpret_cast/static_cast so C++
+   compilation is warning-clean and intent is explicit to future maintainers. */
 #define _OS_ALIGNED_ADDRESS(a) \
-  (reinterpret_cast<void*>(((uintptr_t) ((char *) (a) + (_OS_ALIGNMENT - 1))) \
-                           & (~(uintptr_t) (_OS_ALIGNMENT - 1))))
+  (reinterpret_cast<void*>((reinterpret_cast<uintptr_t>(reinterpret_cast<char*>((a)) + (_OS_ALIGNMENT - 1))) \
+                           & (~static_cast<uintptr_t>(_OS_ALIGNMENT - 1))))
 #else
 #define _OS_ALIGNED_ADDRESS(a)\
   ((void *) (((size_t) ((char *) (a) + (_OS_ALIGNMENT - 1)))\
@@ -407,9 +409,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-            ? (size_t) (os_top_object_free - os_top_object_start) : (abort (), 0));
+            ? static_cast<size_t>(os_top_object_free - os_top_object_start) : (abort (), 0));
 #else
-    return (size_t) (os_top_object_free - os_top_object_start);
+    return static_cast<size_t>(os_top_object_free - os_top_object_start);
 #endif
   }
 

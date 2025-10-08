@@ -318,9 +318,12 @@ public:
   {
     initial_length = (initial_length != 0
 		      ? initial_length : VLO_DEFAULT_LENGTH);
-    vlo_start = (char *) yaep_malloc (vlo_alloc, initial_length);
-    vlo_boundary = vlo_start + initial_length;
-    vlo_free = vlo_start;
+  // Use explicit C++ cast for clarity in C++ compilation units. The runtime
+  // behavior is unchanged; this avoids old-style-cast warnings and makes
+  // intent explicit to future maintainers.
+  vlo_start = reinterpret_cast<char *>(yaep_malloc (vlo_alloc, initial_length));
+  vlo_boundary = vlo_start + initial_length;
+  vlo_free = vlo_start;
   }
 
 
@@ -371,7 +374,8 @@ public:
   inline void *begin (void)
   {
     assert (vlo_start != NULL);
-    return (void *) vlo_start;
+    // return as void* using reinterpret_cast for C++ clarity
+    return reinterpret_cast<void *>(vlo_start);
   }
 
   /* This function returns pointer (of type `void *') to the last byte
@@ -381,7 +385,7 @@ public:
   inline void *end (void)
   {
     assert (vlo_start != NULL);
-    return (void *) (vlo_free - 1);
+    return reinterpret_cast<void *>(vlo_free - 1);
   }
 
   /* This function returns pointer (of type `void *') to the next byte
@@ -391,7 +395,7 @@ public:
   inline void *bound (void)
   {
     assert (vlo_start != NULL);
-    return (void *) vlo_free;
+    return reinterpret_cast<void *>(vlo_free);
   }
 
   /* This function removes N bytes from the end of VLO.  VLO is nullified
