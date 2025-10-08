@@ -5470,23 +5470,29 @@ build_pl (void)
           fflush (stderr);
         }
       if (*entry != NULL)
-	{
-	  struct set *tab_set;
+    {
+      /* The entry stores a mutable set_term_lookahead owned by the
+         hash table. We intentionally cast through (void*) once here
+         to obtain a mutable local pointer for subsequent mutations
+         and checks. This documents the deliberate removal of the
+         const qualifier at the mutation site while keeping the
+         public API (hash_table_entry_t) const. */
+      struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+      struct set *tab_set;
 
-	  OS_TOP_NULLIFY (set_term_lookahead_os);
-	  for (i = 0; i < MAX_CACHED_GOTO_RESULTS; i++)
-	    if ((tab_set =
-		 ((struct set_term_lookahead *) *entry)->result[i]) == NULL)
-	      break;
-	    else if (check_cached_transition_set
-		     (tab_set,
-		      ((struct set_term_lookahead *) *entry)->place[i]))
-	      {
-		new_set = tab_set;
-		n_goto_successes++;
-		break;
-	      }
-	}
+      OS_TOP_NULLIFY (set_term_lookahead_os);
+      for (i = 0; i < MAX_CACHED_GOTO_RESULTS; i++)
+        if ((tab_set = tab_ent->result[i]) == NULL)
+          break;
+        else if (check_cached_transition_set
+             (tab_set,
+              tab_ent->place[i]))
+          {
+        new_set = tab_set;
+        n_goto_successes++;
+        break;
+          }
+    }
       else
 	{
 	  OS_TOP_FINISH (set_term_lookahead_os);
@@ -5527,13 +5533,16 @@ build_pl (void)
 	  build_new_set (set, core_symb_vect, lookahead_term_num);
 #ifdef USE_SET_HASH_TABLE
 	  /* Save (set, term, lookahead) -> new_set in the table.  */
-	  i = ((struct set_term_lookahead *) *entry)->curr;
-	  ((struct set_term_lookahead *) *entry)->result[i] = new_set;
-	  ((struct set_term_lookahead *) *entry)->place[i] = pl_curr;
-	  ((struct set_term_lookahead *) *entry)->lookahead =
-	    lookahead_term_num;
-	  ((struct set_term_lookahead *) *entry)->curr =
-	    (i + 1) % MAX_CACHED_GOTO_RESULTS;
+      /* Mutate the stored table entry — obtain local mutable pointer
+         via documented void* cast as above. */
+      {
+        struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+        i = tab_ent->curr;
+        tab_ent->result[i] = new_set;
+        tab_ent->place[i] = pl_curr;
+        tab_ent->lookahead = lookahead_term_num;
+        tab_ent->curr = (i + 1) % MAX_CACHED_GOTO_RESULTS;
+      }
 #endif
 	}
       pl[++pl_curr] = new_set;
