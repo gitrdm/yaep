@@ -86,9 +86,9 @@ static void store_lexs( YaepAllocator * alloc ) {
       }
     else
       lex.id = NULL;
-    lex.code = code;
+    lex.code = (short)code;
     lex.line = line;
-    lex.column = column;
+    lex.column = (short)column;
     lex.next = NULL;
     OS_TOP_ADD_MEMORY (lexs, &lex, sizeof (lex));
     if (prev == NULL)

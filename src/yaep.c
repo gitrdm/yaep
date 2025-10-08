@@ -1301,8 +1301,8 @@ INLINE
 static term_set_el_t *
 term_set_from_table (int num)
 {
-  assert (num < VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-	  / sizeof (struct tab_term_set *));
+  assert (num < (int)(VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+	  / sizeof (struct tab_term_set *)));
   return ((struct tab_term_set **)
 	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo))[num]->set;
 }
@@ -7385,7 +7385,7 @@ test_read_token (void **attr)
 
   ntok++;
   *attr = NULL;
-  if (ntok < sizeof (input))
+  if (ntok < (int)sizeof (input))
     return input[ntok - 1];
   else
     return -1;
