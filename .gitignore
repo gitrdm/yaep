@@ -23,6 +23,7 @@ cmake_install.cmake
 *.o
 *.a
 *.so
+*.so.*
 *.exe
 *.out
 *.log
@@ -55,8 +56,10 @@ src/yaep++
 src/yaep++_test
 src/*.a
 src/*.so
+src/*.so.*
 src/*.exe
 src/*.out
+src/*.so*
 test/*.exe
 test/*.out
 test/*_test
