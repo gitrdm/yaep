@@ -29,8 +29,12 @@ if( NOT ${BISON_sgramm_DEFINED} )
 endif()
 add_custom_target( sgramm_c DEPENDS ${BISON_sgramm_OUTPUTS} ) # FIXME: yaep.c includes sgramm.c directly, so we need a custom target
 
+# Ensure CMAKE_BINARY_DIR is defined for all targets that need it
+add_compile_definitions(CMAKE_BINARY_DIR=\"${CMAKE_CURRENT_BINARY_DIR}\")
+
 # Now build libraries
 include_directories(
+	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_BINARY_DIR}
 	${PROJECT_SOURCE_DIR}/third_party/utf8proc
 	${CMAKE_CURRENT_SOURCE_DIR}/unicode
@@ -48,6 +52,7 @@ set( YAEP_LIB_SOURCES
 	hashtab.c
 	objstack.c
 	vlobject.c
+	yaep_error.c
 	yaep.c
 	unicode/yaep_unicode.c
 )
@@ -75,6 +80,7 @@ set( YAEPXX_LIB_SOURCES
 	hashtab.cpp
 	objstack.cpp
 	vlobject.cpp
+	yaep_error.c
 	yaep.cpp
 	unicode/yaep_unicode.c
 )

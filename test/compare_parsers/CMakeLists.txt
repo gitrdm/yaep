@@ -76,8 +76,9 @@ if( BISON_FOUND )
 	add_dependencies( ansic-bison ansic_c bison_ansic_output )
 	target_link_libraries( ansic-bison
 		ticker
-		yaep
+		yaep_static
 	)
+	yaep_register_test_target( ansic-bison )
 	add_test( ansic-test-bison-small ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-bison < ${TEST_DATA}" )
 	add_test( ansic-test-bison-big ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-bison < ${BIGTEST_DATA}" )
 else()
@@ -92,8 +93,9 @@ if( MSTA_FOUND )
 	add_dependencies( ansic-msta ansic_c msta_bison_output )
 	target_link_libraries( ansic-msta
 		ticker
-		yaep
+		yaep_static
 	)
+	yaep_register_test_target( ansic-msta )
 	add_test( ansic-test-msta-small ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-msta < ${TEST_DATA}" )
 	add_test( ansic-test-msta-big ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-msta < ${BIGTEST_DATA}" )
 else()
@@ -107,6 +109,7 @@ target_link_libraries( ansic-yaep
 	ticker
 	yaep_static
 )
+yaep_register_test_target( ansic-yaep )
 add_test( ansic-test-yaep-no-lookahead ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-yaep 0 0 < ${TEST_DATA}" )
 add_test( ansic-test-yaep-static-lookahead ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-yaep 1 0 < ${TEST_DATA}" )
 add_test( ansic-test-yaep-dynamic-lookahead ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-yaep 2 0 < ${TEST_DATA}" )
@@ -140,8 +143,9 @@ add_dependencies( ansic-marpa ansic_c test_c )
 target_link_libraries( ansic-marpa
 	${MARPA_LIBS}
 	ticker
-	yaep
+	yaep_static
 )
+yaep_register_test_target( ansic-marpa )
 add_test( ansic-test-marpa-small ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-marpa < ${TEST_DATA}" )
 if( DEFINED ENV{MARPA_BIG_TEST})
     add_test( ansic-test-marpa-big ${SHELL} -c "${TIMER} ${CMAKE_CURRENT_BINARY_DIR}/ansic-marpa < ${BIGTEST_DATA}" )

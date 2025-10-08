@@ -42,7 +42,51 @@ endif()
 add_library( ticker STATIC ticker.c )
 add_library( ticker++ STATIC ticker.cpp )
 
+
+# Allow test subdirectories to register the executables they define so we can
+# wire up aggregate build and test targets later.
+set_property( GLOBAL PROPERTY YAEP_TEST_EXECUTABLES "" )
+
+function( yaep_register_test_target target )
+	if( TARGET ${target} )
+		set_property( GLOBAL APPEND PROPERTY YAEP_TEST_EXECUTABLES ${target} )
+	endif()
+endfunction()
+
+# Aggregate target to build all test executables
+get_property(_yaep_test_executables GLOBAL PROPERTY YAEP_TEST_EXECUTABLES)
+if(_yaep_test_executables)
+	add_custom_target(yaep_all_tests DEPENDS ${_yaep_test_executables})
+endif()
+
 # Test subdirectories
 add_subdirectory( C )
 add_subdirectory( C++ )
 add_subdirectory( compare_parsers )
+
+yaep_register_test_target( yaep_test )
+yaep_register_test_target( yaep++_test )
+
+get_property( YAEP_TEST_EXECUTABLES GLOBAL PROPERTY YAEP_TEST_EXECUTABLES )
+
+if( YAEP_TEST_EXECUTABLES )
+	list( REMOVE_DUPLICATES YAEP_TEST_EXECUTABLES )
+
+	add_custom_target( yaep-test-build
+		DEPENDS ${YAEP_TEST_EXECUTABLES}
+	)
+
+	set( _yaep_ctest_command
+		${CMAKE_CTEST_COMMAND} --output-on-failure --test-dir ${PROJECT_BINARY_DIR}
+	)
+	if( CMAKE_CONFIGURATION_TYPES )
+		list( APPEND _yaep_ctest_command --build-config $<CONFIG> )
+	endif()
+
+	add_custom_target( check
+		COMMAND ${_yaep_ctest_command}
+		DEPENDS yaep-test-build
+		WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+		USES_TERMINAL
+	)
+endif()

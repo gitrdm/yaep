@@ -62,6 +62,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "allocate.h"
 
@@ -92,9 +93,18 @@ struct _os_auxiliary_struct
 
 /* This macro is auxiliary.  Its value is aligned address nearest to `a'. */
 
+#ifdef __cplusplus
+/* In C++ use uintptr_t and explicit C++ casts to avoid old-style-cast warnings.
+   Keep the original semantics but use reinterpret_cast/static_cast so C++
+   compilation is warning-clean and intent is explicit to future maintainers. */
+#define _OS_ALIGNED_ADDRESS(a) \
+  (reinterpret_cast<void*>((reinterpret_cast<uintptr_t>(reinterpret_cast<char*>((a)) + (_OS_ALIGNMENT - 1))) \
+                           & (~static_cast<uintptr_t>(_OS_ALIGNMENT - 1))))
+#else
 #define _OS_ALIGNED_ADDRESS(a)\
-  ((void *) ((size_t) ((char *) (a) + (_OS_ALIGNMENT - 1))\
+  ((void *) (((size_t) ((char *) (a) + (_OS_ALIGNMENT - 1)))\
              & (~(size_t) (_OS_ALIGNMENT - 1))))
+#endif
 
 /* This macro value is default size of memory segments which will be
    allocated for OS when the stack is created (with zero initial
@@ -202,10 +212,10 @@ typedef struct
 #ifndef NDEBUG
 #define OS_TOP_LENGTH(os)\
   ((os).os_top_object_start != NULL\
-   ? (os).os_top_object_free - (os).os_top_object_start\
+   ? (size_t)((os).os_top_object_free - (os).os_top_object_start) /* Cast to size_t to avoid sign/width conversion warnings */\
    : (abort (), 0))
 #else
-#define OS_TOP_LENGTH(os)  ((os).os_top_object_free - (os).os_top_object_start)
+#define OS_TOP_LENGTH(os)  ((size_t)((os).os_top_object_free - (os).os_top_object_start)) /* Cast to size_t to avoid sign/width conversion warnings */
 #endif
 
 /* This macro returns pointer to the first byte of variable length
@@ -290,10 +300,7 @@ typedef struct
     assert (_temp_os->os_top_object_start != NULL);\
     if (_temp_os->os_top_object_free >= _temp_os->os_boundary)\
       _OS_expand_memory (_temp_os, 1);\
-    /* Store as unsigned char to avoid sign-extension on platforms where
-       `char' is signed. This makes subsequent byte-wise operations and
-       hashing stable and platform-independent. */\
-    *_temp_os->os_top_object_free++ = (char) ((unsigned char) (b));\
+    *_temp_os->os_top_object_free++ = (b);\
   }\
   while (0)
 
@@ -325,7 +332,7 @@ typedef struct
    Remember that they are internal functions - all work with OS is
    executed through the macros. */
 
-extern void _OS_create_function (os_t *os, size_t initial_segment_length);
+extern int _OS_create_function (os_t *os, size_t initial_segment_length);
 extern void _OS_delete_function (os_t *os);
 extern void _OS_empty_function (os_t *os);
 extern void _OS_add_string_function (os_t *os, const char *str);
@@ -391,7 +398,7 @@ public:
   inline void top_finish (void)
   {
     assert (os_top_object_start != NULL);
-    os_top_object_start = (char *) _OS_ALIGNED_ADDRESS (os_top_object_free);
+    os_top_object_start = reinterpret_cast<char *>(_OS_ALIGNED_ADDRESS (os_top_object_free));
     os_top_object_free = os_top_object_start;
   }
 
@@ -402,9 +409,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? os_top_object_free - os_top_object_start : (abort (), 0));
+            ? static_cast<size_t>(os_top_object_free - os_top_object_start) : (abort (), 0));
 #else
-    return (os_top_object_free - os_top_object_start);
+    return static_cast<size_t>(os_top_object_free - os_top_object_start);
 #endif
   }
 
@@ -416,9 +423,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? (void *) os_top_object_start : (abort (), (void *) 0));
+            ? reinterpret_cast<void *>(os_top_object_start) : (abort (), reinterpret_cast<void *>(0)));
 #else
-    return ((void *) os_top_object_start);
+    return reinterpret_cast<void *>(os_top_object_start);
 #endif
   }
 
@@ -430,9 +437,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? (void *) (os_top_object_free - 1) : (abort (), (void *) 0));
+            ? reinterpret_cast<void *>(os_top_object_free - 1) : (abort (), reinterpret_cast<void *>(0)));
 #else
-    return ((void *) (os_top_object_free - 1));
+    return reinterpret_cast<void *>(os_top_object_free - 1);
 #endif
   }
 
@@ -445,9 +452,9 @@ public:
   {
 #ifndef NDEBUG
     return (os_top_object_start != NULL
-	    ? (void *) os_top_object_free : (abort (), (void *) 0));
+            ? reinterpret_cast<void *>(os_top_object_free) : (abort (), reinterpret_cast<void *>(0)));
 #else
-    return ((void *) os_top_object_free);
+    return reinterpret_cast<void *>(os_top_object_free);
 #endif
   }
 
@@ -485,9 +492,7 @@ public:
     assert (os_top_object_start != NULL);
     if (os_top_object_free >= os_boundary)
       _OS_expand_memory (1);
-    /* Store as unsigned char to avoid sign-extension when `char` is
-       signed on some platforms; this preserves byte-level representation. */
-    *os_top_object_free++ = (char) ((unsigned char) b);
+    *os_top_object_free++ = static_cast<char>(b);
   }
 
   /* This function adds memory bytes to the end of variable length

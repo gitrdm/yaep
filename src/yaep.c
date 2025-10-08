@@ -42,43 +42,35 @@
 
 #include <stdio.h>
 #include <stdarg.h>
-#include <setjmp.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
-#include <limits.h>
+#ifdef __cplusplus
+#include <new>
+#endif
+#include <unistd.h>
 
 #include "allocate.h"
 #include "hashtab.h"
 #include "vlobject.h"
 #include "objstack.h"
 #include "yaep.h"
-#include "yaep_unicode.h"
+#include "yaep_cleanup.h"
+#include "yaep_error.h"
+#include "yaep_macros.h"
+#include <execinfo.h>
+
+/* Helper: number of elements stored in a VLO for element type `el`.
+  Cast to size_t to avoid sign/width conversion warnings when used in
+  size/loop index contexts. */
+#define VLO_NELS(vlo, el) ((size_t) (VLO_LENGTH (vlo) / sizeof (el)))
+/* Cast to size_t to avoid sign/width conversion warnings when used in size/loop index contexts. */
 
 
-/* Definition of per-parse context. Kept minimal: only fields that must
-   survive across a setjmp/longjmp are stored here. Allocation is done
-   via the grammar allocator. */
-struct parse_ctx {
-  struct symb *start;
-  /* Flags that describe initialized subsystems during a parse. These
-     fields must survive across a longjmp so store them in the heap
-     allocated parse context which is created before calling setjmp. */
-  int tok_init_p;
-  int parse_init_p;
-};
-
-/* Thread-local slot for the current parse context. See comments in the
-  main edit where we allocate the context before calling setjmp to
-  avoid -Wclobbered diagnostics. */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-static _Thread_local struct parse_ctx *yaep_current_parse_ctx = NULL;
-#else
-#ifdef __GNUC__
-static __thread struct parse_ctx *yaep_current_parse_ctx = NULL;
-#else
-static struct parse_ctx *yaep_current_parse_ctx = NULL;
-#endif
-#endif
+/* If YAEP_FUZZ_WRITEBACKTRACES is set in the environment, print a short
+  backtrace and contextual information whenever we are about to write a
+  `struct symb *` into the `symbs` VLO. The full implementation is
+  defined later after the `symb` and `symbs_ptr` types are available. */
 
 
 
@@ -114,7 +106,7 @@ static struct parse_ctx *yaep_current_parse_ctx = NULL;
 #endif
 
 #ifndef YAEP_MAX_ERROR_MESSAGE_LENGTH
-#define YAEP_MAX_ERROR_MESSAGE_LENGTH 1024
+#define YAEP_MAX_ERROR_MESSAGE_LENGTH 200
 #endif
 
 /* Define if you don't want to use hash table: symb code -> code.  It
@@ -146,18 +138,6 @@ static struct parse_ctx *yaep_current_parse_ctx = NULL;
 static const unsigned jauquet_prime_mod32 = 2053222611;
 /* Shift used for hash calculations.  */
 static const unsigned hash_shift = 611;
-
-/* Note on signedness: many hash accumulation sites in this file
-  operate on values that are already integer-typed (for example
-  `int`, `long int` / `term_set_el_t`, or explicit `(unsigned)`
-  casts).  Therefore the operands being added/multiplied are not
-  raw `char` bytes and no additional `(unsigned char)` promotion is
-  required here.  For places that do iterate over raw string bytes
-  we normalize to `unsigned char` (see `yaep_utf8_hash` and the
-  byte-storage normalization in `objstack.h` / `vlobject.h`) to
-  avoid platform-dependent sign-extension.  Keep this rationale in
-  mind when changing hashing code paths.
-*/
 
 
 /* The following is major structure which stores information about
@@ -225,9 +205,6 @@ struct grammar
   struct term_sets *term_sets_ptr;
   /* Allocator. */
   YaepAllocator *alloc;
-  /* (no per-grammar parse_ctx field: use a per-call heap-backed
-    context allocated within yaep_read_grammar to support concurrent
-    parses on the same grammar.) */
 };
 
 /* The following variable value is the reference for the current
@@ -239,6 +216,35 @@ static struct symbs *symbs_ptr;
 static struct term_sets *term_sets_ptr;
 static struct rules *rules_ptr;
 
+/* If YAEP_FUZZ_WRITEBACKTRACES is set in the environment, print a short
+   backtrace and contextual information whenever we are about to write a
+   `struct symb *` into the `symbs` VLO. This is intended to capture the
+   writer stack so we can later correlate unexpected/poisoned pointers
+   observed in tokens with the site that created the symbol pointer. */
+static void
+maybe_write_backtrace_for_symb_push (const char *label, struct symb *ptr)
+{
+  if (getenv ("YAEP_FUZZ_WRITEBACKTRACES") == NULL)
+    return;
+
+  void *frames[16];
+  int nframes = backtrace (frames, sizeof (frames) / sizeof (frames[0]));
+  char **symbols = backtrace_symbols (frames, nframes);
+
+  fprintf (stderr, "YAEP_WRITEBACKTRACE %s: pushing symb=%p into symbs_vlo\n",
+           label, (void *) ptr);
+  if (symbols != NULL)
+    {
+      for (int i = 0; i < nframes; ++i)
+        fprintf (stderr, "  #%02d %s\n", i, symbols[i]);
+      free (symbols);
+    }
+
+  /* Print symbs_ptr so we can later inspect the VLO from a debug run. */
+  fprintf (stderr, "  symbs_ptr=%p\n", (void *) symbs_ptr);
+  fflush (stderr);
+}
+
 /* The following is set up the parser amnd used globally. */
 static int (*read_token) (void **attr);
 static void (*syntax_error) (int err_tok_num,
@@ -249,9 +255,6 @@ static void (*syntax_error) (int err_tok_num,
 			     void *start_recovered_tok_attr);
 static void *(*parse_alloc) (int nmemb);
 static void (*parse_free) (void *mem);
-
-/* Forward decrlarations: */
-static void yaep_error (int code, const char *format, ...);
 
 #ifndef __cplusplus
 extern
@@ -266,31 +269,35 @@ void yaep_free_grammar (struct grammar *g);
 
 /* Expand VLO to contain N_ELS integers.  Initilize the new elements
    as zero. Return TRUE if we really made an expansion.  */
-#ifdef TRANSITIVE_TRANSITION
 static int
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
 expand_int_vlo (vlo_t * vlo, int n_els)
 {
 #ifndef __cplusplus
-  int i, prev_n_els = VLO_LENGTH (*vlo) / sizeof (int);
+  size_t i, prev_n_els = VLO_NELS (*vlo, int);
 
-  if (prev_n_els >= n_els)
+  /* Cast prev_n_els to int to avoid sign/width conversion warning. */
+  if ((int) prev_n_els >= n_els)
     return FALSE;
-  VLO_EXPAND (*vlo, (n_els - prev_n_els) * sizeof (int));
-  for (i = prev_n_els; i < n_els; i++)
+  /* Cast prev_n_els to int to avoid sign/width conversion warning. */
+  VLO_EXPAND (*vlo, (n_els - (int) prev_n_els) * sizeof (int));
+  /* Cast n_els to size_t to avoid sign/width conversion warning. */
+  for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) VLO_BEGIN (*vlo))[i] = 0;
   return TRUE;
 #else
-  int i, prev_n_els = vlo->length () / sizeof (int);
+  size_t i, prev_n_els = vlo->length () / sizeof (int);
 
-  if (prev_n_els >= n_els)
+  if ((int) prev_n_els >= n_els)
     return FALSE;
-  vlo->expand ((n_els - prev_n_els) * sizeof (int));
-  for (i = prev_n_els; i < n_els; i++)
+  vlo->expand ((n_els - (int) prev_n_els) * sizeof (int));
+  for (i = prev_n_els; i < (size_t) n_els; i++)
     ((int *) vlo->begin ())[i] = 0;
   return TRUE;
 #endif
 }
-#endif /* #ifdef TRANSITIVE_TRANSITION */
 
 
 
@@ -397,36 +404,43 @@ struct symbs
 #endif
 };
 
-/* Hash of symbol representation.
- * 
- * This function computes a hash value for symbol names (identifiers).
- * It uses the UTF-8-safe hashing function to ensure that high-bit bytes
- * in multi-byte UTF-8 sequences are treated as unsigned, avoiding
- * sign-extension artifacts that would cause hash instability.
- *
- * The hash quality doesn't need to be cryptographic, but it should
- * distribute common grammar symbols (ASCII identifiers) reasonably well
- * to minimize collisions in the symbol table.
- */
+#ifndef __cplusplus
+static int os_create_safe (os_t *os, YaepAllocator *alloc,
+                           size_t initial_segment_length);
+static int vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc,
+                            size_t initial_length);
+#endif
+
+/* Hash of symbol representation. */
 static unsigned
 symb_repr_hash (hash_table_entry_t s)
 {
-  const char *str = ((struct symb *) s)->repr;
-  return yaep_utf8_hash(str);
+  /* Read-only access to symbol repr; use const pointer to make
+     intent explicit and avoid casting away const elsewhere. */
+  unsigned result = jauquet_prime_mod32;
+  const char *str = ((const struct symb *) s)->repr;
+  int i;
+
+  for (i = 0; str[i] != '\0'; i++)
+    result = result * hash_shift + (unsigned) str[i];
+  return result;
 }
 
 /* Equality of symbol representations. */
 static int
 symb_repr_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  return strcmp (((struct symb *) s1)->repr, ((struct symb *) s2)->repr) == 0;
+  const struct symb *a = ((const struct symb *) s1);
+  const struct symb *b = ((const struct symb *) s2);
+  return strcmp (a->repr, b->repr) == 0;
 }
 
 /* Hash of terminal code. */
 static unsigned
 symb_code_hash (hash_table_entry_t s)
 {
-  struct symb *symb = ((struct symb *) s);
+  /* Only reads the symbol structure to obtain its code. */
+  const struct symb *symb = ((const struct symb *) s);
 
   assert (symb->term_p);
   return symb->u.term.code;
@@ -436,36 +450,192 @@ symb_code_hash (hash_table_entry_t s)
 static int
 symb_code_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct symb *symb1 = ((struct symb *) s1);
-  struct symb *symb2 = ((struct symb *) s2);
+  const struct symb *symb1 = ((const struct symb *) s1);
+  const struct symb *symb2 = ((const struct symb *) s2);
 
   assert (symb1->term_p && symb2->term_p);
   return symb1->u.term.code == symb2->u.term.code;
 }
 
-/* Initialize work with symbols and returns storage for the
+/* Initialize work with symbols and return storage for the
    symbols. */
-static struct symbs *
-symb_init (void)
+static int
+symb_init (struct grammar *g, struct symbs **out_symbs)
 {
-  void *mem;
-  struct symbs *result;
+  struct symbs *result = NULL;
+  int os_initialized = 0;
+  int symbs_vlo_initialized = 0;
+  int terms_vlo_initialized = 0;
+  int nonterms_vlo_initialized = 0;
+  int repr_tab_initialized = 0;
+  int code_tab_initialized = 0;
 
-  mem = yaep_malloc (grammar->alloc, sizeof (struct symbs));
-  result = (struct symbs *) mem;
-  OS_CREATE (result->symbs_os, grammar->alloc, 0);
-  VLO_CREATE (result->symbs_vlo, grammar->alloc, 1024);
-  VLO_CREATE (result->terms_vlo, grammar->alloc, 512);
-  VLO_CREATE (result->nonterms_vlo, grammar->alloc, 512);
+  assert (g != NULL);
+
+  result = (struct symbs *) yaep_malloc (g->alloc, sizeof (struct symbs));
+  if (result == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate symbol table");
+      return YAEP_NO_MEMORY;
+    }
+
+  memset (result, 0, sizeof (*result));
+
+#ifndef __cplusplus
+  if (os_create_safe (&result->symbs_os, g->alloc, 0) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
+  if (vlo_create_safe (&result->symbs_vlo, g->alloc, 1024) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol descriptor storage");
+      goto fail;
+    }
+  symbs_vlo_initialized = 1;
+
+  if (vlo_create_safe (&result->terms_vlo, g->alloc, 512) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal storage");
+      goto fail;
+    }
+  terms_vlo_initialized = 1;
+
+  if (vlo_create_safe (&result->nonterms_vlo, g->alloc, 512) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate nonterminal storage");
+      goto fail;
+    }
+  nonterms_vlo_initialized = 1;
+
   result->repr_to_symb_tab =
-    create_hash_table (grammar->alloc, 300, symb_repr_hash, symb_repr_eq);
+    create_hash_table (g->alloc, 300, symb_repr_hash, symb_repr_eq);
+  if (result->repr_to_symb_tab == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol representation map");
+      goto fail;
+    }
+  repr_tab_initialized = 1;
+
   result->code_to_symb_tab =
-    create_hash_table (grammar->alloc, 200, symb_code_hash, symb_code_eq);
+    create_hash_table (g->alloc, 200, symb_code_hash, symb_code_eq);
+  if (result->code_to_symb_tab == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol code map");
+      goto fail;
+    }
+  code_tab_initialized = 1;
+#else
+  try
+    {
+      OS_CREATE (result->symbs_os, g->alloc, 0);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->symbs_vlo, g->alloc, 1024);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate symbol descriptor storage");
+      goto fail;
+    }
+  symbs_vlo_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->terms_vlo, g->alloc, 512);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal storage");
+      goto fail;
+    }
+  terms_vlo_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->nonterms_vlo, g->alloc, 512);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate nonterminal storage");
+      goto fail;
+    }
+  nonterms_vlo_initialized = 1;
+
+  try
+    {
+      result->repr_to_symb_tab =
+        create_hash_table (g->alloc, 300, symb_repr_hash, symb_repr_eq);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol representation map");
+      goto fail;
+    }
+  repr_tab_initialized = 1;
+
+  try
+    {
+      result->code_to_symb_tab =
+        create_hash_table (g->alloc, 200, symb_code_hash, symb_code_eq);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create symbol code map");
+      goto fail;
+    }
+  code_tab_initialized = 1;
+#endif
+
 #ifdef SYMB_CODE_TRANS_VECT
   result->symb_code_trans_vect = NULL;
 #endif
-  result->n_nonterms = result->n_terms = 0;
-  return result;
+  result->n_nonterms = 0;
+  result->n_terms = 0;
+
+  *out_symbs = result;
+  return 0;
+
+fail:
+  if (result != NULL)
+    {
+      if (code_tab_initialized && result->code_to_symb_tab != NULL)
+        delete_hash_table (result->code_to_symb_tab);
+      if (repr_tab_initialized && result->repr_to_symb_tab != NULL)
+        delete_hash_table (result->repr_to_symb_tab);
+      if (nonterms_vlo_initialized)
+        VLO_DELETE (result->nonterms_vlo);
+      if (terms_vlo_initialized)
+        VLO_DELETE (result->terms_vlo);
+      if (symbs_vlo_initialized)
+        VLO_DELETE (result->symbs_vlo);
+      if (os_initialized)
+        OS_DELETE (result->symbs_os);
+      yaep_free (g->alloc, result);
+    }
+  return YAEP_NO_MEMORY;
 }
 
 /* Return symbol (or NULL if it does not exist) whose representation
@@ -496,19 +666,44 @@ symb_find_by_code (int code)
       if ((code < symbs_ptr->symb_code_trans_vect_start)
           || (code >= symbs_ptr->symb_code_trans_vect_end))
         {
+          if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+            {
+              fprintf (stderr, "YAEP_DEBUG_SYMB_VEC_MISS code=%d start=%d end=%d\n",
+                       code, symbs_ptr->symb_code_trans_vect_start,
+                       symbs_ptr->symb_code_trans_vect_end);
+              fflush (stderr);
+            }
           return NULL;
         }
       else
         {
-          return symbs_ptr->symb_code_trans_vect
+          struct symb *res = symbs_ptr->symb_code_trans_vect
             [code - symbs_ptr->symb_code_trans_vect_start];
+          if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+            {
+              fprintf (stderr, "YAEP_DEBUG_SYMB_VEC_LOOKUP code=%d idx=%d res=%p\n",
+                       code, code - symbs_ptr->symb_code_trans_vect_start,
+                       (void *) res);
+              fflush (stderr);
+            }
+          return res;
         }
     }
 #endif
   symb.term_p = TRUE;
   symb.u.term.code = code;
-  return (struct symb *) *find_hash_table_entry (symbs_ptr->code_to_symb_tab,
-						 &symb, FALSE);
+  {
+    hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
+                                                   &symb, FALSE);
+    struct symb *res = (struct symb *) *e;
+    if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+      {
+        fprintf (stderr, "YAEP_DEBUG_SYMB_FIND_BY_CODE code=%d entry=%p res=%p\n",
+                 code, (void *) e, (void *) res);
+        fflush (stderr);
+      }
+    return res;
+  }
 }
 
 /* The function creates new terminal symbol and returns reference for
@@ -520,28 +715,7 @@ symb_add_term (const char *name, int code)
   struct symb symb, *result;
   hash_table_entry_t *repr_entry, *code_entry;
 
-  /* Normalize symbol name to NFC before storing. This ensures that
-     canonically equivalent Unicode strings map to the same internal
-     representation. Normalization is performed using the central
-     unicode wrapper and the result is allocated via the grammar's
-     allocator to preserve ownership conventions. If normalization
-     fails for any reason, we fall back to the original input name.
-  */
-  char *norm_name = NULL;
-  if (grammar != NULL && grammar->alloc != NULL) {
-    if (yaep_utf8_normalize_nfc(name, &norm_name, grammar->alloc) != 1) {
-      /* Normalization failed; leave norm_name NULL and use original name */
-      norm_name = NULL;
-    }
-  } else {
-    /* No allocator available; attempt normalization but keep utf8proc malloc
-       ownership if it succeeds (safe, read-only use). */
-    if (yaep_utf8_normalize_nfc(name, &norm_name, NULL) != 1) {
-      norm_name = NULL;
-    }
-  }
-
-  symb.repr = norm_name != NULL ? norm_name : name;
+  symb.repr = name;
   symb.term_p = TRUE;
   symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
   symb.u.term.code = code;
@@ -553,37 +727,34 @@ symb_add_term (const char *name, int code)
   code_entry =
     find_hash_table_entry (symbs_ptr->code_to_symb_tab, &symb, TRUE);
   assert (*code_entry == NULL);
-  /* Copy the chosen representation (normalized if available, otherwise
-    the original name) into the object-stack so the stored symbol's
-    repr pointer refers to the persistent bytes used for hashing and
-    comparisons. Using `name' here would incorrectly persist the
-    pre-normalized bytes when normalization occurred. */
-  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, symb.repr);
-  /* OS_TOP_ADD_STRING copies the bytes into the object-stack top, which
-    makes a persistent copy. If we normalized into allocator-managed memory
-    above, `name` points into allocator memory; OS_TOP_ADD_STRING will copy
-    those bytes into the OS and the allocator-owned normalized buffer may
-    be freed by the allocator at grammar teardown. If `norm_name` is NULL
-    (fallback to original `name`), we copy the original bytes instead.
-  */
+  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
   symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
   result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
-  *repr_entry = (hash_table_entry_t) result;
-  *code_entry = (hash_table_entry_t) result;
+  /* The hash table API stores entries as 'const void *'.  Here we
+    insert newly-allocated mutable objects into the table which the
+    parser owns; perform a deliberate cast through (void*) with a
+    comment so future maintainers understand we are not discarding
+    const accidentally but intentionally storing owned mutable data. */
+  /* The hash table API stores entries as 'const void *'.  Here we
+    insert newly-allocated mutable objects into the table which the
+    parser owns; perform a deliberate cast through (void*) with a
+    comment so future maintainers understand we are not discarding
+    const accidentally but intentionally storing owned mutable data. */
+  *repr_entry = (hash_table_entry_t) (void *) result;
+  *code_entry = (hash_table_entry_t) (void *) result;
+  maybe_write_backtrace_for_symb_push ("symb_add_term-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
+  maybe_write_backtrace_for_symb_push ("symb_add_term-pre-terms", result);
   VLO_ADD_MEMORY (symbs_ptr->terms_vlo, &result, sizeof (struct symb *));
-
-  /* If we allocated a temporary normalized string but OS_TOP copied it
-     into persistent storage, we don't need the allocator copy any more.
-     The allocator will free it during grammar teardown; no action here.
-     If we used utf8proc's malloc (no allocator provided), free it now
-     because OS_TOP holds the persistent copy. */
-  if (norm_name != NULL && grammar != NULL && grammar->alloc == NULL) {
-    free(norm_name);
-  }
+  if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+    {
+  fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_TERM repr='%s' code=%d result=%p symbs_ptr=%p\n",
+       name, code, (void *) result, (void *) symbs_ptr);
+      fflush (stderr);
+    }
   return result;
 }
 
@@ -596,20 +767,7 @@ symb_add_nonterm (const char *name)
   struct symb symb, *result;
   hash_table_entry_t *entry;
 
-  /* Normalize nonterminal name to NFC at insertion time (same rationale
-     as for terminals). Fall back to original `name' on failure. */
-  char *norm_name = NULL;
-  if (grammar != NULL && grammar->alloc != NULL) {
-    if (yaep_utf8_normalize_nfc(name, &norm_name, grammar->alloc) != 1) {
-      norm_name = NULL;
-    }
-  } else {
-    if (yaep_utf8_normalize_nfc(name, &norm_name, NULL) != 1) {
-      norm_name = NULL;
-    }
-  }
-
-  symb.repr = norm_name != NULL ? norm_name : name;
+  symb.repr = name;
   symb.term_p = FALSE;
   symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
   symb.u.nonterm.rules = NULL;
@@ -617,21 +775,29 @@ symb_add_nonterm (const char *name)
   symb.u.nonterm.nonterm_num = symbs_ptr->n_nonterms++;
   entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
   assert (*entry == NULL);
-  /* Same rationale as for terminals: persist the actual representation
-    we used (normalized or original). */
-  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, symb.repr);
+  OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
   symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
   result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
   OS_TOP_FINISH (symbs_ptr->symbs_os);
-  *entry = (hash_table_entry_t) result;
+  /* See note above about deliberate cast-through-void: we store an
+    owned, mutable struct symb pointer in the table (table's public
+    typedef is const-qualified). */
+  /* See note above about deliberate cast-through-void: we store an
+    owned, mutable struct symb pointer in the table (table's public
+    typedef is const-qualified). */
+  *entry = (hash_table_entry_t) (void *) result;
+  maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
+  maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-nonterms", result);
   VLO_ADD_MEMORY (symbs_ptr->nonterms_vlo, &result, sizeof (struct symb *));
-
-  if (norm_name != NULL && grammar != NULL && grammar->alloc == NULL) {
-    free(norm_name);
-  }
+  if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+    {
+  fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_NONTERM repr='%s' result=%p symbs_ptr=%p\n",
+       name, (void *) result, (void *) symbs_ptr);
+      fflush (stderr);
+    }
   return result;
 }
 
@@ -719,7 +885,12 @@ symb_finish_adding_terms (void)
       symbs_ptr->symb_code_trans_vect_end = max_code + 1;
       mem = yaep_malloc (grammar->alloc,
           sizeof (struct symb*) * (max_code - min_code + 1));
-      symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
+    symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
+    /* Zero-initialize the vector so codes without corresponding
+     terminals map to NULL instead of containing uninitialized
+     memory (which can lead to ASan/Valgrind-reported invalid
+     reads). */
+    memset (mem, 0, sizeof (struct symb*) * (max_code - min_code + 1));
       for (i = 0; (symb = term_get (i)) != NULL; i++)
 	symbs_ptr->symb_code_trans_vect[symb->u.term.code - min_code] = symb;
     }
@@ -813,13 +984,15 @@ struct term_sets
 static unsigned
 term_set_hash (hash_table_entry_t s)
 {
-  term_set_el_t *set = ((struct tab_term_set *) s)->set;
-  term_set_el_t *bound;
+  /* Read-only access to the term-set bits; keep pointers const to
+     avoid casting away qualifiers at call sites. */
+  const term_set_el_t *set = ((const struct tab_term_set *) s)->set;
+  const term_set_el_t *bound;
   int size;
   unsigned result = jauquet_prime_mod32;
 
   size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+    / (CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     result = result * hash_shift + *set++;
@@ -830,13 +1003,13 @@ term_set_hash (hash_table_entry_t s)
 static int
 term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  term_set_el_t *set1 = ((struct tab_term_set *) s1)->set;
-  term_set_el_t *set2 = ((struct tab_term_set *) s2)->set;
-  term_set_el_t *bound;
+  const term_set_el_t *set1 = ((const struct tab_term_set *) s1)->set;
+  const term_set_el_t *set2 = ((const struct tab_term_set *) s2)->set;
+  const term_set_el_t *bound;
   int size;
 
   size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+    / (CHAR_BIT * sizeof (term_set_el_t)));
   bound = set1 + size;
   while (set1 < bound)
     if (*set1++ != *set2++)
@@ -844,22 +1017,112 @@ term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
   return TRUE;
 }
 
-/* Initialize work with terminal sets and returns storage for terminal
+/* Initialize work with terminal sets and return storage for terminal
    sets. */
-static struct term_sets *
-term_set_init (void)
+static int
+term_set_init (struct grammar *g, struct term_sets **out_term_sets)
 {
-  void *mem;
-  struct term_sets *result;
+  struct term_sets *result = NULL;
+  int os_initialized = 0;
+  int tab_vlo_initialized = 0;
+  int tab_initialized = 0;
 
-  mem = yaep_malloc (grammar->alloc, sizeof (struct term_sets));
-  result = (struct term_sets *) mem;
-  OS_CREATE (result->term_set_os, grammar->alloc, 0);
+  assert (g != NULL);
+
+  result = (struct term_sets *) yaep_malloc (g->alloc,
+                                             sizeof (struct term_sets));
+  if (result == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                     "failed to allocate terminal set container");
+      return YAEP_NO_MEMORY;
+    }
+
+  memset (result, 0, sizeof (*result));
+
+#ifndef __cplusplus
+  if (os_create_safe (&result->term_set_os, g->alloc, 0) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
   result->term_set_tab =
-    create_hash_table (grammar->alloc, 1000, term_set_hash, term_set_eq);
-  VLO_CREATE (result->tab_term_set_vlo, grammar->alloc, 4096);
-  result->n_term_sets = result->n_term_sets_size = 0;
-  return result;
+    create_hash_table (g->alloc, 1000, term_set_hash, term_set_eq);
+  if (result->term_set_tab == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create terminal set table");
+      goto fail;
+    }
+  tab_initialized = 1;
+
+  if (vlo_create_safe (&result->tab_term_set_vlo, g->alloc, 4096) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set index storage");
+      goto fail;
+    }
+  tab_vlo_initialized = 1;
+#else
+  try
+    {
+      OS_CREATE (result->term_set_os, g->alloc, 0);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set storage");
+      goto fail;
+    }
+  os_initialized = 1;
+
+  try
+    {
+      result->term_set_tab =
+        create_hash_table (g->alloc, 1000, term_set_hash, term_set_eq);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to create terminal set table");
+      goto fail;
+    }
+  tab_initialized = 1;
+
+  try
+    {
+      VLO_CREATE (result->tab_term_set_vlo, g->alloc, 4096);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY,
+                      "failed to allocate terminal set index storage");
+      goto fail;
+    }
+  tab_vlo_initialized = 1;
+#endif
+
+  result->n_term_sets = 0;
+  result->n_term_sets_size = 0;
+
+  *out_term_sets = result;
+  return 0;
+
+fail:
+  if (result != NULL)
+    {
+      if (tab_vlo_initialized)
+        VLO_DELETE (result->tab_term_set_vlo);
+      if (tab_initialized && result->term_set_tab != NULL)
+        delete_hash_table (result->term_set_tab);
+      if (os_initialized)
+        OS_DELETE (result->term_set_os);
+      yaep_free (g->alloc, result);
+    }
+  return YAEP_NO_MEMORY;
 }
 
 /* Return new terminal SET.  Its value is undefined. */
@@ -989,7 +1252,10 @@ term_set_insert (term_set_el_t * set)
   entry =
     find_hash_table_entry (term_sets_ptr->term_set_tab, &tab_term_set, TRUE);
   if (*entry != NULL)
-    return -((struct tab_term_set *) *entry)->num - 1;
+    /* Treat stored table entries as const when only reading to avoid
+       casting away qualifiers. The actual objects are owned elsewhere
+       and are mutable, but we only need read access here. */
+    return -((const struct tab_term_set *) *entry)->num - 1;
   else
     {
       OS_TOP_EXPAND (term_sets_ptr->term_set_os,
@@ -997,13 +1263,18 @@ term_set_insert (term_set_el_t * set)
       tab_term_set_ptr =
 	(struct tab_term_set *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
       OS_TOP_FINISH (term_sets_ptr->term_set_os);
-      *entry = (hash_table_entry_t) tab_term_set_ptr;
+    /* Insert owned tab_term_set_ptr into the table. Cast through
+      (void*) to make the intention explicit and avoid warnings. */
+    /* Insert owned tab_term_set_ptr into the table. Cast through
+      (void*) to make the intention explicit and avoid warnings. */
+    *entry = (hash_table_entry_t) (void *) tab_term_set_ptr;
       tab_term_set_ptr->set = set;
       tab_term_set_ptr->num = (VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
 			       / sizeof (struct tab_term_set *));
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
-      return ((struct tab_term_set *) *entry)->num;
+  /* See comment above: use a const-qualified view for reads. */
+  return ((const struct tab_term_set *) *entry)->num;
     }
 }
 
@@ -1015,7 +1286,7 @@ INLINE
 static term_set_el_t *
 term_set_from_table (int num)
 {
-  assert ((size_t)num < VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+  assert (num < VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
 	  / sizeof (struct tab_term_set *));
   return ((struct tab_term_set **)
 	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo))[num]->set;
@@ -1121,19 +1392,49 @@ struct rules
 #endif
 };
 
-/* Initialize work with rules and returns pointer to rules storage. */
-static struct rules *
-rule_init (void)
+/* Initialize work with rules and return pointer to rules storage. */
+static int
+rule_init (struct grammar *g, struct rules **out_rules)
 {
-  void *mem;
-  struct rules *result;
+  struct rules *result = NULL;
 
-  mem = yaep_malloc (grammar->alloc, sizeof (struct rules));
-  result = (struct rules *) mem;
-  OS_CREATE (result->rules_os, grammar->alloc, 0);
-  result->first_rule = result->curr_rule = NULL;
-  result->n_rules = result->n_rhs_lens = 0;
-  return result;
+  assert (g != NULL);
+
+  result = (struct rules *) yaep_malloc (g->alloc, sizeof (struct rules));
+  if (result == NULL)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule storage");
+      return YAEP_NO_MEMORY;
+    }
+
+  memset (result, 0, sizeof (*result));
+
+#ifndef __cplusplus
+  if (os_create_safe (&result->rules_os, g->alloc, 0) != 0)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule buffer");
+      yaep_free (g->alloc, result);
+      return YAEP_NO_MEMORY;
+    }
+#else
+  try
+    {
+      OS_CREATE (result->rules_os, g->alloc, 0);
+    }
+  catch (const std::bad_alloc &)
+    {
+      yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule buffer");
+      yaep_free (g->alloc, result);
+      return YAEP_NO_MEMORY;
+    }
+#endif
+  result->first_rule = NULL;
+  result->curr_rule = NULL;
+  result->n_rules = 0;
+  result->n_rhs_lens = 0;
+
+  *out_rules = result;
+  return 0;
 }
 
 /* Create new rule with LHS empty rhs. */
@@ -1217,7 +1518,7 @@ rule_new_stop (void)
 static void
 rule_print (FILE * f, struct rule *rule, int trans_p)
 {
-  int i, j;
+  int i; ptrdiff_t j;
 
   symb_print (f, rule->lhs, FALSE);
   fprintf (f, " :");
@@ -1334,43 +1635,73 @@ tok_init (void)
 }
 
 /* Add input token with CODE and attribute at the end of input tokens
-   array. */
-static void
+  array.  Return 0 on success, otherwise YAEP error code. */
+static int
 tok_add (int code, void *attr)
 {
+  struct symb *symb;
   struct tok tok;
 
+  symb = symb_find_by_code (code);
+  if (symb == NULL)
+    return yaep_set_error (grammar, YAEP_INVALID_TOKEN_CODE,
+			    "invalid token code %d", code);
+
   tok.attr = attr;
-  tok.symb = symb_find_by_code (code);
-  /* If the token code is unknown treat it as an input error token
-     instead of invoking yaep_error() from this low-level helper.
-     Calling yaep_error() performs a longjmp which may unwind across
-     user callbacks in some embedding scenarios and lead to crashes.
-     If the grammar and its error terminal are available, substitute
-     the token with the grammar's special error terminal so the
-     parser can perform normal error recovery.  If the grammar or
-     the error terminal isn't yet initialized, fall back to the
-     previous fatal behaviour. */
-  if (tok.symb == NULL)
-    {
-      if (grammar != NULL && grammar->term_error != NULL)
-        {
-          /* Record an informative error code/message but continue by
-             treating this token as the internal error terminal. */
-          grammar->error_code = YAEP_INVALID_TOKEN_CODE;
-          snprintf (grammar->error_message, sizeof (grammar->error_message),
-                    "invalid token code %d (treated as error token)", code);
-          tok.symb = grammar->term_error;
-        }
-      else
-        {
-          /* Grammar not ready: preserve previous behaviour. */
-          yaep_error (YAEP_INVALID_TOKEN_CODE, "invalid token code %d", code);
-        }
-    }
+  tok.symb = symb;
+
   VLO_ADD_MEMORY (toks_vlo, &tok, sizeof (struct tok));
   toks = (struct tok *) VLO_BEGIN (toks_vlo);
   toks_len++;
+  if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+    {
+      fprintf (stderr, "YAEP_DEBUG_TOK_ADD code=%d attr=%p symb=%p toks=%p toks_len=%d\n",
+               code, attr, (void *) symb, (void *) toks, toks_len);
+      fflush (stderr);
+      /* Detect ASan-poisoned pointer pattern (0xbebebebebebebebe) early and
+         print a backtrace to help locate the corruption site. */
+      {
+        uintptr_t s = (uintptr_t) symb;
+        if ((s & 0xffffffffULL) == 0xbebebebeULL || s == (uintptr_t)0xbebebebebebebebeULL)
+          {
+            void *bt[32];
+            int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
+            fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", (void *) symb);
+            backtrace_symbols_fd (bt, n, STDERR_FILENO);
+            fflush (stderr);
+            /* Abort so ASan/runner reports the exact site in native tooling. */
+            abort ();
+          }
+      }
+      /* Verify the symbol pointer is one of those recorded in symbs_vlo.
+         This detects cases where a bad pointer gets stored in toks[].symb
+         even if it doesn't match the exact ASan poison pattern. */
+      {
+  size_t n_symbs = VLO_NELS (symbs_ptr->symbs_vlo, struct symb *);
+        struct symb **symb_arr = (struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo);
+        size_t si;
+        int found = 0;
+        for (si = 0; si < n_symbs; ++si)
+          {
+            if (symb_arr[si] == symb)
+              {
+                found = 1;
+                break;
+              }
+          }
+        if (!found)
+          {
+            void *bt[32];
+            int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
+            fprintf (stderr, "YAEP_DEBUG_SYMB_NOT_IN_VLO symb=%p toks=%p toks_len=%d n_symbs=%zu\n",
+                     (void *) symb, (void *) toks, toks_len, n_symbs);
+            backtrace_symbols_fd (bt, n, STDERR_FILENO);
+            fflush (stderr);
+            abort ();
+          }
+      }
+    }
+  return 0;
 }
 
 /* Finalize work with tokens. */
@@ -1502,6 +1833,7 @@ sit_create (struct rule *rule, int pos, int context)
 
   assert (context >= 0);
   context_sit_table_ptr = sit_table + context;
+  /* Cast pointers to char* for pointer arithmetic, as required by C standard. */
   if ((char *) context_sit_table_ptr >= (char *) VLO_BOUND (sit_table_vlo))
     {
       struct sit ***bound, ***ptr;
@@ -1509,8 +1841,8 @@ sit_create (struct rule *rule, int pos, int context)
 
       assert ((grammar->lookahead_level <= 1 && context == 0)
 	      || (grammar->lookahead_level > 1 && context >= 0));
-      diff
-	= (char *) context_sit_table_ptr - (char *) VLO_BOUND (sit_table_vlo);
+    /* Compute difference in bytes between pointers. */
+    diff = (int)((uintptr_t)context_sit_table_ptr - (uintptr_t)VLO_BOUND (sit_table_vlo));
       diff += sizeof (struct sit **);
       if (grammar->lookahead_level > 1 && diff == sizeof (struct sit **))
 	diff *= 10;
@@ -1892,7 +2224,7 @@ sit_dist_insert (struct sit *sit, int dist)
 
   sit_number = sit->sit_number;
   /* Expand the set to accommodate possibly a new situation.  */
-  len = VLO_LENGTH (sit_dist_vec_vlo) / sizeof (vlo_t);
+  len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
   if (len <= sit_number)
     {
       VLO_EXPAND (sit_dist_vec_vlo, (sit_number + 1 - len) * sizeof (vlo_t));
@@ -1907,12 +2239,13 @@ sit_dist_insert (struct sit *sit, int dist)
     }
 #ifndef __cplusplus
   check_dist_vlo = &((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = VLO_LENGTH (*check_dist_vlo) / sizeof (int);
+  len = VLO_NELS (*check_dist_vlo, int);
   if (len <= dist)
     {
+      /* Expand VLO to accommodate new distance, avoid conversion warnings. */
       VLO_EXPAND (*check_dist_vlo, (dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
-	((int *) VLO_BEGIN (*check_dist_vlo))[i] = 0;
+        ((int *) VLO_BEGIN (*check_dist_vlo))[i] = 0;
     }
   if (((int *) VLO_BEGIN (*check_dist_vlo))[dist] == curr_sit_dist_vec_check)
     return FALSE;
@@ -1935,10 +2268,11 @@ sit_dist_insert (struct sit *sit, int dist)
 }
 
 /* Finish the set of pairs (sit, dist).  */
+#define sit_dist_set_fin sit_dist_set_fin
 static void
 sit_dist_set_fin (void)
 {
-  int i, len = VLO_LENGTH (sit_dist_vec_vlo) / sizeof (vlo_t);
+  size_t i, len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
 
   for (i = 0; i < len; i++)
 #ifndef __cplusplus
@@ -2033,8 +2367,10 @@ static void
 set_new_add_start_sit (struct sit *sit, int dist)
 {
   assert (!new_set_ready_p);
+  /* Expand object stack for new distance entry. */
   OS_TOP_EXPAND (set_dists_os, sizeof (int));
   new_dists = (int *) OS_TOP_BEGIN (set_dists_os);
+  /* Expand object stack for new sit pointer. */
   OS_TOP_EXPAND (set_sits_os, sizeof (struct sit *));
   new_sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
   new_sits[new_n_start_sits] = sit;
@@ -2149,13 +2485,19 @@ set_insert (void)
   entry = find_hash_table_entry (set_dists_tab, new_set, TRUE);
   if (*entry != NULL)
     {
-      new_dists = new_set->dists = ((struct set *) *entry)->dists;
+      /* Read-only access to the stored set's dists; use const to make
+         it explicit we won't mutate the stored object here. */
+      new_dists = new_set->dists = ((const struct set *) *entry)->dists;
       OS_TOP_NULLIFY (set_dists_os);
     }
   else
     {
       OS_TOP_FINISH (set_dists_os);
-      *entry = (hash_table_entry_t) new_set;
+    /* new_set is owned and mutable; store it in the table via a
+      deliberate cast to hash_table_entry_t (through void*). */
+    /* new_set is owned and mutable; store it in the table via a
+      deliberate cast to hash_table_entry_t (through void*). */
+    *entry = (hash_table_entry_t) (void *) new_set;
       n_set_dists++;
       n_set_dists_len += new_n_start_sits;
     }
@@ -2170,7 +2512,9 @@ set_insert (void)
   if (*entry != NULL)
     {
       OS_TOP_NULLIFY (set_cores_os);
-      new_set->core = new_core = ((struct set *) *entry)->core;
+      /* The stored set in the table is not modified here; access via
+         a const-qualified pointer to avoid casting away qualifiers. */
+      new_set->core = new_core = ((const struct set *) *entry)->core;
       new_sits = new_core->sits;
       OS_TOP_NULLIFY (set_sits_os);
       result = FALSE;
@@ -2182,7 +2526,9 @@ set_insert (void)
       new_core->n_sits = new_n_start_sits;
       new_core->n_all_dists = new_n_start_sits;
       new_core->parent_indexes = NULL;
-      *entry = (hash_table_entry_t) new_set;
+  /* See above: store owned mutable set in hash table. */
+  /* See above: store owned mutable set in hash table. */
+  *entry = (hash_table_entry_t) (void *) new_set;
       n_set_core_start_sits += new_n_start_sits;
       result = TRUE;
     }
@@ -2191,7 +2537,7 @@ set_insert (void)
   entry = find_hash_table_entry (set_tab, new_set, TRUE);
   if (*entry == NULL)
     {
-      *entry = (hash_table_entry_t) new_set;
+  *entry = (hash_table_entry_t) (void *) new_set;
       n_sets++;
       n_sets_start_sits += new_n_start_sits;
       OS_TOP_FINISH (sets_os);
@@ -2228,6 +2574,7 @@ static void
 set_print (FILE * f, struct set *set, int set_dist, int nonstart_p,
 	   int lookahead_p)
 {
+  /* set_dist is currently unused in some build configurations */
   (void) set_dist;
   int i;
   int num, n_start_sits, n_sits, n_all_dists;
@@ -2256,7 +2603,7 @@ set_print (FILE * f, struct set *set, int set_dist, int nonstart_p,
       parent_indexes = set->core->parent_indexes;
       n_start_sits = set->core->n_start_sits;
     }
-  fprintf (f, "  Set core = %d (dist = %d)\n", num, set_dist);
+  fprintf (f, "  Set core = %d\n", num);
   for (i = 0; i < n_sits; i++)
     {
       fprintf (f, "    ");
@@ -2306,31 +2653,17 @@ set_fin (void)
 
 /* This page is abstract data `parser list'. */
 
-/* The following three variables represent Earley's parser list.  The
-  legacy code assumed that the allocator owning the list stayed valid
-  until program termination.  When we started creating and freeing
-  multiple grammar objects (for example, the UTF-8 regression tests
-  parse a Unicode grammar and then an ASCII grammar in the same
-  process) we began reusing this storage.  If `pl` was left pointing
-  at memory that had already been returned to the first grammar's
-  allocator, the second grammar would attempt to free it again and we
-  would hit a double free.  We therefore remember both the pointer
-  and the allocator that owns it so we can release the storage
-  exactly once and then reset the state before the next grammar runs. */
+/* The following two variables represents Earley's parser list.  The
+   values of pl_curr and array *pl can be read and modified
+   externally. */
 static struct set **pl;
 static int pl_curr;
-static YaepAllocator *pl_allocator;
 
 /* Initialize work with the parser list. */
 static void
 pl_init (void)
 {
-  /* Ensure stale parser list state from a previous grammar does not leak
-    into the next parse.  This mirrors pl_fin, but is also called before
-    the very first use. */
   pl = NULL;
-  pl_curr = -1;
-  pl_allocator = NULL;
 }
 
 /* The following function creates Earley's parser list. */
@@ -2344,10 +2677,6 @@ pl_create (void)
     yaep_malloc (grammar->alloc, sizeof (struct set *) * (toks_len + 1) * 2);
   pl = (struct set **) mem;
   pl_curr = -1;
-  /* Remember which allocator owns this storage so we can safely dispose of
-    it even if `grammar` later becomes NULL (for example once the grammar
-    object is freed). */
-  pl_allocator = grammar != NULL ? grammar->alloc : NULL;
 }
 
 /* Finalize work with the parser list. */
@@ -2355,20 +2684,7 @@ static void
 pl_fin (void)
 {
   if (pl != NULL)
-    {
-      YaepAllocator *alloc = pl_allocator;
-
-      /* Fall back to the currently active grammar only if we do not have
-         a remembered allocator.  This preserves the historical behaviour
-         while preventing a dangling allocator pointer from being reused. */
-      if (alloc == NULL && grammar != NULL)
-        alloc = grammar->alloc;
-      if (alloc != NULL)
-        yaep_free (alloc, pl);
-    }
-  pl = NULL;
-  pl_curr = -1;
-  pl_allocator = NULL;
+    yaep_free (grammar->alloc, pl);
 }
 
 
@@ -2413,7 +2729,7 @@ vlo_array_expand (void)
 #ifndef __cplusplus
   vlo_t *vlo_ptr;
 
-  if ((unsigned) vlo_array_len >= VLO_LENGTH (vlo_array) / sizeof (vlo_t))
+  if ((unsigned) vlo_array_len >= VLO_NELS (vlo_array, vlo_t))
     {
       VLO_EXPAND (vlo_array, sizeof (vlo_t));
       vlo_ptr = &((vlo_t *) VLO_BEGIN (vlo_array))[vlo_array_len];
@@ -2619,28 +2935,32 @@ static hash_table_t reduce_els_tab;	/* key is elements. */
 static unsigned
 core_symb_vect_hash (hash_table_entry_t t)
 {
-  struct core_symb_vect *core_symb_vect = (struct core_symb_vect *) t;
+  /* Read-only hash computation for core_symb_vect. */
+  const struct core_symb_vect *core_symb_vect = (const struct core_symb_vect *) t;
 
   return ((jauquet_prime_mod32 * hash_shift
-	   + (unsigned) core_symb_vect->set_core) * hash_shift
-	  + (unsigned) core_symb_vect->symb);
+     + (unsigned) core_symb_vect->set_core) * hash_shift
+    + (unsigned) core_symb_vect->symb);
 }
 
 /* Equality of core_symb_vects. */
 static int
 core_symb_vect_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  struct core_symb_vect *core_symb_vect1 = (struct core_symb_vect *) t1;
-  struct core_symb_vect *core_symb_vect2 = (struct core_symb_vect *) t2;
+  const struct core_symb_vect *core_symb_vect1 = (const struct core_symb_vect *) t1;
+  const struct core_symb_vect *core_symb_vect2 = (const struct core_symb_vect *) t2;
 
   return (core_symb_vect1->set_core == core_symb_vect2->set_core
-	  && core_symb_vect1->symb == core_symb_vect2->symb);
+    && core_symb_vect1->symb == core_symb_vect2->symb);
 }
 #endif
 
-/* Return hash of vector V.  */
+/* Return hash of vector V.  
+   This function does not modify the vect contents, so accept a const
+   pointer to avoid forcing callers with const data to cast away
+   qualifiers. */
 static unsigned
-vect_els_hash (struct vect *v)
+vect_els_hash (const struct vect *v)
 {
   unsigned result = jauquet_prime_mod32;
   int i;
@@ -2650,9 +2970,11 @@ vect_els_hash (struct vect *v)
   return result;
 }
 
-/* Return TRUE if V1 is equal to V2.  */
-static unsigned
-vect_els_eq (struct vect *v1, struct vect *v2)
+/* Return TRUE if V1 is equal to V2.  
+   Read-only comparison; accept const pointers so callers with const
+   vectors don't need to cast. */
+static int
+vect_els_eq (const struct vect *v1, const struct vect *v2)
 {
   int i;
   if (v1->len != v2->len)
@@ -2668,15 +2990,17 @@ vect_els_eq (struct vect *v1, struct vect *v2)
 static unsigned
 transition_els_hash (hash_table_entry_t t)
 {
-  return vect_els_hash (&((struct core_symb_vect *) t)->transitions);
+  const struct core_symb_vect *cv = (const struct core_symb_vect *) t;
+  return vect_els_hash (&cv->transitions);
 }
 
 /* Equality of transition vector elements. */
 static int
 transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  return vect_els_eq (&((struct core_symb_vect *) t1)->transitions,
-		      &((struct core_symb_vect *) t2)->transitions);
+  const struct core_symb_vect *cv1 = (const struct core_symb_vect *) t1;
+  const struct core_symb_vect *cv2 = (const struct core_symb_vect *) t2;
+  return vect_els_eq (&cv1->transitions, &cv2->transitions);
 }
 
 #ifdef TRANSITIVE_TRANSITION
@@ -3033,17 +3357,23 @@ process_core_symb_vect_el (struct core_symb_vect *core_symb_vect,
       entry = (*tab)->find_entry (core_symb_vect, TRUE);
 #endif
       if (*entry != NULL)
-	vec->els
-	  = (&core_symb_vect->transitions == vec
-	     ? ((struct core_symb_vect *) *entry)->transitions.els
+    {
+      /* Only reading the stored core_symb_vect vectors here; use a
+         const-qualified view to avoid removing const qualifiers. */
+      vec->els
+        = (&core_symb_vect->transitions == vec
+           ? ((const struct core_symb_vect *) *entry)->transitions.els
 #ifdef TRANSITIVE_TRANSITION
-	     : &core_symb_vect->transitive_transitions == vec
-	     ? ((struct core_symb_vect *) *entry)->transitive_transitions.els
+           : &core_symb_vect->transitive_transitions == vec
+           ? ((const struct core_symb_vect *) *entry)->transitive_transitions.els
 #endif
-	     : ((struct core_symb_vect *) *entry)->reduces.els);
-      else
-	{
-	  *entry = (hash_table_entry_t) core_symb_vect;
+           : ((const struct core_symb_vect *) *entry)->reduces.els);
+    }
+  else
+    {
+    /* core_symb_vect is allocated/owned here; cast through void*
+       to satisfy the const-qualified hash_table_entry_t type. */
+    *entry = (hash_table_entry_t) (void *) core_symb_vect;
 #ifndef __cplusplus
 	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, vec->len * sizeof (int));
 	  vec->els = OS_TOP_BEGIN (vect_els_os);
@@ -3144,77 +3474,103 @@ core_symb_vect_fin (void)
 
 
 
-/* Jump buffer for processing errors. Make it thread-local so concurrent
-  parses on different threads do not clobber each other's jump buffers. */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-static _Thread_local jmp_buf error_longjump_buff;
-#else
-#ifdef __GNUC__
-static __thread jmp_buf error_longjump_buff;
-#else
-static jmp_buf error_longjump_buff;
-#endif
-#endif
-
-/* The following function stores error CODE and MESSAGE.  The function
-   makes long jump after that.  So the function is designed to process
-   only one error. */
 static void
-yaep_error (int code, const char *format, ...)
+yaep_update_error_context (struct grammar *g,
+                           const yaep_error_context_t *ctx)
 {
-  va_list arguments;
+  if (g == NULL || ctx == NULL)
+    return;
 
-  grammar->error_code = code;
-  va_start (arguments, format);
-  /* Format into a temporary buffer first. This avoids partial writes
-     into the grammar->error_message in case of formatting errors and
-     lets us apply UTF-8-safe truncation. */
-  {
-    /* Local temporary buffer sized larger than the destination so we
-       can detect truncation scenarios reliably for long messages. */
-    size_t tmp_size = YAEP_MAX_ERROR_MESSAGE_LENGTH * 2;
-    char *tmp = (char *) malloc (tmp_size);
-    if (tmp == NULL)
-      {
-        va_end (arguments);
-        strncpy (grammar->error_message, "<formatting error>",
-                 sizeof (grammar->error_message));
-        grammar->error_message[sizeof (grammar->error_message) - 1] = '\0';
-        longjmp (error_longjump_buff, code);
-      }
+  g->error_code = ctx->error_code;
 
-    int n = vsnprintf (tmp, tmp_size, format, arguments);
-    va_end (arguments);
+  if (ctx->error_message[0] == '\0')
+    {
+      g->error_message[0] = '\0';
+      return;
+    }
 
-    if (n < 0)
-      {
-        /* Formatting error: produce a minimal fallback message. */
-        strncpy (grammar->error_message, "<formatting error>",
-                 sizeof (grammar->error_message));
-        grammar->error_message[sizeof (grammar->error_message) - 1] = '\0';
-        free (tmp);
-        longjmp (error_longjump_buff, code);
-      }
-
-    /* Use UTF-8-safe truncation to copy into grammar->error_message.
-       The helper appends "..." only when truncation occurred and
-       guarantees that the destination is valid UTF-8 and NUL-terminated. */
-    yaep_utf8_truncate_safe (tmp, grammar->error_message,
-                             sizeof (grammar->error_message));
-
-    free (tmp);
-  }
-  longjmp (error_longjump_buff, code);
+  strncpy (g->error_message, ctx->error_message,
+           YAEP_MAX_ERROR_MESSAGE_LENGTH);
+  g->error_message[YAEP_MAX_ERROR_MESSAGE_LENGTH] = '\0';
 }
 
-/* The following function processes allocation errors. */
 static void
-error_func_for_allocate (void *ignored)
+yaep_initialize_error_handling (void)
 {
-  (void) ignored;
+  static int initialized = 0;
 
-  yaep_error (YAEP_NO_MEMORY, "no memory");
+  if (!initialized)
+    {
+      yaep_set_error_update_hook (yaep_update_error_context);
+      initialized = 1;
+    }
 }
+
+/**
+ * @brief Safe allocation error handler
+ *
+ * This error handler is called by the YAEP allocator when memory allocation
+ * fails. Unlike the legacy error_func_for_allocate (now removed), this
+ * function does NOT perform a longjmp. Instead, it records the error in
+ * the thread-local error context and allows normal control flow to continue.
+ *
+ * The allocator will return NULL after calling this function, and the
+ * calling code must check for NULL and handle the error appropriately.
+ *
+ * Design Rationale:
+ * This is the correct pattern for allocation errors in modern C code:
+ * 1. Allocator calls error handler to record details
+ * 2. Allocator returns NULL
+ * 3. Caller checks for NULL and propagates error upward
+ *
+ * This eliminates the need for setjmp/longjmp while maintaining clear
+ * error reporting.
+ *
+ * @param userptr User-provided context pointer (typically struct grammar*)
+ *                May be NULL during early initialization
+ *
+ * Thread Safety: Safe - uses thread-local error context
+ * Control Flow: Always returns normally (no longjmp)
+ * Side Effects: Sets thread-local error state
+ */
+static void
+error_func_for_allocate_safe (void *userptr)
+{
+  struct grammar *g = (struct grammar *) userptr;
+
+  yaep_set_error (g, YAEP_NO_MEMORY, "no memory");
+}
+
+#ifndef __cplusplus
+static int
+os_create_safe (os_t *os, YaepAllocator *alloc, size_t initial_segment_length)
+{
+  assert (os != NULL);
+
+  os->os_alloc = alloc;
+  return _OS_create_function (os, initial_segment_length);
+}
+
+static int
+vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc, size_t initial_length)
+{
+  size_t length;
+  char *start;
+
+  assert (vlo != NULL);
+
+  length = (initial_length != 0 ? initial_length : VLO_DEFAULT_LENGTH);
+  start = (char *) yaep_malloc (alloc, length);
+  if (start == NULL)
+    return -1;
+
+  vlo->vlo_start = start;
+  vlo->vlo_free = start;
+  vlo->vlo_boundary = start + length;
+  vlo->vlo_alloc = alloc;
+  return 0;
+}
+#endif
 
 /* The following function allocates memory for new grammar. */
 #ifdef __cplusplus
@@ -3224,43 +3580,114 @@ struct grammar *
 yaep_create_grammar (void)
 {
   YaepAllocator *allocator;
+  struct grammar *g = NULL;
+  struct symbs *symbs = NULL;
+  struct term_sets *term_sets = NULL;
+  struct rules *rules = NULL;
+  Yaep_alloc_error previous_error_handler;
+  void *previous_userptr;
+
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
 
   allocator = yaep_alloc_new (NULL, NULL, NULL, NULL);
   if (allocator == NULL)
     {
+      yaep_set_error (NULL, YAEP_NO_MEMORY, "failed to create allocator");
       return NULL;
     }
-  grammar = NULL;
-  grammar = (struct grammar *) yaep_malloc (allocator, sizeof (*grammar));
-  if (grammar == NULL)
+
+  previous_error_handler = yaep_alloc_geterrfunc (allocator);
+  previous_userptr = yaep_alloc_getuserptr (allocator);
+  yaep_alloc_seterr (allocator, error_func_for_allocate_safe, NULL);
+
+  g = (struct grammar *) yaep_malloc (allocator, sizeof (*g));
+  if (g == NULL)
     {
+      yaep_alloc_seterr (allocator, previous_error_handler,
+ 			    previous_userptr);
       yaep_alloc_del (allocator);
       return NULL;
     }
-  grammar->alloc = allocator;
-  yaep_alloc_seterr (allocator, error_func_for_allocate,
-		     yaep_alloc_getuserptr (allocator));
-  if (setjmp (error_longjump_buff) != 0)
+
+  memset (g, 0, sizeof (*g));
+  g->alloc = allocator;
+  g->undefined_p = TRUE;
+  g->error_code = 0;
+  *g->error_message = '\0';
+  g->debug_level = 0;
+  g->lookahead_level = 1;
+  g->one_parse_p = 1;
+  g->cost_p = 0;
+  g->error_recovery_p = 1;
+  g->recovery_token_matches = DEFAULT_RECOVERY_TOKEN_MATCHES;
+
+  grammar = g;
+  yaep_alloc_seterr (allocator, error_func_for_allocate_safe, g);
+  yaep_copy_error_to_grammar (g);
+
+  if (symb_init (g, &symbs) != 0)
+    goto fail;
+  if (term_set_init (g, &term_sets) != 0)
+    goto fail;
+  if (rule_init (g, &rules) != 0)
+    goto fail;
+
+  g->symbs_ptr = symbs;
+  g->term_sets_ptr = term_sets;
+  g->rules_ptr = rules;
+
+  symbs_ptr = symbs;
+  term_sets_ptr = term_sets;
+  rules_ptr = rules;
+
+  /*
+   * Grammar successfully initialized.
+   * Keep the safe error handler installed - there's no reason to
+   * switch back to the unsafe longjmp-based version.
+   * 
+   * Previous code incorrectly switched back to error_func_for_allocate
+   * which performs longjmp. This was the LAST remaining longjmp call
+   * site in the codebase.
+   */
+
+  return g;
+
+fail:
+  if (rules != NULL)
     {
-      yaep_free_grammar (grammar);
-      return NULL;
+      struct rules *prev_rules = rules_ptr;
+      rules_ptr = rules;
+      rule_fin (rules);
+      rules_ptr = prev_rules;
+      rules = NULL;
     }
-  grammar->undefined_p = TRUE;
-  grammar->error_code = 0;
-  *grammar->error_message = '\0';
-  grammar->debug_level = 0;
-  grammar->lookahead_level = 1;
-  grammar->one_parse_p = 1;
-  grammar->cost_p = 0;
-  grammar->error_recovery_p = 1;
-  grammar->recovery_token_matches = DEFAULT_RECOVERY_TOKEN_MATCHES;
-  grammar->symbs_ptr = NULL;
-  grammar->term_sets_ptr = NULL;
-  grammar->rules_ptr = NULL;
-  grammar->symbs_ptr = symbs_ptr = symb_init ();
-  grammar->term_sets_ptr = term_sets_ptr = term_set_init ();
-  grammar->rules_ptr = rules_ptr = rule_init ();
-  return grammar;
+
+  if (term_sets != NULL)
+    {
+      struct term_sets *prev_term_sets = term_sets_ptr;
+      term_sets_ptr = term_sets;
+      term_set_fin (term_sets);
+      term_sets_ptr = prev_term_sets;
+      term_sets = NULL;
+    }
+
+  if (symbs != NULL)
+    {
+      struct symbs *prev_symbs = symbs_ptr;
+      symbs_ptr = symbs;
+      symb_fin (symbs);
+      symbs_ptr = prev_symbs;
+      symbs = NULL;
+    }
+
+  if (g != NULL)
+    yaep_free (allocator, g);
+
+  grammar = NULL;
+  yaep_alloc_seterr (allocator, previous_error_handler, previous_userptr);
+  yaep_alloc_del (allocator);
+  return NULL;
 }
 
 /* The following function makes grammar empty. */
@@ -3307,7 +3734,7 @@ create_first_follow_sets (void)
   struct symb *symb, **rhs, *rhs_symb, *next_rhs_symb;
   struct rule *rule;
   int changed_p, first_continue_p;
-  int i, j, k, rhs_len;
+  int i, k, rhs_len; ptrdiff_t j;
 
   for (i = 0; (symb = nonterm_get (i)) != NULL; i++)
     {
@@ -3375,7 +3802,7 @@ set_empty_access_derives (void)
   struct rule *rule;
   int empty_p, derivation_p;
   int empty_changed_p, derivation_changed_p, accessibility_change_p;
-  int i, j;
+  int i; ptrdiff_t j;
 
   for (i = 0; (symb = symb_get (i)) != NULL; i++)
     {
@@ -3425,7 +3852,7 @@ set_loop_p (void)
 {
   struct symb *symb, *lhs;
   struct rule *rule;
-  int i, j, k, loop_p, changed_p;
+  int i, k, loop_p, changed_p; ptrdiff_t j;
 
   /* Initialize accoding to minimal criteria: There is a rule in which
      the nonterminal stands and all the rest symbols can derive empty
@@ -3473,9 +3900,34 @@ set_loop_p (void)
   while (changed_p);
 }
 
-/* The following function evaluates different sets and flags for
-   grammar and checks the grammar on correctness. */
-static void
+/**
+ * @brief Validate grammar structure and compute derived properties
+ *
+ * Performs comprehensive validation of the grammar and computes sets
+ * (FIRST, FOLLOW) needed for parsing. This function checks for:
+ * - Nonterminals that cannot derive terminal strings
+ * - Nonterminals unreachable from the axiom
+ * - Nonterminals that can only derive themselves (loops)
+ *
+ * Algorithm:
+ * 1. Compute empty, access, and derivation properties
+ * 2. Compute loop detection flags
+ * 3. Validate based on strict_p flag
+ * 4. Create FIRST/FOLLOW sets for parsing
+ *
+ * Error Handling:
+ * Returns error code on validation failure. Previously used yaep_error()
+ * with longjmp; now returns explicit error codes for proper control flow.
+ *
+ * @param strict_p If true, enforce strict checks (all nonterminals must
+ *                 be both derivable and accessible). If false, only check
+ *                 that the axiom is derivable.
+ * @return 0 on success, YAEP error code on validation failure
+ *
+ * Thread Safety: Uses global grammar state (to be fixed in Phase 6)
+ * Side Effects: Modifies grammar symbol properties, creates FIRST/FOLLOW sets
+ */
+static int
 check_grammar (int strict_p)
 {
   struct symb *symb;
@@ -3483,32 +3935,50 @@ check_grammar (int strict_p)
 
   set_empty_access_derives ();
   set_loop_p ();
+  
+  /*
+   * Strict validation: All nonterminals must be both derivable
+   * (can produce terminal strings) and accessible (reachable from axiom).
+   */
   if (strict_p)
     {
       for (i = 0; (symb = nonterm_get (i)) != NULL; i++)
 	{
 	  if (!symb->derivation_p)
-	    yaep_error
-	      (YAEP_NONTERM_DERIVATION,
+	    return yaep_set_error
+	      (grammar, YAEP_NONTERM_DERIVATION,
 	       "nonterm `%s' does not derive any term string", symb->repr);
 	  else if (!symb->access_p)
-	    yaep_error (YAEP_UNACCESSIBLE_NONTERM,
-			"nonterm `%s' is not accessible from axiom",
-			symb->repr);
+	    return yaep_set_error
+	      (grammar, YAEP_UNACCESSIBLE_NONTERM,
+	       "nonterm `%s' is not accessible from axiom",
+	       symb->repr);
 	}
     }
+  /*
+   * Minimal validation: At minimum, the axiom must be derivable.
+   */
   else if (!grammar->axiom->derivation_p)
-    yaep_error (YAEP_NONTERM_DERIVATION,
-		"nonterm `%s' does not derive any term string",
-		grammar->axiom->repr);
+    return yaep_set_error
+      (grammar, YAEP_NONTERM_DERIVATION,
+       "nonterm `%s' does not derive any term string",
+       grammar->axiom->repr);
+  
+  /*
+   * Check for nonterminals that can only derive themselves.
+   * This creates infinite loops in the grammar.
+   */
   for (i = 0; (symb = nonterm_get (i)) != NULL; i++)
     if (symb->u.nonterm.loop_p)
-      yaep_error
-	(YAEP_LOOP_NONTERM,
+      return yaep_set_error
+	(grammar, YAEP_LOOP_NONTERM,
 	 "nonterm `%s' can derive only itself (grammar with loops)",
 	 symb->repr);
+  
   /* We should have correct flags empty_p here. */
   create_first_follow_sets ();
+  
+  return 0;  /* Validation successful */
 }
 
 /* The following are names of additional symbols.  Don't use them in
@@ -3524,6 +3994,36 @@ check_grammar (int strict_p)
 /* The following function reads terminals/rules.  The function returns
    pointer to the grammar (or NULL if there were errors in
    grammar). */
+struct yaep_read_grammar_context
+{
+  struct grammar *grammar;
+  int strict_p;
+  const char *(*read_terminal) (int *code);
+  const char *(*read_rule) (const char ***rhs,
+                            const char **abs_node,
+                            int *anode_cost, int **transl);
+};
+
+struct yaep_parse_context
+{
+  struct grammar *grammar;
+  int (*read_fn) (void **attr);
+  void (*error_fn) (int err_tok_num, void *err_tok_attr,
+                    int start_ignored_tok_num, void *start_ignored_tok_attr,
+                    int start_recovered_tok_num,
+                    void *start_recovered_tok_attr);
+  void *(*alloc_fn) (int nmemb);
+  void (*free_fn) (void *mem);
+  struct yaep_tree_node **root;
+  int *ambiguous_p;
+  int result;
+  int tok_init_p;
+  int parse_init_p;
+};
+
+static int yaep_read_grammar_internal (void *user);
+static int yaep_parse_internal (void *user);
+
 #ifdef __cplusplus
 static
 #endif
@@ -3534,155 +4034,132 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 					     const char **abs_node,
 					     int *anode_cost, int **transl))
 {
+  int code;
+  struct yaep_read_grammar_context ctx;
+
+  assert (g != NULL);
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
+  ctx.grammar = g;
+  ctx.strict_p = strict_p;
+  ctx.read_terminal = read_terminal;
+  ctx.read_rule = read_rule;
+  
+  /*
+   * Call the internal implementation directly.
+   * 
+   * Previously wrapped with yaep_run_with_error_boundary() to catch
+   * longjmp-based errors. Now that all internal code uses explicit
+   * error returns, the boundary wrapper is unnecessary.
+   *
+   * This simplifies the call stack and makes debugging easier.
+   */
+  code = yaep_read_grammar_internal (&ctx);
+  return code;
+}
+
+static int
+yaep_read_grammar_internal (void *user)
+{
+  struct yaep_read_grammar_context *ctx = (struct yaep_read_grammar_context *) user;
   const char *name, *lhs, **rhs, *anode;
-  struct symb *symb;
-  /* Allocate a small per-parse context on the heap so values that must
-     survive a longjmp do not live in automatic locals. This enables
-     concurrent parses of the same grammar: each call gets its own
-     context. The context is allocated from the grammar allocator and
-     published into the thread-local slot `yaep_current_parse_ctx`. */
-  {
-    struct parse_ctx *tmp = (struct parse_ctx *) yaep_malloc (g->alloc, sizeof *tmp);
-    if (tmp != NULL)
-      tmp->start = NULL;
-    yaep_current_parse_ctx = tmp;
-  }
+  struct symb *symb, *start;
   struct rule *rule;
   int anode_cost;
   int *transl;
   int i, el, code;
+  int strict_p = ctx->strict_p;
 
-  assert (g != NULL);
-  grammar = g;
-  symbs_ptr = g->symbs_ptr;
-  term_sets_ptr = g->term_sets_ptr;
-  rules_ptr = g->rules_ptr;
-  /* Allocate a small per-parse context from the grammar allocator.
-     We intentionally allocate the context before setjmp so the local
-     pointer `ctx` is assigned prior to setjmp and not modified later;
-     only `ctx->start` (the heap pointee) will be assigned after
-     setjmp, which avoids -Wclobbered on compilers that analyze setjmp
-     usage. */
-  /* Local uses below will access grammar->parse_ctx->start */
-  if ((code = setjmp (error_longjump_buff)) != 0)
-    {
-      if (yaep_current_parse_ctx != NULL)
-        yaep_free (g->alloc, yaep_current_parse_ctx);
-      yaep_current_parse_ctx = NULL;
-      return code;
-    }
+  grammar = ctx->grammar;
+  yaep_copy_error_to_grammar (grammar);
+  symbs_ptr = grammar->symbs_ptr;
+  term_sets_ptr = grammar->term_sets_ptr;
+  rules_ptr = grammar->rules_ptr;
+
   if (!grammar->undefined_p)
     yaep_empty_grammar ();
-  while ((name = (*read_terminal) (&code)) != NULL)
+  
+  /*
+   * Read terminal declarations and validate them.
+   * Each terminal must have a unique name and unique non-negative code.
+   */
+  while ((name = (*ctx->read_terminal) (&code)) != NULL)
     {
+      /* Terminal codes must be non-negative */
       if (code < 0)
-	yaep_error (YAEP_NEGATIVE_TERM_CODE,
-		    "term `%s' has negative code", name);
-      /* Attempt to NFC-normalize the terminal name for lookup/insertion.
-         We prefer allocating the normalized buffer with the grammar's
-         allocator when available to avoid extra copies; when no allocator
-         is available we accept utf8proc's malloc buffer and will free it
-         after insertion. */
-      char *norm_name = NULL;
-      if (grammar != NULL && grammar->alloc != NULL) {
-        if (yaep_utf8_normalize_nfc(name, &norm_name, grammar->alloc) != 1)
-          norm_name = NULL;
-      } else {
-        if (yaep_utf8_normalize_nfc(name, &norm_name, NULL) != 1)
-          norm_name = NULL;
-      }
-
-      const char *lookup_name = norm_name != NULL ? norm_name : name;
-
-      /* Check for repeated declaration using the (possibly) normalized
-         bytes so canonically equivalent names are detected as duplicates. */
-      symb = symb_find_by_repr (lookup_name);
+	return yaep_set_error
+	  (grammar, YAEP_NEGATIVE_TERM_CODE,
+	   "term `%s' has negative code", name);
+      
+      /* Terminal names must be unique */
+      symb = symb_find_by_repr (name);
       if (symb != NULL)
- 	yaep_error (YAEP_REPEATED_TERM_DECL,
- 		    "repeated declaration of term `%s'", lookup_name);
+	return yaep_set_error
+	  (grammar, YAEP_REPEATED_TERM_DECL,
+	   "repeated declaration of term `%s'", name);
+      
+      /* Terminal codes must be unique */
       if (symb_find_by_code (code) != NULL)
- 	yaep_error (YAEP_REPEATED_TERM_CODE,
- 		    "repeated code %d in term `%s'", code, lookup_name);
-
-      /* Insert symbol using the chosen representation so the hashtable
-         and persisted object-stack use identical bytes. This mirrors
-         symb_add_term's behavior but operates on the already-normalized
-         bytes when available to ensure duplicate detection. */
-      {
-        struct symb tmp_symb, *result_symb;
-        hash_table_entry_t *repr_entry, *code_entry;
-
-        tmp_symb.repr = (char *) lookup_name;
-        tmp_symb.term_p = TRUE;
-        tmp_symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
-        tmp_symb.u.term.code = code;
-        tmp_symb.u.term.term_num = symbs_ptr->n_terms++;
-        tmp_symb.empty_p = FALSE;
-
-        repr_entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &tmp_symb, TRUE);
-        assert (*repr_entry == NULL);
-        code_entry = find_hash_table_entry (symbs_ptr->code_to_symb_tab, &tmp_symb, TRUE);
-        assert (*code_entry == NULL);
-
-        OS_TOP_ADD_STRING (symbs_ptr->symbs_os, tmp_symb.repr);
-        tmp_symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
-        OS_TOP_FINISH (symbs_ptr->symbs_os);
-        OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &tmp_symb, sizeof (struct symb));
-        result_symb = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
-        OS_TOP_FINISH (symbs_ptr->symbs_os);
-        *repr_entry = (hash_table_entry_t) result_symb;
-        *code_entry = (hash_table_entry_t) result_symb;
-        VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result_symb, sizeof (struct symb *));
-        VLO_ADD_MEMORY (symbs_ptr->terms_vlo, &result_symb, sizeof (struct symb *));
-
-        /* If normalization returned a malloc()-ed buffer (no allocator),
-           free it since OS_TOP copied the bytes. If allocation was made
-           with the grammar allocator, it will be freed at grammar teardown. */
-        if (norm_name != NULL && grammar != NULL && grammar->alloc == NULL) {
-          free(norm_name);
-        }
-      }
+	return yaep_set_error
+	  (grammar, YAEP_REPEATED_TERM_CODE,
+	   "repeated code %d in term `%s'", code, name);
+      
+      symb_add_term (name, code);
     }
 
   /* Adding error symbol. */
   if (symb_find_by_repr (TERM_ERROR_NAME) != NULL)
-    yaep_error (YAEP_FIXED_NAME_USAGE,
-		"do not use fixed name `%s'", TERM_ERROR_NAME);
+    return yaep_set_error
+      (grammar, YAEP_FIXED_NAME_USAGE,
+       "do not use fixed name `%s'", TERM_ERROR_NAME);
   if (symb_find_by_code (TERM_ERROR_CODE) != NULL)
     abort ();
   grammar->term_error = symb_add_term (TERM_ERROR_NAME, TERM_ERROR_CODE);
   grammar->term_error_num = grammar->term_error->u.term.term_num;
   grammar->axiom = grammar->end_marker = NULL;
-  while ((lhs = (*read_rule) (&rhs, &anode, &anode_cost, &transl)) != NULL)
+  
+  /*
+   * Read and process grammar rules.
+   * Validate rule structure and build internal representation.
+   */
+  while ((lhs = (*ctx->read_rule) (&rhs, &anode, &anode_cost, &transl)) != NULL)
     {
       symb = symb_find_by_repr (lhs);
       if (symb == NULL)
 	symb = symb_add_nonterm (lhs);
       else if (symb->term_p)
-	yaep_error (YAEP_TERM_IN_RULE_LHS,
-		    "term `%s' in the left hand side of rule", lhs);
+	return yaep_set_error
+	  (grammar, YAEP_TERM_IN_RULE_LHS,
+	   "term `%s' in the left hand side of rule", lhs);
+      
+      /* Validate translation specification */
       if (anode == NULL && transl != NULL && *transl >= 0 && transl[1] >= 0)
-	yaep_error (YAEP_INCORRECT_TRANSLATION,
-		    "rule for `%s' has incorrect translation", lhs);
+	return yaep_set_error
+	  (grammar, YAEP_INCORRECT_TRANSLATION,
+	   "rule for `%s' has incorrect translation", lhs);
+      
+      /* Cost must be non-negative */
       if (anode != NULL && anode_cost < 0)
-	yaep_error (YAEP_NEGATIVE_COST,
-		    "translation for `%s' has negative cost", lhs);
-  if (grammar->axiom == NULL)
-  {
-   /* We made this here becuase we want that the start rule has
-     number 0. */
-   /* Add axiom and end marker. */
-  if (yaep_current_parse_ctx != NULL)
-   yaep_current_parse_ctx->start = symb;
+	return yaep_set_error
+	  (grammar, YAEP_NEGATIVE_COST,
+	   "translation for `%s' has negative cost", lhs);
+      if (grammar->axiom == NULL)
+	{
+	  /* We made this here becuase we want that the start rule has
+	     number 0. */
+	  /* Add axiom and end marker. */
+	  start = symb;
 	  grammar->axiom = symb_find_by_repr (AXIOM_NAME);
 	  if (grammar->axiom != NULL)
-	    yaep_error (YAEP_FIXED_NAME_USAGE,
-			"do not use fixed name `%s'", AXIOM_NAME);
+	    return yaep_set_error
+	      (grammar, YAEP_FIXED_NAME_USAGE,
+	       "do not use fixed name `%s'", AXIOM_NAME);
 	  grammar->axiom = symb_add_nonterm (AXIOM_NAME);
 	  grammar->end_marker = symb_find_by_repr (END_MARKER_NAME);
 	  if (grammar->end_marker != NULL)
-	    yaep_error (YAEP_FIXED_NAME_USAGE,
-			"do not use fixed name `%s'", END_MARKER_NAME);
+	    return yaep_set_error
+	      (grammar, YAEP_FIXED_NAME_USAGE,
+	       "do not use fixed name `%s'", END_MARKER_NAME);
 	  if (symb_find_by_code (END_MARKER_CODE) != NULL)
 	    abort ();
 	  grammar->end_marker = symb_add_term (END_MARKER_NAME,
@@ -3705,22 +4182,24 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 	  rhs++;
 	}
       rule_new_stop ();
+      
+      /* Process and validate translation specification */
       if (transl != NULL)
 	{
 	  for (i = 0; (el = transl[i]) >= 0; i++)
 	    if (el >= rule->rhs_len)
 	      {
 		if (el != YAEP_NIL_TRANSLATION_NUMBER)
-		  yaep_error
-		    (YAEP_INCORRECT_SYMBOL_NUMBER,
+		  return yaep_set_error
+		    (grammar, YAEP_INCORRECT_SYMBOL_NUMBER,
 		     "translation symbol number %d in rule for `%s' is out of range",
 		     el, lhs);
 		else
 		  rule->trans_len++;
 	      }
 	    else if (rule->order[el] >= 0)
-	      yaep_error
-		(YAEP_REPEATED_SYMBOL_NUMBER,
+	      return yaep_set_error
+		(grammar, YAEP_REPEATED_SYMBOL_NUMBER,
 		 "repeated translation symbol number %d in rule for `%s'",
 		 el, lhs);
 	    else
@@ -3731,11 +4210,14 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 	  assert (i < rule->rhs_len || transl[i] < 0);
 	}
     }
+  
+  /* Grammar must have at least one rule */
   if (grammar->axiom == NULL)
-    yaep_error (YAEP_NO_RULES, "grammar does not contains rules");
-  assert (yaep_current_parse_ctx != NULL && yaep_current_parse_ctx->start != NULL);
+    return yaep_set_error
+      (grammar, YAEP_NO_RULES, "grammar does not contains rules");
+  assert (start != NULL);
   /* Adding axiom : error $eof if it is neccessary. */
-  for (rule = yaep_current_parse_ctx->start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
+  for (rule = start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
     if (rule->rhs[0] == grammar->term_error)
       break;
   if (rule == NULL)
@@ -3746,7 +4228,15 @@ yaep_read_grammar (struct grammar *g, int strict_p,
       rule_new_stop ();
       rule->trans_len = 0;
     }
-  check_grammar (strict_p);
+  
+  /*
+   * Validate grammar structure and compute FIRST/FOLLOW sets.
+   * Now returns error code instead of longjmp.
+   */
+  code = check_grammar (strict_p);
+  if (code != 0)
+    return code;
+  
 #ifdef SYMB_CODE_TRANS_VECT
   symb_finish_adding_terms ();
 #endif
@@ -3780,15 +4270,14 @@ yaep_read_grammar (struct grammar *g, int strict_p,
     }
 #endif
   grammar->undefined_p = FALSE;
-  if (yaep_current_parse_ctx != NULL)
-    {
-      yaep_free (g->alloc, yaep_current_parse_ctx);
-      yaep_current_parse_ctx = NULL;
-    }
   return 0;
 }
 
-#include "sgramm.c"
+#ifdef CMAKE_BINARY_DIR
+#  include "sgramm.c"
+#else
+#  include "../build/src/sgramm.c"
+#endif
 
 /* The following functions set up parameter which affect parser work
    and return the previous parameter value. */
@@ -3910,16 +4399,20 @@ yaep_parse_fin (void)
   sit_fin ();
 }
 
-/* The following function reads all input tokens. */
-static void
+/* The following function reads all input tokens and returns 0 on success. */
+static int
 read_toks (void)
 {
   int code;
   void *attr;
 
   while ((code = read_token (&attr)) >= 0)
-    tok_add (code, attr);
-  tok_add (END_MARKER_CODE, NULL);
+    {
+      int err = tok_add (code, attr);
+      if (err != 0)
+        return err;
+    }
+  return tok_add (END_MARKER_CODE, NULL);
 }
 
 /* The following function add start situations which is formed from
@@ -3973,7 +4466,8 @@ collect_core_symbols (void)
 static void
 form_transitive_transition_vectors (void)
 {
-  int i, j, k, sit_ind;
+  size_t i, j, k;
+  int sit_ind;
   struct symb *symb, *new_symb;
   struct sit *sit;
   struct core_symb_vect *core_symb_vect, *symb_core_symb_vect;
@@ -3983,7 +4477,7 @@ form_transitive_transition_vectors (void)
 		  symbs_ptr->n_terms + symbs_ptr->n_nonterms);
   VLO_NULLIFY (core_symbols_vlo);
   collect_core_symbols ();
-  for (i = 0; i < VLO_LENGTH (core_symbols_vlo) / sizeof (struct symb *); i++)
+  for (i = 0; i < VLO_NELS (core_symbols_vlo, struct symb *); i++)
     {
       symb = ((struct symb **) VLO_BEGIN (core_symbols_vlo))[i];
       core_symb_vect = core_symb_vect_find (new_core, symb);
@@ -3993,9 +4487,9 @@ form_transitive_transition_vectors (void)
       VLO_NULLIFY (core_symbol_queue_vlo);
       /* Put the symbol into the queue.  */
       VLO_ADD_MEMORY (core_symbol_queue_vlo, &symb, sizeof (symb));
-      for (j = 0;
-	   j < VLO_LENGTH (core_symbol_queue_vlo) / sizeof (struct symb *);
-	   j++)
+  for (j = 0;
+   j < VLO_NELS (core_symbol_queue_vlo, struct symb *);
+   j++)
 	{
 	  symb = ((struct symb **) VLO_BEGIN (core_symbol_queue_vlo))[j];
 	  symb_core_symb_vect = core_symb_vect_find (new_core, symb);
@@ -4095,7 +4589,7 @@ expand_new_start_set (void)
     {
       struct sit *new_sit, *shifted_sit;
       term_set_el_t *context_set;
-      int changed_p, sit_ind, context, j;
+  int changed_p, sit_ind, context; ptrdiff_t j;
 
       /* Now we have incorrect initial situations because their
          context is not correct. */
@@ -4396,7 +4890,7 @@ save_original_sets (void)
   int length, curr_pl;
 
   assert (pl_curr >= 0 && original_last_pl_el <= start_pl_curr);
-  length = VLO_LENGTH (original_pl_tail_stack) / sizeof (struct set *);
+  length = VLO_NELS (original_pl_tail_stack, struct set *);
   for (curr_pl = start_pl_curr - length; curr_pl >= pl_curr; curr_pl--)
     {
       VLO_ADD_MEMORY (original_pl_tail_stack, &pl[curr_pl],
@@ -4947,6 +5441,16 @@ build_pl (void)
   for (tok_curr = pl_curr = 0; tok_curr < toks_len; tok_curr++)
     {
       term = toks[tok_curr].symb;
+      /* Early debug snapshot to help fuzz triage. Guarded by
+         YAEP_FUZZ_DEBUG to avoid noisy output in normal runs. */
+      if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+        {
+          fprintf (stderr, "YAEP_DEBUG_LOOP tok=%d toks_len=%d toks=%p toks[idx]=%p term=%p\n",
+                   tok_curr, toks_len, (void *) toks,
+                   (void *) (tok_curr < toks_len ? &toks[tok_curr] : NULL),
+                   (void *) term);
+          fflush (stderr);
+        }
       if (grammar->lookahead_level != 0)
 	lookahead_term_num = (tok_curr < toks_len - 1
 			      ? toks[tok_curr +
@@ -4974,30 +5478,53 @@ build_pl (void)
 	new_set_term_lookahead->result[i] = NULL;
       new_set_term_lookahead->curr = 0;
       entry =
-	find_hash_table_entry (set_term_lookahead_tab, new_set_term_lookahead,
-			       TRUE);
-      if (*entry != NULL)
-	{
-	  struct set *tab_set;
+    find_hash_table_entry (set_term_lookahead_tab, new_set_term_lookahead,
+               TRUE);
 
-	  OS_TOP_NULLIFY (set_term_lookahead_os);
-	  for (i = 0; i < MAX_CACHED_GOTO_RESULTS; i++)
-	    if ((tab_set =
-		 ((struct set_term_lookahead *) *entry)->result[i]) == NULL)
-	      break;
-	    else if (check_cached_transition_set
-		     (tab_set,
-		      ((struct set_term_lookahead *) *entry)->place[i]))
-	      {
-		new_set = tab_set;
-		n_goto_successes++;
-		break;
-	      }
-	}
+      /* Optional runtime debug logging for fuzz triage. If the
+         environment variable YAEP_FUZZ_DEBUG is set, emit a single
+         line with key pointers and token info which helps trace the
+         state leading to crashes without changing program flow. */
+      if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
+        {
+          const char *trepr = (term && term->repr) ? term->repr : "(null)";
+          fprintf (stderr, "YAEP_DEBUG tok=%d pl=%d term=%p repr='%s' set=%p entry=%p *entry=%p\n",
+                   tok_curr, pl_curr, (void *) term, trepr, (void *) set,
+                   (void *) entry, (void *) (entry ? *entry : NULL));
+          /* fflush to ensure log reaches fuzzer output */
+          fflush (stderr);
+        }
+      if (*entry != NULL)
+    {
+      /* The entry stores a mutable set_term_lookahead owned by the
+         hash table. We intentionally cast through (void*) once here
+         to obtain a mutable local pointer for subsequent mutations
+         and checks. This documents the deliberate removal of the
+         const qualifier at the mutation site while keeping the
+         public API (hash_table_entry_t) const. */
+      struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+      struct set *tab_set;
+
+      OS_TOP_NULLIFY (set_term_lookahead_os);
+      for (i = 0; i < MAX_CACHED_GOTO_RESULTS; i++)
+        if ((tab_set = tab_ent->result[i]) == NULL)
+          break;
+        else if (check_cached_transition_set
+             (tab_set,
+              tab_ent->place[i]))
+          {
+        new_set = tab_set;
+        n_goto_successes++;
+        break;
+          }
+    }
       else
 	{
 	  OS_TOP_FINISH (set_term_lookahead_os);
-	  *entry = (hash_table_entry_t) new_set_term_lookahead;
+       /* Cache the newly-created mutable lookahead struct in the
+         table. Deliberately cast through (void*) to document that
+         this is owned mutable data stored in a const-typed slot. */
+       *entry = (hash_table_entry_t) (void *) new_set_term_lookahead;
 	  n_set_term_lookaheads++;
 	}
 
@@ -5031,13 +5558,16 @@ build_pl (void)
 	  build_new_set (set, core_symb_vect, lookahead_term_num);
 #ifdef USE_SET_HASH_TABLE
 	  /* Save (set, term, lookahead) -> new_set in the table.  */
-	  i = ((struct set_term_lookahead *) *entry)->curr;
-	  ((struct set_term_lookahead *) *entry)->result[i] = new_set;
-	  ((struct set_term_lookahead *) *entry)->place[i] = pl_curr;
-	  ((struct set_term_lookahead *) *entry)->lookahead =
-	    lookahead_term_num;
-	  ((struct set_term_lookahead *) *entry)->curr =
-	    (i + 1) % MAX_CACHED_GOTO_RESULTS;
+      /* Mutate the stored table entry — obtain local mutable pointer
+         via documented void* cast as above. */
+      {
+        struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+        i = tab_ent->curr;
+        tab_ent->result[i] = new_set;
+        tab_ent->place[i] = pl_curr;
+        tab_ent->lookahead = lookahead_term_num;
+        tab_ent->curr = (i + 1) % MAX_CACHED_GOTO_RESULTS;
+      }
 #endif
 	}
       pl[++pl_curr] = new_set;
@@ -5100,27 +5630,32 @@ static hash_table_t parse_state_tab;	/* Key is rule, orig, pl_ind. */
 static unsigned
 parse_state_hash (hash_table_entry_t s)
 {
-  struct parse_state *state = ((struct parse_state *) s);
+  /* Treat the incoming entry as const because the hash function only
+     reads fields; this avoids casting away const at call sites and
+     documents that we won't mutate the stored object here. */
+  const struct parse_state *state = ((const struct parse_state *) s);
 
   /* The table contains only states with dot at the end of rule. */
   assert (state->pos == state->rule->rhs_len);
   return (((jauquet_prime_mod32 * hash_shift +
-	    (unsigned) (size_t) state->rule) * hash_shift +
-	   state->orig) * hash_shift + state->pl_ind);
+      (unsigned) (size_t) state->rule) * hash_shift +
+     state->orig) * hash_shift + state->pl_ind);
 }
 
 /* Equality of parse states. */
 static int
 parse_state_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct parse_state *state1 = ((struct parse_state *) s1);
-  struct parse_state *state2 = ((struct parse_state *) s2);
+  /* Equality comparison only reads the structures; keep pointers const
+     to avoid casting away qualifiers and to make intent explicit. */
+  const struct parse_state *state1 = ((const struct parse_state *) s1);
+  const struct parse_state *state2 = ((const struct parse_state *) s2);
 
   /* The table contains only states with dot at the end of rule. */
   assert (state1->pos == state1->rule->rhs_len
-	  && state2->pos == state2->rule->rhs_len);
+    && state2->pos == state2->rule->rhs_len);
   return (state1->rule == state2->rule && state1->orig == state2->orig
-	  && state1->pl_ind == state2->pl_ind);
+    && state1->pl_ind == state2->pl_ind);
 }
 
 /* The following function initializes work with parser states. */
@@ -5252,15 +5787,19 @@ static int n_trans_visit_nodes;
 static unsigned
 trans_visit_node_hash (hash_table_entry_t n)
 {
-  return (size_t) ((struct trans_visit_node *) n)->node;
+  /* The hash only needs to read the node pointer; use a const view to
+     avoid casting away qualifiers and to make intent explicit. */
+  const struct trans_visit_node *tn = ((const struct trans_visit_node *) n);
+  return (size_t) tn->node;
 }
 
 /* Equality of translation visit nodes. */
-static int
+int
 trans_visit_node_eq (hash_table_entry_t n1, hash_table_entry_t n2)
 {
-  return (((struct trans_visit_node *) n1)->node
-	  == ((struct trans_visit_node *) n2)->node);
+  const struct trans_visit_node *tn1 = ((const struct trans_visit_node *) n1);
+  const struct trans_visit_node *tn2 = ((const struct trans_visit_node *) n2);
+  return (tn1->node == tn2->node);
 }
 
 /* The following function checks presence translation visit node with
@@ -5287,7 +5826,9 @@ visit_node (struct yaep_tree_node *node)
       n_trans_visit_nodes++;
       OS_TOP_ADD_MEMORY (trans_visit_nodes_os,
 			 &trans_visit_node, sizeof (trans_visit_node));
-      *entry = (hash_table_entry_t) OS_TOP_BEGIN (trans_visit_nodes_os);
+    /* Store newly-created trans_visit_node (owned/mutable) in the
+      global table; cast via void* to make the intent explicit. */
+    *entry = (hash_table_entry_t) (void *) OS_TOP_BEGIN (trans_visit_nodes_os);
       OS_TOP_FINISH (trans_visit_nodes_os);
     }
   return (struct trans_visit_node *) *entry;
@@ -5557,8 +6098,8 @@ static vlo_t *tnodes_vlo;
 static struct yaep_tree_node *
 prune_to_minimal (struct yaep_tree_node *node, int *cost)
 {
-  struct yaep_tree_node *child, *alt, *next_alt, *result = NULL;
-  int i, min_cost = INT_MAX;
+  struct yaep_tree_node *child, *alt, *next_alt, *result;
+  int i, min_cost;
 
   assert (node != NULL);
   switch (node->type)
@@ -5617,7 +6158,7 @@ prune_to_minimal (struct yaep_tree_node *node, int *cost)
 static void
 traverse_pruned_translation (struct yaep_tree_node *node)
 {
-  struct yaep_tree_node *child;
+  struct yaep_tree_node *child, *alt;
   hash_table_entry_t *entry;
   int i;
 
@@ -5626,7 +6167,9 @@ traverse_pruned_translation (struct yaep_tree_node *node)
   if (parse_free != NULL
       && *(entry =
 	   find_hash_table_entry (reserv_mem_tab, node, TRUE)) == NULL)
-    *entry = (hash_table_entry_t) node;
+   /* Insert owned mutable node pointer into the table; cast through
+     void* to satisfy the public const-qualified entry type. */
+   *entry = (hash_table_entry_t) (void *) node;
   switch (node->type)
     {
     case YAEP_NIL:
@@ -5638,7 +6181,9 @@ traverse_pruned_translation (struct yaep_tree_node *node)
 	  && *(entry = find_hash_table_entry (reserv_mem_tab,
 					      node->val.anode.name,
 					      TRUE)) == NULL)
-	*entry = (hash_table_entry_t) node->val.anode.name;
+  /* Store the owned name pointer in the table; document the
+     deliberate cast through void* as above. */
+    	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
       for (i = 0; (child = node->val.anode.children[i]) != NULL; i++)
 	traverse_pruned_translation (child);
       assert (node->val.anode.cost < 0);
@@ -5716,7 +6261,7 @@ make_parse (int *ambiguous_p)
   struct rule *rule, *sit_rule;
   struct symb *symb;
   struct core_symb_vect *core_symb_vect, *check_core_symb_vect;
-  int i, j, k, found, pos, orig, pl_ind, n_candidates, disp;
+  int i, k, found, pos, orig, pl_ind, n_candidates, disp; ptrdiff_t j;
   int sit_ind, check_sit_ind, sit_orig, check_sit_orig, new_p;
   struct parse_state *state, *orig_state, *curr_state;
   struct parse_state *table_state, *parent_anode_state;
@@ -5725,14 +6270,11 @@ make_parse (int *ambiguous_p)
   struct yaep_tree_node *parent_anode, *anode, root_anode;
   int parent_disp;
   int saved_one_parse_p;
-  struct yaep_tree_node **term_node_array = NULL;
+  struct yaep_tree_node **term_node_array;
 #ifndef __cplusplus
-  /* zero-initialize VLO descriptors to avoid "may be used
-     uninitialized" warnings from aggressive compilers. They will be
-     properly created by VLO_CREATE before use. */
-  vlo_t stack = {0}, orig_states = {0};
+  vlo_t stack, orig_states;
 #else
-  vlo_t *stack = NULL, *orig_states = NULL;
+  vlo_t *stack, *orig_states;
 #endif
 
   n_parse_term_nodes = n_parse_abstract_nodes = n_parse_alt_nodes = 0;
@@ -6274,24 +6816,23 @@ static
 #endif
 int
 yaep_parse (struct grammar *g,
-    int (*read) (void **attr),
-    void (*error) (int err_tok_num, void *err_tok_attr,
-      int start_ignored_tok_num,
-      void *start_ignored_tok_attr,
-      int start_recovered_tok_num,
-      void *start_recovered_tok_attr),
-    void *(*alloc) (int nmemb),
-    void (*free) (void *mem),
-    struct yaep_tree_node **root, int *ambiguous_p)
+	    int (*read) (void **attr),
+	    void (*error) (int err_tok_num, void *err_tok_attr,
+			   int start_ignored_tok_num,
+			   void *start_ignored_tok_attr,
+			   int start_recovered_tok_num,
+			   void *start_recovered_tok_attr),
+	    void *(*alloc) (int nmemb),
+	    void (*free) (void *mem),
+	    struct yaep_tree_node **root, int *ambiguous_p)
 {
+  struct yaep_parse_context ctx;
   int code;
-  /* Per-parse heap context. We allocate it before setjmp and publish
-     it into the thread-local slot `yaep_current_parse_ctx` (declared
-     near the top of this file). This avoids holding an automatic
-     pointer across setjmp which can trigger -Wclobbered. */
-  int tab_collisions, tab_searches;
 
-  /* Set up parse allocation */
+  assert (g != NULL);
+
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
   if (alloc == NULL)
     {
       if (free != NULL)
@@ -6304,56 +6845,78 @@ yaep_parse (struct grammar *g,
       free = parse_free_default;
     }
 
-  grammar = g;
-  assert (grammar != NULL);
-  symbs_ptr = g->symbs_ptr;
-  term_sets_ptr = g->term_sets_ptr;
-  rules_ptr = g->rules_ptr;
-  read_token = read;
-  syntax_error = error;
-  parse_alloc = alloc;
-  parse_free = free;
-  *root = NULL;
-  *ambiguous_p = FALSE;
-  pl_init ();
-  /* Allocate parse context with the grammar allocator if available
-     so we avoid introducing a new runtime allocator. The context is
-     intentionally allocated before the setjmp call to ensure compilers
-     that analyze setjmp do not warn about clobbered automatic locals. */
-  {
-    struct parse_ctx *tmp = (struct parse_ctx *) yaep_malloc (g->alloc, sizeof *tmp);
-    if (tmp != NULL)
-      {
-        tmp->start = NULL;
-        tmp->tok_init_p = FALSE;
-        tmp->parse_init_p = FALSE;
-      }
-    /* Publish into the thread-local slot. */
-    yaep_current_parse_ctx = tmp;
-  }
+  ctx.grammar = g;
+  ctx.read_fn = read;
+  ctx.error_fn = error;
+  ctx.alloc_fn = alloc;
+  ctx.free_fn = free;
+  ctx.root = root;
+  ctx.ambiguous_p = ambiguous_p;
+  ctx.result = 0;
+  ctx.tok_init_p = FALSE;
+  ctx.parse_init_p = FALSE;
 
-  if ((code = setjmp (error_longjump_buff)) != 0)
+  pl_init ();
+
+  /* All internal error handling now uses explicit return codes,
+   * so we can call yaep_parse_internal directly without the
+   * error boundary wrapper. This simplifies the call stack and
+   * improves debuggability. */
+  code = yaep_parse_internal (&ctx);
+  if (code != 0 && ctx.result == 0)
+    ctx.result = code;
+
+  if (code != 0)
     {
       pl_fin ();
-      if (yaep_current_parse_ctx != NULL && yaep_current_parse_ctx->parse_init_p)
-    yaep_parse_fin ();
-      if (yaep_current_parse_ctx != NULL && yaep_current_parse_ctx->tok_init_p)
-    tok_fin ();
-      if (yaep_current_parse_ctx != NULL)
-    yaep_free (g->alloc, yaep_current_parse_ctx);
-      yaep_current_parse_ctx = NULL;
-      return code;
+      if (ctx.parse_init_p)
+	yaep_parse_fin ();
+      if (ctx.tok_init_p)
+	tok_fin ();
     }
+
+  return ctx.result;
+}
+
+static int
+yaep_parse_internal (void *user)
+{
+  struct yaep_parse_context *ctx = (struct yaep_parse_context *) user;
+  int tab_collisions, tab_searches;
+  int code;
+
+  grammar = ctx->grammar;
+  assert (grammar != NULL);
+  yaep_copy_error_to_grammar (grammar);
+  symbs_ptr = grammar->symbs_ptr;
+  term_sets_ptr = grammar->term_sets_ptr;
+  rules_ptr = grammar->rules_ptr;
+  read_token = ctx->read_fn;
+  syntax_error = ctx->error_fn;
+  parse_alloc = ctx->alloc_fn;
+  parse_free = ctx->free_fn;
+  *ctx->root = NULL;
+  *ctx->ambiguous_p = FALSE;
+
+  ctx->result = 0;
+  ctx->tok_init_p = FALSE;
+  ctx->parse_init_p = FALSE;
+
+  /* Grammar must be properly initialized before parsing */
   if (grammar->undefined_p)
-    yaep_error (YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
+    return yaep_set_error
+      (grammar, YAEP_UNDEFINED_OR_BAD_GRAMMAR, "undefined or bad grammar");
   n_goto_successes = 0;
   tok_init ();
-  if (yaep_current_parse_ctx != NULL)
-    yaep_current_parse_ctx->tok_init_p = TRUE;
-  read_toks ();
+  ctx->tok_init_p = TRUE;
+  code = read_toks ();
+  if (code != 0)
+    {
+      ctx->result = code;
+      return code;
+    }
   yaep_parse_init (toks_len);
-  if (yaep_current_parse_ctx != NULL)
-    yaep_current_parse_ctx->parse_init_p = TRUE;
+  ctx->parse_init_p = TRUE;
   pl_create ();
 #ifndef __cplusplus
   tab_collisions = get_all_collisions ();
@@ -6363,7 +6926,7 @@ yaep_parse (struct grammar *g,
   tab_searches = hash_table::get_all_searches ();
 #endif
   build_pl ();
-  *root = make_parse (ambiguous_p);
+  *ctx->root = make_parse (ctx->ambiguous_p);
 #ifndef __cplusplus
   tab_collisions = get_all_collisions () - tab_collisions;
   tab_searches = get_all_searches () - tab_searches;
@@ -6376,7 +6939,7 @@ yaep_parse (struct grammar *g,
   if (grammar->debug_level > 0)
     {
       fprintf (stderr, "%sGrammar: #terms = %d, #nonterms = %d, ",
-	       *ambiguous_p ? "AMBIGUOUS " : "",
+	       *ctx->ambiguous_p ? "AMBIGUOUS " : "",
 	       symbs_ptr->n_terms, symbs_ptr->n_nonterms);
       fprintf (stderr, "#rules = %d, rules size = %d\n",
 	       rules_ptr->n_rules,
@@ -6431,8 +6994,11 @@ yaep_parse (struct grammar *g,
 	       tab_collisions, tab_searches);
     }
 #endif
+
   yaep_parse_fin ();
+  ctx->parse_init_p = FALSE;
   tok_fin ();
+  ctx->tok_init_p = FALSE;
   return 0;
 }
 
@@ -6624,10 +7190,6 @@ yaep_free_tree (struct yaep_tree_node *root, void (*parse_free) (void *),
 
 #ifdef YAEP_TEST
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* All parse_alloc memory is contained here. */
 #ifndef __cplusplus
 static os_t mem_os;
@@ -6756,7 +7318,7 @@ test_read_token (void **attr)
 
   ntok++;
   *attr = NULL;
-  if ((size_t)ntok < sizeof (input))
+  if (ntok < sizeof (input))
     return input[ntok - 1];
   else
     return -1;
@@ -6769,11 +7331,6 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_recovered_tok_num,
 		   void *start_recovered_tok_attr)
 {
-  /* Unused parameters - required by callback signature */
-  (void)err_tok_attr;
-  (void)start_ignored_tok_attr;
-  (void)start_recovered_tok_attr;
-  
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
   else
@@ -6881,7 +7438,6 @@ use_description (int argc, char **argv)
 }
 #endif
 
-#ifndef __cplusplus
 int
 main (int argc, char **argv)
 {
@@ -6897,10 +7453,5 @@ main (int argc, char **argv)
     use_functions (argc - 1, argv + 1);
   exit (0);
 }
-#endif /* #ifndef __cplusplus */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* #ifdef YAEP_TEST */

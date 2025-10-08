@@ -32,11 +32,10 @@
 %{
 
 #include <ctype.h>
-#include <string.h>
 
 #include <assert.h>
 
-#include "yaep_unicode.h"
+#include "yaep_error.h"
 
 /* The following is necessary if we use YAEP with byacc/bison/msta
    parser. */
@@ -115,6 +114,8 @@ static char *slhs;
 
 /* Forward declarations. */
 extern int yyerror (const char *str);
+/* Added to avoid implicit declaration warning for error boundary helper. */
+extern int yaep_run_with_error_boundary(void (*fn)(void *), void *arg);
 extern int yylex (void);
 extern int yyparse (void);
 
@@ -199,16 +200,7 @@ seq : seq IDENT
 	  struct sterm term;
 	  
 	  term.repr = (char *) $2;
-	  {
-	    size_t repr_len = strlen (term.repr);
-	    yaep_codepoint_t literal_cp;
-	    /* yylex appends the decoded code point directly after the NUL
-	       terminator so we can recover it without maintaining a side table. */
-	    memcpy (&literal_cp,
-		    term.repr + repr_len + 1,
-		    sizeof (literal_cp));
-	    term.code = (int) literal_cp;
-	  }
+	  term.code = term.repr [1];
           term.num = VLO_LENGTH (sterms) / sizeof (term);
 	  VLO_ADD_MEMORY (sterms, &term, sizeof (term));
 	  OS_TOP_ADD_MEMORY (srhs, &term.repr, sizeof (term.repr));
@@ -279,354 +271,216 @@ static os_t *stoks;
    read. */
 static int nsterm, nsrule;
 
-/* The following implements lexical analyzer for yacc code.
- * 
- * This lexer has been updated to support UTF-8 encoded grammar descriptions.
- * It uses yaep_utf8_next() to iterate through code points rather than bytes,
- * and yaep_utf8_isalpha/isalnum/isdigit for character classification.
- *
- * ASCII Fast Path: The UTF-8 functions are optimized for ASCII, so there
- * is minimal overhead for typical (ASCII-only) grammars.
- *
- * Error Handling: Invalid UTF-8 sequences are detected and reported as
- * lexical errors with appropriate diagnostic messages.
- */
+/* The following implements lexical analyzer for yacc code. */
 int
 yylex (void)
 {
-  yaep_codepoint_t cp;
-  const char *tok_start;
+  int c;
   int n_errs = 0;
 
   for (;;)
     {
-      /* Save the position before reading the next code point,
-       * in case we need to report errors at this location. */
-      tok_start = curr_ch;
-      cp = yaep_utf8_next(&curr_ch);
-      
-      /* Check for UTF-8 decoding errors */
-      if (cp == YAEP_CODEPOINT_INVALID)
+      /* Safe: peek current character and consume explicitly. This
+         avoids advancing past the terminating NUL byte which previously
+         allowed subsequent reads to dereference out-of-bounds memory. */
+      c = *curr_ch;
+      if (c == '\0')
+        return 0;
+      /* consume the character we just peeked */
+      curr_ch++;
+      switch (c)
 	{
-	  if (n_errs == 0)
-	    {
-	      yyerror ("invalid UTF-8 sequence in grammar");
-	      n_errs++;
-	    }
-	  continue;
-	}
-      
-      /* End of string */
-      if (cp == YAEP_CODEPOINT_EOS)
-	return 0;
-      
-      /* Handle ASCII characters that map directly to single-byte checks.
-       * For these, the code point value equals the byte value. */
-      if (cp < 128)
-	{
-	  switch (cp)
-	    {
-	    case '\n':
-	      ln++;
-	    case '\t':
-	    case ' ':
-	      break;
-	    case '/':
-	      /* Comment handling */
-	      cp = yaep_utf8_next(&curr_ch);
-	      if (cp != '*' && n_errs == 0)
-		{
-		  n_errs++;
-		  curr_ch = tok_start + 1; /* Back up to after the '/' */
-		  yyerror ("invalid input character /");
-		}
-	      for (;;)
-		{
-		  cp = yaep_utf8_next(&curr_ch);
-		  if (cp == YAEP_CODEPOINT_EOS)
-		    yyerror ("unfinished comment");
-		  if (cp == YAEP_CODEPOINT_INVALID)
-		    {
-		      if (n_errs == 0)
-			{
-			  yyerror ("invalid UTF-8 in comment");
-			  n_errs++;
-			}
-		      continue;
-		    }
-		  if (cp == '\n')
-		    ln++;
-		  if (cp == '*')
-		    {
-		      const char *star_pos = curr_ch;
-		      cp = yaep_utf8_next(&curr_ch);
-		      if (cp == '/')
-			break;
-		      curr_ch = star_pos; /* Back up if not end of comment */
-		    }
-		}
-	      break;
-	    case '=':
-	    case '#':
-	    case '|':
-	    case ';':
-	    case '-':
-	    case '(':
-	    case ')':
-	      return (int)cp;
-			case '\'':
-				{
-					/* Character literal: 'x' where x can be any single Unicode scalar.
-						 We preserve the exact UTF-8 bytes so downstream consumers see the
-						 literal exactly as authored, and we append the decoded code point
-						 after the NUL terminator for later retrieval. */
-					const char *repr_start = tok_start;
-					yaep_codepoint_t literal_cp;
-					yaep_codepoint_t closing_cp;
-
-					literal_cp = yaep_utf8_next (&curr_ch);
-					if (literal_cp == YAEP_CODEPOINT_EOS || literal_cp == YAEP_CODEPOINT_INVALID)
-						{
-							yyerror ("invalid character literal");
-							break;
-						}
-
-					closing_cp = yaep_utf8_next (&curr_ch);
-					if (closing_cp != '\'')
-						{
-							yyerror ("unterminated character literal");
-							break;
-						}
-
-					{
-						size_t repr_len = curr_ch - repr_start;
-						yaep_codepoint_t stored_cp = literal_cp;
-
-						OS_TOP_ADD_MEMORY (stoks, repr_start, repr_len);
-						OS_TOP_ADD_BYTE (stoks, '\0');
-						OS_TOP_ADD_MEMORY (stoks, &stored_cp, sizeof (stored_cp));
-						yylval.ref = OS_TOP_BEGIN (stoks);
-						OS_TOP_FINISH (stoks);
-					}
-
-					return CHAR;
-				}
-	    default:
-	      /* Check if this is the start of an identifier (ASCII fast path) */
-	      if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || cp == '_')
-		goto identifier;
-		/* Check if this is the start of a number (ASCII fast path) */
-		if (cp >= '0' && cp <= '9')
-		goto number;
-	      /* Otherwise, this is an error */
-	      goto error;
-	    }
-	}
-      else
-	{
-	  /* Non-ASCII code point: classify using Unicode predicates. */
-	  if (yaep_utf8_isdigit (cp))
-	    goto number;
-	  if (yaep_utf8_isalpha (cp))
-	    goto identifier;
-	  /* Otherwise, it's an invalid token */
-	  goto error;
-	}
-      continue;
-
-    identifier:
-      /* Identifier: starts with letter or underscore, continues with
-       * alphanumeric or underscore. Now supports full Unicode identifiers. */
+	case '\0':
+	  return 0;
+	case '\n':
+	  ln++;
+	case '\t':
+	case ' ':
+	  break;
+	case '/':
+    /* check for start of comment '/*' without advancing past NUL */
+    if (*curr_ch != '*')
       {
-	const char *id_start = tok_start;
-	int id_byte_len;
-
-	/*
-	 * Iterate with `yaep_utf8_next_with_len` which returns the decoded
-	 * code point and the number of bytes consumed.  This lets the lexer
-	 * advance and remember byte boundaries without reparsing from the
-	 * token start.  The previous implementation re-parsed from
-	 * `id_start` to back up when a non-identifier character was found;
-	 * that was correct but redundant and costlier.  Using the _with_len
-	 * helper makes the code simpler and more efficient while preserving
-	 * exact byte-level semantics.
-	 */
-	{
-	  const char *p = curr_ch;
-	  const char *last_good = id_start; /* last pointer just after a valid cp */
-	  size_t bytes_len = 0;
-	  yaep_codepoint_t test_cp;
-
-	  /* The first code point was already validated as a start character; mark it */
-	  last_good = curr_ch;
-
-	  while ((test_cp = yaep_utf8_next_with_len(&p, &bytes_len)) != YAEP_CODEPOINT_EOS &&
-	         test_cp != YAEP_CODEPOINT_INVALID)
-	    {
-	      if (!yaep_utf8_isalnum(test_cp) && test_cp != '_')
-	        break;
-	      /* Advance last_good to the byte position after this code point */
-	      last_good = p;
-	    }
-
-		/* Set curr_ch to the last byte position that is still part of the identifier */
-		curr_ch = last_good;
-		}
-
-		/* Now compute byte length for copying */
-	id_byte_len = curr_ch - id_start;
-	for (int i = 0; i < id_byte_len; i++)
-	  /* Ensure bytes are treated as unsigned when stored: avoid
-	     platform-dependent sign-extension later during hashing or
-	     byte-wise operations. Store each source byte as an
-	     unsigned char value. */
-	  OS_TOP_ADD_BYTE (stoks, (unsigned char) id_start[i]);
-	OS_TOP_ADD_BYTE (stoks, '\0');
-	yylval.ref = OS_TOP_BEGIN (stoks);
-	
-	/* Check for keyword "TERM" */
-	if (strcmp ((char *) yylval.ref, "TERM") == 0)
-	  {
-	    OS_TOP_NULLIFY (stoks);
-	    return TERM;
-	  }
-	OS_TOP_FINISH (stoks);
-	
-	/* Skip whitespace and check for ':' to distinguish identifiers.
-	 * We need to look ahead past whitespace to see if there's a ':' character.
-	 * If not, we need to back up curr_ch to before the first non-whitespace char.
-	 */
-	const char *before_nonws = curr_ch; /* Position before any whitespace */
-	while ((cp = yaep_utf8_next(&curr_ch)) != YAEP_CODEPOINT_EOS)
-	  {
-	    if (cp == YAEP_CODEPOINT_INVALID)
-	      {
-		if (n_errs == 0)
-		  {
-		    yyerror ("invalid UTF-8 after identifier");
-		    n_errs++;
-		  }
-		continue;
-	      }
-	    if (cp == '\n')
-	      {
-		ln++;
-		before_nonws = curr_ch;
-	      }
-	    else if (yaep_utf8_isspace(cp))
-	      {
-		before_nonws = curr_ch;
-	      }
-	    else
-	      {
-		/* Found non-whitespace character. If it's not ':', back up. */
-		if (cp != ':')
-		  curr_ch = before_nonws;
-		break;
-	      }
-	  }
-	
-	return (cp == ':' ? SEM_IDENT : IDENT);
-      }
-
-			number:
-				{
-					/* Number: sequence of Unicode decimal digits (Nd).  We track the
-						 originating block so that scripts cannot be mixed within a single
-						 literal, mirroring guidance from UAX #31. */
-					int digit_value;
-					yaep_codepoint_t digit_block;
-					const char *digit_boundary;
-
-				if (!yaep_utf8_digit_value (cp, &digit_value, &digit_block))
-					{
-						if (n_errs == 0)
-							{
-								yyerror ("invalid digit in number literal");
-								n_errs++;
-							}
-						return NUMBER;
-					}
-
-				yylval.num = digit_value;
-
-				for (;;)
-					{
-						digit_boundary = curr_ch;
-						yaep_codepoint_t next_cp = yaep_utf8_next (&curr_ch);
-
-						if (next_cp == YAEP_CODEPOINT_EOS)
-							break;
-
-						if (next_cp == YAEP_CODEPOINT_INVALID)
-							{
-								if (n_errs == 0)
-									{
-										yyerror ("invalid UTF-8 in number literal");
-										n_errs++;
-									}
-								break;
-							}
-
-						int next_digit;
-						yaep_codepoint_t next_block;
-						if (!yaep_utf8_digit_value (next_cp, &next_digit, &next_block))
-							{
-								curr_ch = digit_boundary;
-								break;
-							}
-
-						if (next_block != digit_block)
-							{
-								if (n_errs == 0)
-									{
-										yyerror ("mixed-digit Unicode number literal");
-										n_errs++;
-									}
-								curr_ch = digit_boundary;
-								break;
-							}
-
-						yylval.num = yylval.num * 10 + next_digit;
-					}
-
-				return NUMBER;
-			}
-
-    error:
-      /* Invalid character encountered */
+        if (n_errs == 0)
+    {
       n_errs++;
-			if (n_errs == 1)
+      yyerror ("invalid input character /");
+    }
+      }
+    else
+      {
+        /* consume the '*' */
+        curr_ch++;
+        for (;;)
+    {
+      c = *curr_ch;
+      if (c == '\0')
+        {
+          yyerror ("unfinished comment");
+          /* End of input while in comment - stop lexing to avoid
+             further out-of-bounds reads. */
+          return 0;
+        }
+      /* consume character */
+      curr_ch++;
+      if (c == '\n')
+        ln++;
+      if (c == '*')
+        {
+          if (*curr_ch == '/')
+      {
+        curr_ch++; /* consume '/' */
+        break;
+      }
+        }
+    }
+      }
+	  break;
+	case '=':
+	case '#':
+	case '|':
+	case ';':
+	case '-':
+	case '(':
+	case ')':
+	  return c;
+	case '\'':
+    OS_TOP_ADD_BYTE (stoks, '\'');
+    /* read character safely without advancing past NUL */
+    yylval.num = *curr_ch;
+    if (yylval.num == '\0')
+      {
+        yyerror ("invalid character");
+        return 0;
+      }
+    curr_ch++;
+    OS_TOP_ADD_BYTE (stoks, yylval.num);
+    if (*curr_ch != '\'')
+      {
+        yyerror ("invalid character");
+      }
+    else
+      curr_ch++;
+    OS_TOP_ADD_BYTE (stoks, '\'');
+    OS_TOP_ADD_BYTE (stoks, '\0');
+    yylval.ref = OS_TOP_BEGIN (stoks);
+    OS_TOP_FINISH (stoks);
+    return CHAR;
+	default:
+	  if (isalpha (c) || c == '_')
+	    {
+	      OS_TOP_ADD_BYTE (stoks, c);
+        /* consume identifier characters without ever reading past NUL */
+        while ((c = *curr_ch) != '\0' && (isalnum (c) || c == '_'))
+    {
+      OS_TOP_ADD_BYTE (stoks, c);
+      curr_ch++;
+    }
+	      OS_TOP_ADD_BYTE (stoks, '\0');
+	      yylval.ref = OS_TOP_BEGIN (stoks);
+	      if (strcmp ((char *) yylval.ref, "TERM") == 0)
 		{
-			char str[YAEP_MAX_ERROR_MESSAGE_LENGTH / 2];
-			int written = 0;
-
-			if (cp < 128 && isprint((int)cp))
-				written = snprintf (str, sizeof (str), "invalid input character '%c'", (char)cp);
-			else if (cp >= 0)
-				written = snprintf (str, sizeof (str), "invalid input character U+%04X", cp);
-			else
-				written = snprintf (str, sizeof (str), "invalid UTF-8 sequence");
-
-			/* Ensure NUL termination and pass to yyerror */
-			if (written < 0)
-				str[0] = '\0';
-			else
-				str[sizeof (str) - 1] = '\0';
-			yyerror (str);
+		  OS_TOP_NULLIFY (stoks);
+		  return TERM;
 		}
+	      OS_TOP_FINISH (stoks);
+        /* skip whitespace but do not advance past terminator */
+        while ((c = *curr_ch) != '\0')
+    {
+      if (c == '\n')
+        ln++;
+      else if (c != '\t' && c != ' ')
+        break;
+      curr_ch++;
+    }
+        if (c == ':')
+    {
+      curr_ch++; /* consume ':' */
+      return SEM_IDENT;
+    }
+        return IDENT;
+	    }
+	  else if (isdigit (c))
+	    {
+    yylval.num = c - '0';
+    while ((c = *curr_ch) != '\0' && isdigit (c))
+    {
+      yylval.num = yylval.num * 10 + (*curr_ch - '0');
+      curr_ch++;
+    }
+    return NUMBER;
+	    }
+	  else
+	    {
+	      n_errs++;
+	      if (n_errs == 1)
+		{
+		  char str[100];
+
+		  if (isprint (c))
+		    {
+		      sprintf (str, "invalid input character '%c'", c);
+		      yyerror (str);
+		    }
+		  else
+		    yyerror ("invalid input character");
+		}
+	    }
+	}
     }
 }
 
 
-/* The following implements syntactic error diagnostic function yacc
-   code. */
+/**
+ * @brief Bison error reporting callback
+ *
+ * Called by Bison-generated parser when a syntax error is detected in the
+ * grammar description. This function records the error in the thread-local
+ * error context WITHOUT performing a non-local exit (longjmp).
+ *
+ * Design Rationale:
+ * Bison's error handling works by calling yyerror() and then attempting
+ * error recovery or giving up gracefully. The parser returns a non-zero
+ * value to indicate failure. Our previous implementation incorrectly
+ * called yaep_error() which performed a longjmp(), bypassing Bison's
+ * normal control flow and error recovery mechanisms.
+ *
+ * Control Flow:
+ * 1. Bison detects syntax error
+ * 2. Bison calls yyerror(message)
+ * 3. yyerror() records error details (this function)
+ * 4. yyerror() returns to Bison
+ * 5. Bison attempts error recovery or gives up
+ * 6. yyparse() returns non-zero error code
+ * 7. Caller checks yyparse() return value
+ *
+ * @param str Error message from Bison (currently unused as we provide
+ *            a more specific message with line number)
+ * @return 0 (return value ignored by Bison in LALR parsers)
+ *
+ * Thread Safety: Safe - uses thread-local error context
+ * Side Effects: Sets thread-local error state
+ * Non-local Exits: None (previously did longjmp - now fixed)
+ */
 int
 yyerror (const char *str)
 {
-  (void) str;
-  yaep_error (YAEP_DESCRIPTION_SYNTAX_ERROR_CODE,
-	      "description syntax error on ln %d", ln);
+  (void) str;  /* Bison's generic message less informative than ours */
+  
+  /*
+   * Record error in thread-local context.
+   * This does NOT perform a longjmp - it simply stores the error
+   * for later retrieval. The parser will return normally and
+   * yyparse() will return a non-zero error code.
+   */
+  yaep_set_error (grammar, YAEP_DESCRIPTION_SYNTAX_ERROR_CODE,
+		  "description syntax error on ln %d", ln);
+  
+  /*
+   * Return to Bison normally.
+   * Bison will attempt error recovery or terminate parsing gracefully.
+   * The return value is conventionally 0 but is ignored by LALR parsers.
+   */
   return 0;
 }
 
@@ -648,28 +502,106 @@ sterm_num_cmp (const void *t1, const void *t2)
 
 static void free_sgrammar (void);
 
+struct set_sgrammar_context
+{
+  struct grammar *grammar;
+  const char *description;
+};
+
+static int set_sgrammar_internal (void *user);
+
 /* The following is major function which parses the description and
    transforms it into IR. */
 static int
-set_sgrammar (struct grammar *g, const char *grammar)
+set_sgrammar (struct grammar *g, const char *grammar_str)
 {
+  /* Renamed parameter to grammar_str to avoid shadowing global 'grammar'. */
+  struct set_sgrammar_context ctx;
+  int code;
+
+  ctx.grammar = g;
+  ctx.description = grammar_str;
+
+  /* All internal error handling now uses explicit return codes,
+   * so we can call set_sgrammar_internal directly without the
+   * error boundary wrapper. This simplifies the call stack and
+   * improves debuggability. */
+  code = set_sgrammar_internal (&ctx);
+  if (code != 0)
+    free_sgrammar ();
+  return code;
+}
+
+/**
+ * @brief Parse and process grammar description (internal worker)
+ *
+ * This function performs the actual work of parsing a YACC-like grammar
+ * description string and converting it into YAEP's internal representation.
+ *
+ * Algorithm:
+ * 1. Initialize parser data structures (stoks, sterms, srules, etc.)
+ * 2. Run Bison parser (yyparse) - now checks return value properly
+ * 3. Post-process terminals: sort, validate, assign codes
+ * 4. Post-process rules: validate and store
+ * 5. Return success (0) or error code
+ *
+ * Error Handling:
+ * - yyparse() errors: Detected via return value (no longjmp)
+ * - Validation errors: Now use yaep_set_error with explicit return
+ * - All errors propagate via return codes
+ * - All errors propagate via return codes
+ *
+ * @param user Pointer to set_sgrammar_context structure
+ * @return 0 on success, YAEP error code on failure
+ *
+ * Thread Safety: Uses thread-local error context
+ * Memory: Allocates temporary structures (freed on error via free_sgrammar)
+ */
+static int
+set_sgrammar_internal (void *user)
+{
+  struct set_sgrammar_context *ctx = (struct set_sgrammar_context *) user;
+  struct grammar *g = ctx->grammar;
   int i, j, num;
   struct sterm *term, *prev, *arr;
   int code = 256;
+  int parse_result;
 
   ln = 1;
-  if ((code = setjmp (error_longjump_buff)) != 0)
-    {
-      free_sgrammar ();
-      return code;
-    }
   OS_CREATE (stoks, g->alloc, 0);
   VLO_CREATE (sterms, g->alloc, 0);
   VLO_CREATE (srules, g->alloc, 0);
   OS_CREATE (srhs, g->alloc, 0);
   OS_CREATE (strans, g->alloc, 0);
-  curr_ch = grammar;
-  yyparse ();
+  curr_ch = ctx->description;
+  
+  /*
+   * Run Bison-generated parser.
+   * 
+   * CRITICAL FIX: We now check the return value instead of relying on
+   * yyerror() to longjmp. This is the correct way to use Bison.
+   *
+   * yyparse() returns:
+   * - 0 on successful parse
+   * - 1 on parse error (syntax error, yyerror was called)
+   * - 2 on memory exhaustion
+   *
+   * If parse fails, error details are already recorded in thread-local
+   * context by yyerror(). We simply need to return the error code.
+   */
+  parse_result = yyparse ();
+  if (parse_result != 0)
+    {
+      /*
+       * Parser failed. Error already recorded by yyerror().
+       * Return the error code from our error context, or default
+       * to YAEP_DESCRIPTION_SYNTAX_ERROR_CODE if somehow not set.
+       */
+      yaep_error_context_t *err_ctx = yaep_get_error_context ();
+      return err_ctx->error_code != 0 ? err_ctx->error_code
+				      : YAEP_DESCRIPTION_SYNTAX_ERROR_CODE;
+    }
+  
   /* sort array of syntax terminals by names. */
   num = VLO_LENGTH (sterms) / sizeof (struct sterm);
   arr = (struct sterm *) VLO_BEGIN (sterms);
@@ -691,9 +623,16 @@ set_sgrammar (struct grammar *g, const char *grammar)
 
 	  strncpy (str, prev->repr, sizeof (str));
 	  str[sizeof (str) - 1] = '\0';
-	  yaep_error (YAEP_REPEATED_TERM_CODE,
-		      "term %s described repeatedly with different code",
-		      str);
+	  
+	  /*
+	   * Terminal has conflicting code definitions.
+	   * Record error and return - no longjmp needed since we're
+	   * already past the yyparse() call.
+	   */
+	  return yaep_set_error
+	    (g, YAEP_REPEATED_TERM_CODE,
+	     "term %s described repeatedly with different code",
+	     str);
 	}
       else if (prev->code != -1)
 	prev->code = term->code;
@@ -741,9 +680,10 @@ sread_terminal (int *code)
 }
 
 static const char *
-sread_rule (const char ***rhs, const char **abs_node, int *anode_cost,
-	    int **transl)
+sread_rule (const char ***rhs, const char **abs_node, int *anode_cost_out,
+           int **transl)
 {
+  /* Renamed parameter to anode_cost_out to avoid shadowing global 'anode_cost'. */
   struct srule *rule;
   const char *lhs;
 
@@ -753,36 +693,32 @@ sread_rule (const char ***rhs, const char **abs_node, int *anode_cost,
   lhs = rule->lhs;
   *rhs = (const char **) rule->rhs;
   *abs_node = rule->anode;
-  *anode_cost = rule->anode_cost;
+  *anode_cost_out = rule->anode_cost;
   *transl = rule->trans;
   nsrule++;
   return lhs;
 }
 
 /* The following function parses grammar desrciption. */
-int
+#ifdef __cplusplus
+static
+#endif
+  int
 yaep_parse_grammar (struct grammar *g, int strict_p, const char *description)
 {
-	int code;
-	size_t error_offset = 0;
-	int validation_error = 0;
+  int code;
 
-	assert (g != NULL);
-	grammar = g;
-	if (!yaep_utf8_validate (description, NULL,
-													 &error_offset, &validation_error))
-		{
-			const char *msg = yaep_utf8_error_message (validation_error);
+  assert (g != NULL);
+  yaep_initialize_error_handling ();
+  yaep_clear_error ();
+  grammar = g;
+  yaep_copy_error_to_grammar (grammar);
 
-			g->error_code = YAEP_INVALID_UTF8;
-			snprintf (g->error_message, sizeof (g->error_message),
-								"invalid UTF-8 in grammar description at byte %zu: %s",
-								error_offset, msg);
-			return YAEP_INVALID_UTF8;
-		}
-  if ((code = set_sgrammar (g, description)) != 0)
-    return code;
-  code = yaep_read_grammar (g, strict_p, sread_terminal, sread_rule);
-  free_sgrammar ();
+  code = set_sgrammar (g, description);
+  if (code == 0)
+    {
+      code = yaep_read_grammar (g, strict_p, sread_terminal, sread_rule);
+      free_sgrammar ();
+    }
   return code;
 }

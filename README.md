@@ -121,7 +121,7 @@ static void parse (void)
   * ``<srcdir>/configure --srcdir=<srcdir> --prefix=<prefix for install dirs>``
     or ``cmake -DCMAKE_BUILD_TYPE=Release`` (make sure you have CMake installed)
   * ``make``
-  * ``make test`` (optional) 
+  * ``cmake --build build --target check`` (optional, builds all test helpers and runs the CTest suite)
   * ``make install``
 
 # Speed comparison of YACC, MARPA, YAEP, and GCC parsers:

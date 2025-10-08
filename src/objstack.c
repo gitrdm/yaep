@@ -52,7 +52,7 @@
    object).  OS must be created before any using other macros of the
    package for work with given OS. */
 
-void
+int
 _OS_create_function (os_t * os, size_t initial_segment_length)
 {
   if (initial_segment_length == 0)
@@ -60,6 +60,14 @@ _OS_create_function (os_t * os, size_t initial_segment_length)
   os->os_current_segment =
     yaep_malloc (os->os_alloc,
 		 initial_segment_length + sizeof (struct _os_segment));
+  if (os->os_current_segment == NULL)
+    {
+      os->os_top_object_start = NULL;
+      os->os_top_object_free = NULL;
+      os->os_boundary = NULL;
+      os->initial_segment_length = 0;
+      return -1;
+    }
   os->os_current_segment->os_previous_segment = NULL;
   os->os_top_object_start
     =
@@ -67,6 +75,7 @@ _OS_create_function (os_t * os, size_t initial_segment_length)
   os->os_top_object_free = os->os_top_object_start;
   os->os_boundary = os->os_top_object_start + initial_segment_length;
   os->initial_segment_length = initial_segment_length;
+  return 0;
 }
 
 /* The function implements macro `OS_DELETE' (freeing memory allocated

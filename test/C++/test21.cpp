@@ -32,8 +32,10 @@
    terminal. */
 static int nterm;
 
-/* The following function imported by YAEP (see comments in the interface file). */
-const char *
+/* The following function is provided to the test harness only.  Give it
+  internal linkage (static) to avoid -Wmissing-declarations and make the
+  intent explicit: it is not part of the public API. */
+static const char *
 read_terminal (int *code)
 {
   nterm++;
@@ -53,8 +55,9 @@ read_terminal (int *code)
    terminal. */
 static int nrule;
 
-/* The following function imported by YAEP (see comments in the interface file). */
-const char *
+/* The following function is also test-local; mark static to avoid
+  missing-declarations warnings and clarify its scope to maintainers. */
+static const char *
 read_rule (const char ***rhs, const char **anode, int *anode_cost, int **transl)
 {
   static const char *rhs_1 [] = {"T", NULL};
