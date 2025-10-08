@@ -33,7 +33,7 @@
 static int nterm;
 
 /* The following function imported by YAEP (see comments in the interface file). */
-const char *
+static const char *
 read_terminal (int *code)
 {
   nterm++;
@@ -53,7 +53,7 @@ read_terminal (int *code)
 static int nrule;
 
 /* The following function imported by YAEP (see comments in the interface file). */
-const char *
+static const char *
 read_rule (const char ***rhs, const char **anode, int *anode_cost, int **transl)
 {
   static const char *rhs_1 [] = {"T", NULL};
