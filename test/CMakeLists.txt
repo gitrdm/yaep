@@ -41,15 +41,22 @@ endif()
 add_library( ticker STATIC ticker.c )
 add_library( ticker++ STATIC ticker.cpp )
 
+
 # Allow test subdirectories to register the executables they define so we can
 # wire up aggregate build and test targets later.
 set_property( GLOBAL PROPERTY YAEP_TEST_EXECUTABLES "" )
 
 function( yaep_register_test_target target )
-  if( TARGET ${target} )
-    set_property( GLOBAL APPEND PROPERTY YAEP_TEST_EXECUTABLES ${target} )
-  endif()
+	if( TARGET ${target} )
+		set_property( GLOBAL APPEND PROPERTY YAEP_TEST_EXECUTABLES ${target} )
+	endif()
 endfunction()
+
+# Aggregate target to build all test executables
+get_property(_yaep_test_executables GLOBAL PROPERTY YAEP_TEST_EXECUTABLES)
+if(_yaep_test_executables)
+	add_custom_target(yaep_all_tests DEPENDS ${_yaep_test_executables})
+endif()
 
 # Test subdirectories
 add_subdirectory( C )
