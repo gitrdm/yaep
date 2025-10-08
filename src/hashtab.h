@@ -117,9 +117,10 @@ extern hash_table_entry_t *find_hash_table_entry
 inline hash_table_entry_t *
 find_hash_table_entry_c (hash_table_t htab, const void *element, int reserve)
 {
-   /* Safe: table never mutates memory through the element pointer, it only
-       hashes and compares it via user-supplied callbacks. */
-   return find_hash_table_entry (htab, (hash_table_entry_t) (void *) element, reserve);
+  /* Centralized, documented qualifier discard: the table logic treats the
+     key as opaque; user callbacks decide const-correctness.  Avoid spreading
+     casts at call sites. */
+  return find_hash_table_entry (htab, (hash_table_entry_t)(void*) element, reserve);
 }
 
 extern void remove_element_from_hash_table_entry (hash_table_t htab,

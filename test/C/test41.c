@@ -81,9 +81,11 @@ void add_typedef (const char *id, int level)
   hash_table_entry_t *entry_ptr;
 
   assert (level == 0);
-  entry_ptr = find_hash_table_entry (table, id, 1);
+  /* Use const-friendly probe helper; centralizes the qualifier discard. */
+  entry_ptr = find_hash_table_entry_c (table, id, 1);
   if (*entry_ptr == NULL)
-    *entry_ptr = (hash_table_entry_t) id;
+    /* Table stores mutable pointers but never mutates through key bytes. */
+    *entry_ptr = (hash_table_entry_t) (void*) id;
   else
     assert (strcmp (id, *entry_ptr) == 0);
 #ifdef DEBUG
@@ -99,7 +101,7 @@ int find_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
-  entry_ptr = find_hash_table_entry (table, id, 0);
+  entry_ptr = find_hash_table_entry_c (table, id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)
     fprintf (stderr, "found typedef %s\n", id);

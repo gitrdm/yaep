@@ -6204,10 +6204,12 @@ traverse_pruned_translation (struct yaep_tree_node *node)
       if (parse_free != NULL
   && *(entry = find_hash_table_entry_c (reserv_mem_tab,
                node->val.anode.name,
-               TRUE)) != NULL)
-  /* Store the owned name pointer in the table; document the
-     deliberate cast through void* as above. */
-    	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
+               TRUE)) == NULL)
+  /* Record the owned name pointer in the reservation table so that
+     later cleanup does NOT free it. Previous logic erroneously used
+     '!= NULL', skipping insertion and leading to premature free and
+     corrupted abstract node names (seen in tests 45/47). */
+	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
       for (i = 0; (child = node->val.anode.children[i]) != NULL; i++)
 	traverse_pruned_translation (child);
       assert (node->val.anode.cost < 0);
