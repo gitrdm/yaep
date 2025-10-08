@@ -93,7 +93,7 @@ struct _os_auxiliary_struct
 /* This macro is auxiliary.  Its value is aligned address nearest to `a'. */
 
 #define _OS_ALIGNED_ADDRESS(a)\
-  ((void *) ((size_t) ((char *) (a) + (_OS_ALIGNMENT - 1))\
+  ((void *) (((size_t) ((char *) (a) + (_OS_ALIGNMENT - 1)))\
              & (~(size_t) (_OS_ALIGNMENT - 1))))
 
 /* This macro value is default size of memory segments which will be
@@ -202,7 +202,7 @@ typedef struct
 #ifndef NDEBUG
 #define OS_TOP_LENGTH(os)\
   ((os).os_top_object_start != NULL\
-   ? (os).os_top_object_free - (os).os_top_object_start\
+   ? (size_t) ((os).os_top_object_free - (os).os_top_object_start)\
    : (abort (), 0))
 #else
 #define OS_TOP_LENGTH(os)  ((os).os_top_object_free - (os).os_top_object_start)
