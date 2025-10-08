@@ -136,26 +136,26 @@ yaep::set_recovery_match (int n_toks)
 }
 
 int
-yaep::parse (int (*read_token) (void **attr),
-	     void (*syntax_error) (int err_tok_num,
+yaep::parse (int (*read_token_fn) (void **attr),
+	     void (*syntax_error_fn) (int err_tok_num,
 				   void *err_tok_attr,
 				   int start_ignored_tok_num,
 				   void *start_ignored_tok_attr,
 				   int start_recovered_tok_num,
 				   void *start_recovered_tok_attr),
-	     void *(*parse_alloc) (int nmemb),
-	     void (*parse_free) (void *mem),
+	     void *(*parse_alloc_fn) (int nmemb),
+	     void (*parse_free_fn) (void *mem),
 	     struct yaep_tree_node **root, int *ambiguous_p)
 {
-  return yaep_parse (this->grammar, read_token, syntax_error,
-		     parse_alloc, parse_free, root, ambiguous_p);
+  return yaep_parse (this->grammar, read_token_fn, syntax_error_fn,
+		     parse_alloc_fn, parse_free_fn, root, ambiguous_p);
 }
 
 void
-yaep::free_tree (struct yaep_tree_node *root, void (*parse_free) (void *),
+yaep::free_tree (struct yaep_tree_node *root, void (*parse_free_fn) (void *),
 		 void (*termcb) (struct yaep_term * term))
 {
-  yaep_free_tree (root, parse_free, termcb);
+  yaep_free_tree (root, parse_free_fn, termcb);
 }
 
 
