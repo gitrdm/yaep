@@ -59,6 +59,11 @@
 #include "yaep_error.h"
 #include "yaep_macros.h"
 #include <execinfo.h>
+
+/* Helper: number of elements stored in a VLO for element type `el`.
+  Cast to size_t to avoid sign/width conversion warnings when used in
+  size/loop index contexts. */
+#define VLO_NELS(vlo, el) ((size_t) (VLO_LENGTH (vlo) / sizeof (el)))
 
 
 /* If YAEP_FUZZ_WRITEBACKTRACES is set in the environment, print a short
@@ -270,7 +275,7 @@ __attribute__((unused))
 expand_int_vlo (vlo_t * vlo, int n_els)
 {
 #ifndef __cplusplus
-  size_t i, prev_n_els = VLO_LENGTH (*vlo) / sizeof (int);
+  size_t i, prev_n_els = VLO_NELS (*vlo, int);
 
   if ((int) prev_n_els >= n_els)
     return FALSE;
@@ -1637,7 +1642,7 @@ tok_add (int code, void *attr)
          This detects cases where a bad pointer gets stored in toks[].symb
          even if it doesn't match the exact ASan poison pattern. */
       {
-        size_t n_symbs = VLO_LENGTH (symbs_ptr->symbs_vlo) / sizeof (struct symb *);
+  size_t n_symbs = VLO_NELS (symbs_ptr->symbs_vlo, struct symb *);
         struct symb **symb_arr = (struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo);
         size_t si;
         int found = 0;
@@ -2183,7 +2188,7 @@ sit_dist_insert (struct sit *sit, int dist)
 
   sit_number = sit->sit_number;
   /* Expand the set to accommodate possibly a new situation.  */
-  len = VLO_LENGTH (sit_dist_vec_vlo) / sizeof (vlo_t);
+  len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
   if (len <= sit_number)
     {
       VLO_EXPAND (sit_dist_vec_vlo, (sit_number + 1 - len) * sizeof (vlo_t));
@@ -2198,7 +2203,7 @@ sit_dist_insert (struct sit *sit, int dist)
     }
 #ifndef __cplusplus
   check_dist_vlo = &((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = VLO_LENGTH (*check_dist_vlo) / sizeof (int);
+  len = VLO_NELS (*check_dist_vlo, int);
   if (len <= dist)
     {
       VLO_EXPAND (*check_dist_vlo, (dist + 1 - len) * sizeof (int));
@@ -2230,7 +2235,7 @@ sit_dist_insert (struct sit *sit, int dist)
 static void
 sit_dist_set_fin (void)
 {
-  size_t i, len = VLO_LENGTH (sit_dist_vec_vlo) / sizeof (vlo_t);
+  size_t i, len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
 
   for (i = 0; i < len; i++)
 #ifndef __cplusplus
@@ -2675,7 +2680,7 @@ vlo_array_expand (void)
 #ifndef __cplusplus
   vlo_t *vlo_ptr;
 
-  if ((unsigned) vlo_array_len >= VLO_LENGTH (vlo_array) / sizeof (vlo_t))
+  if ((unsigned) vlo_array_len >= VLO_NELS (vlo_array, vlo_t))
     {
       VLO_EXPAND (vlo_array, sizeof (vlo_t));
       vlo_ptr = &((vlo_t *) VLO_BEGIN (vlo_array))[vlo_array_len];
@@ -4405,7 +4410,7 @@ form_transitive_transition_vectors (void)
 		  symbs_ptr->n_terms + symbs_ptr->n_nonterms);
   VLO_NULLIFY (core_symbols_vlo);
   collect_core_symbols ();
-  for (i = 0; i < VLO_LENGTH (core_symbols_vlo) / sizeof (struct symb *); i++)
+  for (i = 0; i < VLO_NELS (core_symbols_vlo, struct symb *); i++)
     {
       symb = ((struct symb **) VLO_BEGIN (core_symbols_vlo))[i];
       core_symb_vect = core_symb_vect_find (new_core, symb);
@@ -4415,9 +4420,9 @@ form_transitive_transition_vectors (void)
       VLO_NULLIFY (core_symbol_queue_vlo);
       /* Put the symbol into the queue.  */
       VLO_ADD_MEMORY (core_symbol_queue_vlo, &symb, sizeof (symb));
-      for (j = 0;
-	   j < VLO_LENGTH (core_symbol_queue_vlo) / sizeof (struct symb *);
-	   j++)
+  for (j = 0;
+   j < VLO_NELS (core_symbol_queue_vlo, struct symb *);
+   j++)
 	{
 	  symb = ((struct symb **) VLO_BEGIN (core_symbol_queue_vlo))[j];
 	  symb_core_symb_vect = core_symb_vect_find (new_core, symb);
@@ -4818,7 +4823,7 @@ save_original_sets (void)
   int length, curr_pl;
 
   assert (pl_curr >= 0 && original_last_pl_el <= start_pl_curr);
-  length = VLO_LENGTH (original_pl_tail_stack) / sizeof (struct set *);
+  length = VLO_NELS (original_pl_tail_stack, struct set *);
   for (curr_pl = start_pl_curr - length; curr_pl >= pl_curr; curr_pl--)
     {
       VLO_ADD_MEMORY (original_pl_tail_stack, &pl[curr_pl],
