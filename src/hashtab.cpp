@@ -61,7 +61,7 @@
 /* This macro defines reserved value for table entry which contained
    a deleted element. */
 
-#define DELETED_ENTRY  ((void *) 1)
+#define DELETED_ENTRY  reinterpret_cast<void *>(1) // Use C++ cast to avoid old-style-cast warning; intent: reserved deleted marker.
 
 /* The following function returns the nearest prime number which is
    greater than given source number. */
