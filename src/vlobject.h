@@ -165,7 +165,7 @@ typedef struct
 #ifndef NDEBUG
 #define VLO_LENGTH(vlo) ((vlo).vlo_start != NULL\
                          ? (size_t)((vlo).vlo_free - (vlo).vlo_start) /* Cast to size_t to avoid sign/width conversion warnings */\
-                         : (abort (), 0))
+                         : (abort (), (size_t)0))
 #else
 #define VLO_LENGTH(vlo) ((size_t)((vlo).vlo_free - (vlo).vlo_start)) /* Cast to size_t to avoid sign/width conversion warnings */
 #endif /* #ifndef NDEBUG */

@@ -294,8 +294,8 @@ expand_int_vlo (vlo_t * vlo, int n_els)
   /* Cast prev_n_els to int to avoid sign/width conversion warning. */
   if ((int) prev_n_els >= n_els)
     return FALSE;
-  /* Cast prev_n_els to int to avoid sign/width conversion warning. */
-  VLO_EXPAND (*vlo, (n_els - (int) prev_n_els) * sizeof (int));
+  /* Cast the entire size expression to size_t to avoid sign/width conversion warning. */
+  VLO_EXPAND (*vlo, (size_t)(n_els - (int) prev_n_els) * sizeof (int));
   /* Cast n_els to size_t to avoid sign/width conversion warning. */
   for (i = prev_n_els; i < (size_t) n_els; i++)
     STATIC_CAST(int *, VLO_BEGIN (*vlo))[i] = 0;
@@ -899,13 +899,13 @@ symb_finish_adding_terms (void)
       symbs_ptr->symb_code_trans_vect_start = min_code;
       symbs_ptr->symb_code_trans_vect_end = max_code + 1;
       mem = yaep_malloc (grammar->alloc,
-          sizeof (struct symb*) * (max_code - min_code + 1));
+          sizeof (struct symb*) * (size_t)(max_code - min_code + 1));
     symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
     /* Zero-initialize the vector so codes without corresponding
      terminals map to NULL instead of containing uninitialized
      memory (which can lead to ASan/Valgrind-reported invalid
      reads). */
-    memset (mem, 0, sizeof (struct symb*) * (max_code - min_code + 1));
+    memset (mem, 0, sizeof (struct symb*) * (size_t)(max_code - min_code + 1));
       for (i = 0; (symb = term_get (i)) != NULL; i++)
 	symbs_ptr->symb_code_trans_vect[symb->u.term.code - min_code] = symb;
     }
@@ -1230,8 +1230,8 @@ term_set_up (term_set_el_t * set, int num)
   term_set_el_t bit;
 
   assert (num < symbs_ptr->n_terms);
-  ind = num / (CHAR_BIT * sizeof (term_set_el_t));
-  bit = ((term_set_el_t) 1) << (num % (CHAR_BIT * sizeof (term_set_el_t)));
+  ind = num / (int)(CHAR_BIT * sizeof (term_set_el_t));
+  bit = ((term_set_el_t) 1) << (num % (int)(CHAR_BIT * sizeof (term_set_el_t)));
   changed_p = (set[ind] & bit ? 0 : 1);
   set[ind] |= bit;
   return changed_p;
@@ -1248,8 +1248,8 @@ term_set_test (term_set_el_t * set, int num)
   term_set_el_t bit;
 
   assert (num >= 0 && num < symbs_ptr->n_terms);
-  ind = num / (CHAR_BIT * sizeof (term_set_el_t));
-  bit = ((term_set_el_t) 1) << (num % (CHAR_BIT * sizeof (term_set_el_t)));
+  ind = num / (int)(CHAR_BIT * sizeof (term_set_el_t));
+  bit = ((term_set_el_t) 1) << (num % (int)(CHAR_BIT * sizeof (term_set_el_t)));
   return (set[ind] & bit) != 0;
 }
 
@@ -2255,7 +2255,7 @@ sit_dist_insert (struct sit *sit, int dist)
   len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
   if (len <= sit_number)
     {
-      VLO_EXPAND (sit_dist_vec_vlo, (sit_number + 1 - len) * sizeof (vlo_t));
+      VLO_EXPAND (sit_dist_vec_vlo, (size_t)(sit_number + 1 - len) * sizeof (vlo_t));
       for (i = len; i <= sit_number; i++)
 #ifndef __cplusplus
 	VLO_CREATE (STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[i],
@@ -2271,7 +2271,7 @@ sit_dist_insert (struct sit *sit, int dist)
   if (len <= dist)
     {
       /* Expand VLO to accommodate new distance, avoid conversion warnings. */
-      VLO_EXPAND (*check_dist_vlo, (dist + 1 - len) * sizeof (int));
+      VLO_EXPAND (*check_dist_vlo, (size_t)(dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
         STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[i] = 0;
     }
@@ -2701,7 +2701,7 @@ pl_create (void)
 
   /* Because of error recovery we may have sets 2 times more than tokens. */
   mem =
-    yaep_malloc (grammar->alloc, sizeof (struct set *) * (toks_len + 1) * 2);
+    yaep_malloc (grammar->alloc, sizeof (struct set *) * (size_t)(toks_len + 1) * 2);
   pl = (struct set **) mem;
   pl_curr = -1;
 }
