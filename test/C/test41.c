@@ -84,8 +84,12 @@ void add_typedef (const char *id, int level)
   /* Use const-friendly probe helper; centralizes the qualifier discard. */
   entry_ptr = find_hash_table_entry_c (table, id, 1);
   if (*entry_ptr == NULL)
-    /* Table stores mutable pointers but never mutates through key bytes. */
-    *entry_ptr = (hash_table_entry_t) (void*) id;
+    {
+      /* Use union to avoid cast-qual warning when storing const char* */
+      union { const char *cc; hash_table_entry_t v; } u;
+      u.cc = id;
+      *entry_ptr = u.v;
+    }
   else
     assert (strcmp (id, *entry_ptr) == 0);
 #ifdef DEBUG

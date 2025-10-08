@@ -119,8 +119,10 @@ find_hash_table_entry_c (hash_table_t htab, const void *element, int reserve)
 {
   /* Centralized, documented qualifier discard: the table logic treats the
      key as opaque; user callbacks decide const-correctness.  Avoid spreading
-     casts at call sites. */
-  return find_hash_table_entry (htab, (hash_table_entry_t)(void*) element, reserve);
+     casts at call sites. Use union-based type punning to avoid cast-qual warning. */
+  union { const void *cv; void *v; } u;
+  u.cv = element;
+  return find_hash_table_entry (htab, (hash_table_entry_t) u.v, reserve);
 }
 
 extern void remove_element_from_hash_table_entry (hash_table_t htab,

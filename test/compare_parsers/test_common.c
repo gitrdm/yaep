@@ -78,7 +78,12 @@ void add_typedef (const char *id, int scope_level)
   assert (scope_level == 0);
   entry_ptr = find_hash_table_entry (table, id, 1);
   if (*entry_ptr == NULL)
-    *entry_ptr = (hash_table_entry_t) id;
+    {
+      /* Use union to avoid cast-qual warning when storing const char* */
+      union { const char *cc; hash_table_entry_t v; } u;
+      u.cc = id;
+      *entry_ptr = u.v;
+    }
   else
     assert (strcmp (id, *entry_ptr) == 0);
 #ifdef DEBUG

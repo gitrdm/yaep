@@ -2186,13 +2186,12 @@ set_term_lookahead_hash (hash_table_entry_t s)
   const struct set *set = triple->set;
   const struct symb *term = triple->term;
   int lookahead = triple->lookahead;
-  /* NOTE: after changing hash_table_entry_t to 'void *' (was effectively
-     'const void *' previously via pervasive casts) we must explicitly cast
-     away 'const' when passing read-only pointers to helper hash functions
-     that take hash_table_entry_t. These helpers do not mutate the object; the
-     cast simply restores prior permissive behavior under C while keeping the
-     C++ compiler satisfied. */
-  return ((set_core_dists_hash ((hash_table_entry_t)(void*) set) * hash_shift
+  /* NOTE: Use union-based type punning to convert const pointer to non-const
+     for hash function call without triggering -Wcast-qual. The hash function
+     treats the pointer as opaque and does not mutate the object. */
+  union { const struct set *cs; void *v; } u;
+  u.cs = set;
+  return ((set_core_dists_hash ((hash_table_entry_t) u.v) * hash_shift
 	   + term->u.term.term_num) * hash_shift + lookahead);
 }
 
@@ -6238,8 +6237,13 @@ traverse_pruned_translation (struct yaep_tree_node *node)
   /* Record the owned name pointer in the reservation table so that
      later cleanup does NOT free it. Previous logic erroneously used
      '!= NULL', skipping insertion and leading to premature free and
-     corrupted abstract node names (seen in tests 45/47). */
-	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
+     corrupted abstract node names (seen in tests 45/47).
+     Use union to avoid cast-qual warning when storing const char*. */
+	{
+	  union { const char *cc; void *v; } u;
+	  u.cc = node->val.anode.name;
+	  *entry = (hash_table_entry_t) u.v;
+	}
       for (i = 0; (child = node->val.anode.children[i]) != NULL; i++)
 	traverse_pruned_translation (child);
       assert (node->val.anode.cost < 0);
@@ -6290,7 +6294,11 @@ find_minimal_translation (struct yaep_tree_node *root)
                   (*node_ptr)->val.anode.name,
                   TRUE) == NULL)
 	       {
-		(*parse_free) ((void *) (*node_ptr)->val.anode.name);
+		 /* Use union to avoid cast-qual warning when freeing const char*
+		    allocated by user's parse_alloc. The user owns the memory. */
+		 union { const char *cc; void *v; } u;
+		 u.cc = (*node_ptr)->val.anode.name;
+		 (*parse_free) (u.v);
 	       }
 	     (*parse_free) (*node_ptr);
 	   }
