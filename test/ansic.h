@@ -90,9 +90,13 @@
 #define _COMPLEX      7006
 #define _IMAGINARY    8006
 
+/* Use int for code/column to avoid repeated int->short conversion
+   warnings in scanner/test harness code. These fields are only used
+   by the tests and changing their width here is low-risk and fixes
+   -Wconversion noise. */
 struct lex {
-  short code;
-  short column;
+  int code;
+  int column;
   int line;
   const char *id;
   struct lex *next;
@@ -100,6 +104,10 @@ struct lex {
 
 extern int column;
 extern int line;
+
+/* Ensure stdio declarations (e.g. fileno) are available to generated
+  scanner code that includes this header. */
+#include <stdio.h>
 
 extern int yylex (void);
 extern char *get_yytext (void);

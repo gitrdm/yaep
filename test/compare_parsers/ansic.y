@@ -471,8 +471,9 @@ identifier
 extern int column;
 extern int line;
 
-yyerror(s)
-char *s;
+/* Use an ANSI-style prototype for yyerror to avoid implicit-int and
+	strict-prototype warnings from older K&R-style function definitions. */
+void yyerror (const char *s)
 {
-   fprintf (stderr, "syntax error line - %d, column - %d\n", line, column + 1);
+	fprintf (stderr, "syntax error line - %d, column - %d\n", line, column + 1);
 }
