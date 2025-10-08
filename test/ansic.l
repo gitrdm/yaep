@@ -50,7 +50,7 @@ IS			(u|U|l|L)*
 static int yyinput();
 #define input yyinput
 #endif
-int yywrap ();
+int yywrap (void);
 void comment (void);
 void count (void);
 int check_type (void);

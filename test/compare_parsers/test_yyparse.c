@@ -103,7 +103,8 @@ static void store_lexs( YaepAllocator * alloc ) {
   }
 }
 
-main()
+int
+main(void)
 {
   ticker_t t;
   int code;
