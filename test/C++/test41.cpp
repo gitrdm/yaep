@@ -80,6 +80,9 @@ static void initiate_typedefs( YaepAllocator * alloc ) {
 
 /* Now we ignore level */
 static
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
 void add_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
