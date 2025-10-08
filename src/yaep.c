@@ -1504,7 +1504,7 @@ rule_new_stop (void)
 static void
 rule_print (FILE * f, struct rule *rule, int trans_p)
 {
-  int i, j;
+  int i; ptrdiff_t j;
 
   symb_print (f, rule->lhs, FALSE);
   fprintf (f, " :");
@@ -3713,7 +3713,7 @@ create_first_follow_sets (void)
   struct symb *symb, **rhs, *rhs_symb, *next_rhs_symb;
   struct rule *rule;
   int changed_p, first_continue_p;
-  int i, j, k, rhs_len;
+  int i, k, rhs_len; ptrdiff_t j;
 
   for (i = 0; (symb = nonterm_get (i)) != NULL; i++)
     {
@@ -3781,7 +3781,7 @@ set_empty_access_derives (void)
   struct rule *rule;
   int empty_p, derivation_p;
   int empty_changed_p, derivation_changed_p, accessibility_change_p;
-  int i, j;
+  int i; ptrdiff_t j;
 
   for (i = 0; (symb = symb_get (i)) != NULL; i++)
     {
@@ -3831,7 +3831,7 @@ set_loop_p (void)
 {
   struct symb *symb, *lhs;
   struct rule *rule;
-  int i, j, k, loop_p, changed_p;
+  int i, k, loop_p, changed_p; ptrdiff_t j;
 
   /* Initialize accoding to minimal criteria: There is a rule in which
      the nonterminal stands and all the rest symbols can derive empty
@@ -4564,7 +4564,7 @@ expand_new_start_set (void)
     {
       struct sit *new_sit, *shifted_sit;
       term_set_el_t *context_set;
-      int changed_p, sit_ind, context, j;
+  int changed_p, sit_ind, context; ptrdiff_t j;
 
       /* Now we have incorrect initial situations because their
          context is not correct. */
@@ -6236,7 +6236,7 @@ make_parse (int *ambiguous_p)
   struct rule *rule, *sit_rule;
   struct symb *symb;
   struct core_symb_vect *core_symb_vect, *check_core_symb_vect;
-  int i, j, k, found, pos, orig, pl_ind, n_candidates, disp;
+  int i, k, found, pos, orig, pl_ind, n_candidates, disp; ptrdiff_t j;
   int sit_ind, check_sit_ind, sit_orig, check_sit_orig, new_p;
   struct parse_state *state, *orig_state, *curr_state;
   struct parse_state *table_state, *parent_anode_state;
