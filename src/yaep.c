@@ -6300,7 +6300,7 @@ make_parse (int *ambiguous_p)
 #ifndef __cplusplus
   vlo_t stack, orig_states;
 #else
-  vlo_t *stack, *orig_states;
+  vlo_t *stack, *orig_states = NULL; /* Initialize to silence maybe-uninitialized in C++ inlining context */
 #endif
 
   n_parse_term_nodes = n_parse_abstract_nodes = n_parse_alt_nodes = 0;
