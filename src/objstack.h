@@ -212,10 +212,10 @@ typedef struct
 #ifndef NDEBUG
 #define OS_TOP_LENGTH(os)\
   ((os).os_top_object_start != NULL\
-   ? (size_t) ((os).os_top_object_free - (os).os_top_object_start)\
+   ? (size_t)((os).os_top_object_free - (os).os_top_object_start) /* Cast to size_t to avoid sign/width conversion warnings */\
    : (abort (), 0))
 #else
-#define OS_TOP_LENGTH(os)  ((os).os_top_object_free - (os).os_top_object_start)
+#define OS_TOP_LENGTH(os)  ((size_t)((os).os_top_object_free - (os).os_top_object_start)) /* Cast to size_t to avoid sign/width conversion warnings */
 #endif
 
 /* This macro returns pointer to the first byte of variable length

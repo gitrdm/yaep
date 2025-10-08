@@ -164,10 +164,10 @@ typedef struct
 
 #ifndef NDEBUG
 #define VLO_LENGTH(vlo) ((vlo).vlo_start != NULL\
-                         ? (vlo).vlo_free - (vlo).vlo_start\
+                         ? (size_t)((vlo).vlo_free - (vlo).vlo_start) /* Cast to size_t to avoid sign/width conversion warnings */\
                          : (abort (), 0))
 #else
-#define VLO_LENGTH(vlo) ((vlo).vlo_free - (vlo).vlo_start)
+#define VLO_LENGTH(vlo) ((size_t)((vlo).vlo_free - (vlo).vlo_start)) /* Cast to size_t to avoid sign/width conversion warnings */
 #endif /* #ifndef NDEBUG */
 
 
@@ -363,7 +363,7 @@ public:
   inline size_t length (void)
   {
     assert (vlo_start != NULL);
-    return vlo_free - vlo_start;
+  return static_cast<size_t>(vlo_free - vlo_start); // Cast to size_t to avoid sign/width conversion warnings
   }
 
 
