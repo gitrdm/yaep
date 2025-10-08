@@ -18,7 +18,7 @@ Total warnings detected: 1787
 | -Wunused-parameter | $(grep -c "unused parameter" build_warnings.log) |
 | -Wunused-variable | $(grep -c "unused variable" build_warnings.log) |
 | -Wunused-function | $(grep -c "defined but not used" build_warnings.log) |
-| -Wmaybe-uninitialized | $(grep -c "may be used uninitialized" build_warnings.log) |
+| -Wmaybe-uninitialized | 0 (was $(grep -c "may be used uninitialized" build_warnings.log) in original baseline log) |
 | -Wimplicit-function-declaration | $(grep -c "implicit declaration" build_warnings.log) |
 | -Wold-style-cast | $(grep -c "old-style cast" build_warnings.log) |
 | -Wstrict-prototypes | $(grep -c "strict-prototypes" build_warnings.log) |
@@ -46,4 +46,4 @@ $(head -50 build_warnings.log)
 
 | Batch | Category | Before | After | Delta | Notes |
 |-------|----------|--------|-------|-------|-------|
-| (planned) | maybe-uninitialized | 4 (est) | TBD | TBD | Based on index scan; verify via awk filter |
+| P1 Batch1 | maybe-uninitialized | 4 (est) | 0 | -4 | Initialized start/min_cost/result/term_node_array; guarded free; fresh build shows none |
