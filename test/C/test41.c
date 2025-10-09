@@ -326,8 +326,13 @@ int main (int argc, char **argv)
 #else
   printf ("all time %.2f\n", active_time (t));
 #endif
-  /* Cast away const for free since we allocated it dynamically */
+  /* Cast away const for free since we allocated it dynamically.
+   * The const qualifier is from common.h where description is traditionally
+   * a string literal, but in this test we load it from a file at runtime. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
   free((void *)description);
+#pragma GCC diagnostic pop
   yaep_alloc_del( alloc );
   exit (0);
 }
