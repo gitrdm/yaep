@@ -1001,16 +1001,16 @@ term_set_hash (hash_table_entry_t s)
 {
   /* Read-only access to the term-set bits; keep pointers const to
      avoid casting away qualifiers at call sites. */
-  const term_set_el_t *set = ((const struct tab_term_set *) s)->set;
+  const term_set_el_t *set = YAEP_STATIC_CAST(const struct tab_term_set *, s)->set;
   const term_set_el_t *bound;
   int size;
   unsigned result = jauquet_prime_mod32;
 
-  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
-    / (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
-    result = result * hash_shift + (unsigned)*set++;
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned, *set++);
   return result;
 }
 
@@ -1018,13 +1018,13 @@ term_set_hash (hash_table_entry_t s)
 static int
 term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const term_set_el_t *set1 = ((const struct tab_term_set *) s1)->set;
-  const term_set_el_t *set2 = ((const struct tab_term_set *) s2)->set;
+  const term_set_el_t *set1 = YAEP_STATIC_CAST(const struct tab_term_set *, s1)->set;
+  const term_set_el_t *set2 = YAEP_STATIC_CAST(const struct tab_term_set *, s2)->set;
   const term_set_el_t *bound;
   int size;
 
-  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
-    / (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set1 + size;
   while (set1 < bound)
     if (*set1++ != *set2++)
@@ -1044,8 +1044,8 @@ term_set_init (struct grammar *g, struct term_sets **out_term_sets)
 
   assert (g != NULL);
 
-  result = (struct term_sets *) yaep_malloc (g->alloc,
-                                             sizeof (struct term_sets));
+  result = YAEP_STATIC_CAST(struct term_sets *, yaep_malloc (g->alloc,
+                                             sizeof (struct term_sets)));
   if (result == NULL)
     {
       yaep_set_error (g, YAEP_NO_MEMORY,
@@ -1151,9 +1151,9 @@ term_set_create (void)
   size = 8;
   /* Make it 64 bit multiple to have the same statistics for 64 bit
      machines. */
-  size = (size_t)((symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8u;
+  size = YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8u;
   OS_TOP_EXPAND (term_sets_ptr->term_set_os, size);
-  result = (term_set_el_t *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
+  result = YAEP_STATIC_CAST(term_set_el_t *, OS_TOP_BEGIN (term_sets_ptr->term_set_os));
   OS_TOP_FINISH (term_sets_ptr->term_set_os);
   term_sets_ptr->n_term_sets++;
   term_sets_ptr->n_term_sets_size += size;
@@ -1170,8 +1170,8 @@ term_set_clear (term_set_el_t * set)
   term_set_el_t *bound;
   int size;
 
-  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
-	  / (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+	  / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     *set++ = 0;
@@ -1187,8 +1187,8 @@ term_set_copy (term_set_el_t * dest, term_set_el_t * src)
   term_set_el_t *bound;
   int size;
 
-  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
-	  / (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+	  / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   bound = dest + size;
   while (dest < bound)
     *dest++ = *src++;
@@ -1205,8 +1205,8 @@ term_set_or (term_set_el_t * set, term_set_el_t * op)
   term_set_el_t *bound;
   int size, changed_p;
 
-  size = ((symbs_ptr->n_terms + (int)(CHAR_BIT * sizeof (term_set_el_t)) - 1)
-	  / (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+	  / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   changed_p = 0;
   while (set < bound)
@@ -1230,8 +1230,8 @@ term_set_up (term_set_el_t * set, int num)
   term_set_el_t bit;
 
   assert (num < symbs_ptr->n_terms);
-  ind = num / (int)(CHAR_BIT * sizeof (term_set_el_t));
-  bit = ((term_set_el_t) 1) << (num % (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  ind = num / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t));
+  bit = YAEP_STATIC_CAST(term_set_el_t, 1) << (num % YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   changed_p = (set[ind] & bit ? 0 : 1);
   set[ind] |= bit;
   return changed_p;
@@ -1248,8 +1248,8 @@ term_set_test (term_set_el_t * set, int num)
   term_set_el_t bit;
 
   assert (num >= 0 && num < symbs_ptr->n_terms);
-  ind = num / (int)(CHAR_BIT * sizeof (term_set_el_t));
-  bit = ((term_set_el_t) 1) << (num % (int)(CHAR_BIT * sizeof (term_set_el_t)));
+  ind = num / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t));
+  bit = YAEP_STATIC_CAST(term_set_el_t, 1) << (num % YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   return (set[ind] & bit) != 0;
 }
 
@@ -1270,26 +1270,26 @@ term_set_insert (term_set_el_t * set)
     /* Treat stored table entries as const when only reading to avoid
        casting away qualifiers. The actual objects are owned elsewhere
        and are mutable, but we only need read access here. */
-    return -((const struct tab_term_set *) *entry)->num - 1;
+    return -YAEP_STATIC_CAST(const struct tab_term_set *, *entry)->num - 1;
   else
     {
       OS_TOP_EXPAND (term_sets_ptr->term_set_os,
 		     sizeof (struct tab_term_set));
       tab_term_set_ptr =
-	(struct tab_term_set *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
+	YAEP_STATIC_CAST(struct tab_term_set *, OS_TOP_BEGIN (term_sets_ptr->term_set_os));
       OS_TOP_FINISH (term_sets_ptr->term_set_os);
     /* Insert owned tab_term_set_ptr into the table. Cast through
       (void*) to make the intention explicit and avoid warnings. */
     /* Insert owned tab_term_set_ptr into the table. Cast through
       (void*) to make the intention explicit and avoid warnings. */
-    *entry = (hash_table_entry_t) (void *) tab_term_set_ptr;
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, tab_term_set_ptr));
       tab_term_set_ptr->set = set;
-      tab_term_set_ptr->num = (int)(VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+      tab_term_set_ptr->num = YAEP_STATIC_CAST(int, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
 			       / sizeof (struct tab_term_set *));
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
   /* See comment above: use a const-qualified view for reads. */
-  return ((const struct tab_term_set *) *entry)->num;
+  return YAEP_STATIC_CAST(const struct tab_term_set *, *entry)->num;
     }
 }
 
