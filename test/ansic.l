@@ -26,6 +26,7 @@
 
 %top{
 #define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
 #include <unistd.h>
 }
 
@@ -54,6 +55,7 @@ int yywrap (void);
 void comment (void);
 void count (void);
 int check_type (void);
+char *get_yytext (void);
 
 %}
 

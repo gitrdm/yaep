@@ -240,14 +240,20 @@ load_description_file (const char *filename)
   size = ftell(f);
   fseek(f, 0, SEEK_SET);
   
-  buffer = (char *) malloc(size + 1);
+  if (size < 0) {
+    fclose(f);
+    fprintf(stderr, "Could not determine file size for description\n");
+    return NULL;
+  }
+  
+  buffer = (char *) malloc((size_t)size + 1);
   if (!buffer) {
     fclose(f);
     fprintf(stderr, "Could not allocate memory for description\n");
     return NULL;
   }
   
-  read_size = fread(buffer, 1, size, f);
+  read_size = fread(buffer, 1, (size_t)size, f);
   buffer[read_size] = '\0';
   fclose(f);
   
@@ -320,7 +326,8 @@ int main (int argc, char **argv)
 #else
   printf ("all time %.2f\n", active_time (t));
 #endif
-  free(description);
+  /* Cast away const for free since we allocated it dynamically */
+  free((void *)description);
   yaep_alloc_del( alloc );
   exit (0);
 }
