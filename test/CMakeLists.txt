@@ -41,6 +41,10 @@ endif()
 add_library( ticker STATIC ticker.c )
 add_library( ticker++ STATIC ticker.cpp )
 
+# Memory pool unit test
+add_executable( test_mem_pool test_mem_pool.c ../src/mem_pool.c ../src/allocate.c )
+add_test( NAME mem-pool-test COMMAND test_mem_pool )
+
 
 # Allow test subdirectories to register the executables they define so we can
 # wire up aggregate build and test targets later.
