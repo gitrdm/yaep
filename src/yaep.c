@@ -154,70 +154,361 @@ static const unsigned jauquet_prime_mod32 = 2053222611;
 static const unsigned hash_shift = 611;
 
 
+/*******************************************************************************
+ * YAEP EARLEY PARSING ALGORITHM - IMPLEMENTATION OVERVIEW
+ *
+ * This file implements the Earley parsing algorithm for context-free grammars.
+ * The implementation is optimized for performance with caching, hash tables,
+ * and careful memory management.
+ *
+ * =============================================================================
+ * EARLEY ALGORITHM SUMMARY
+ * =============================================================================
+ *
+ * The Earley algorithm builds a parse incrementally, token by token, using
+ * three core operations on Earley items (also called "situations"):
+ *
+ * 1. PREDICTION (Closure):
+ *    When an item has nonterminal N after the dot: A → α . N β
+ *    Add all rules with LHS = N:  N → . γ
+ *    
+ *    Implementation: expand_new_start_set() lines 4804-5020
+ *
+ * 2. SCANNING:
+ *    When an item has terminal t after the dot: A → α . t β
+ *    And input contains t at current position
+ *    Create new item: A → α t . β  (advance dot past terminal)
+ *    
+ *    Implementation: build_new_set() lines 5054-5086 (Phase 1: SCANNING)
+ *
+ * 3. COMPLETION:
+ *    When an item is complete: B → γ .  (originated at position j)
+ *    Find all items at position j waiting for B: A → α . B δ
+ *    Create new items: A → α B . δ  (advance dot past B)
+ *    
+ *    Implementation: build_new_set() lines 5088-5165 (Phase 2: COMPLETION)
+ *
+ * =============================================================================
+ * MAIN CONTROL FLOW
+ * =============================================================================
+ *
+ * yaep_parse()
+ *   └─> yaep_parse_internal()
+ *        ├─> tok_init()           // Initialize token processing
+ *        ├─> read_toks()          // Read all input tokens
+ *        ├─> yaep_parse_init()    // Initialize parsing state
+ *        ├─> pl_create()          // Create parse list structure
+ *        ├─> build_pl()           // *** MAIN PARSING LOOP ***
+ *        │    └─> (for each token)
+ *        │         ├─> core_symb_vect_find()  // Look up transition
+ *        │         ├─> build_new_set()        // Build next Earley set
+ *        │         │    ├─> set_new_start()   // Initialize new set
+ *        │         │    ├─> SCAN via transition vector (advance through terminal)
+ *        │         │    ├─> COMPLETE via reduce (advance waiting items)
+ *        │         │    ├─> set_insert()      // Deduplicate set
+ *        │         │    └─> expand_new_start_set()  // *** PREDICTION ***
+ *        │         │         ├─> add_derived_nonstart_sits()
+ *        │         │         ├─> Build transition vectors (for scanning/completion)
+ *        │         │         ├─> Build reduce vectors (for completion lookup)
+ *        │         │         └─> Compute lookahead contexts (if lookahead > 1)
+ *        │         └─> pl[++pl_curr] = new_set
+ *        ├─> make_parse()         // Build parse tree from accept states
+ *        └─> yaep_parse_fin()     // Cleanup
+ *
+ * =============================================================================
+ * KEY DATA STRUCTURES
+ * =============================================================================
+ *
+ * struct grammar (line 159):
+ *   - Grammar rules, symbols, axiom
+ *   - Parser configuration (lookahead level, debug, error recovery)
+ *   - Allocated vocabulary, rules, terminal sets
+ *
+ * struct sit (line 1742) - "Situation" (Earley Item):
+ *   - rule: Production rule (A → α β)
+ *   - pos: Dot position in RHS (between α and β)
+ *   - empty_tail_p: Can tail β derive empty string?
+ *   - lookahead: Terminal set for disambiguation
+ *   - context: Lookahead context for dynamic lookahead
+ *   Represents: A → α . β  at some origin position
+ *
+ * struct set_core (line 1954):
+ *   - Collection of Earley items (situations)
+ *   - sits[]: Array of items, ordered: start → nonstart → initial
+ *   - Shared by multiple sets with same core but different distances
+ *   Represents: LR(0) core (items without origin positions)
+ *
+ * struct set (line 1988) - Earley Set:
+ *   - core: The set core (items)
+ *   - dists[]: Origin positions for each start situation
+ *   Represents: All parse states after consuming N tokens (set N)
+ *
+ * struct core_symb_vect (line 2276):
+ *   - Transition vector: Maps symbol to items expecting it
+ *   - transitions: Items with symbol after dot (A → α . symbol β)
+ *   - reduces: Complete items for nonterminal (symbol → γ .)
+ *   Used for: Fast lookup during SCAN (terminals) and COMPLETE (nonterminals)
+ *
+ * =============================================================================
+ * COMPLEXITY ANALYSIS
+ * =============================================================================
+ *
+ * Time Complexity:
+ *   - Best case (deterministic LR grammars): O(n)
+ *   - Average case (unambiguous grammars): O(n²)
+ *   - Worst case (arbitrary CFGs): O(n³)
+ *   
+ *   With Leo optimization (Phase P4): O(n²) for right-recursive grammars
+ *   With SPPF (Phase P5): O(n³) but compact ambiguity representation
+ *
+ * Space Complexity:
+ *   - Parse list: O(n) sets
+ *   - Items per set: O(grammar_size × n) worst case
+ *   - Total: O(n² × grammar_size) worst case
+ *
+ * =============================================================================
+ * OPTIMIZATIONS (Current + Planned)
+ * =============================================================================
+ *
+ * CURRENT OPTIMIZATIONS:
+ * - Transition caching (USE_SET_HASH_TABLE): Cache (set, term, lookahead) → new_set
+ * - Core-symbol vectors: O(1) transition lookup via hash table
+ * - Set deduplication: Hash table to reuse sets with same core
+ * - Situation deduplication: Hash table to avoid duplicate items
+ * - Transitive transitions (optional): Shortcuts for completion
+ *
+ * PLANNED OPTIMIZATIONS (Phases P3-P7):
+ * - P3: Infrastructure
+ *   * Nullable preprocessing (compute nullable set once)
+ *   * State deduplication improvements
+ *   * Memory pool allocators
+ * - P4: Leo's right-recursion optimization (O(n³) → O(n²))
+ * - P5: SPPF (Shared Packed Parse Forest) for ambiguous grammars
+ * - P6: Aycock-Horspool optimizations, pruning
+ * - P7: Final hardening and documentation
+ *
+ * =============================================================================
+ * GLOBAL STATE VARIABLES
+ * =============================================================================
+ *
+ * Parser State:
+ *   - grammar: Current grammar being parsed
+ *   - toks[], toks_len, tok_curr: Input tokens and current position
+ *   - pl[], pl_curr: Parse list (Earley sets) and current index
+ *
+ * Set Construction State:
+ *   - new_set, new_core: Set and core being constructed
+ *   - new_sits[], new_dists[], new_n_start_sits: Items and distances
+ *
+ * Deduplication State:
+ *   - sit_table: Hash table for situation deduplication
+ *   - set_tab: Hash table for set deduplication
+ *   - set_term_lookahead_tab: Transition cache table
+ *
+ * =============================================================================
+ * REFERENCES
+ * =============================================================================
+ *
+ * [1] Earley, Jay (1970). "An efficient context-free parsing algorithm"
+ *     Communications of the ACM 13 (2): 94-102
+ *
+ * [2] Leo, Joop (1991). "A general context-free parsing algorithm running
+ *     in linear time on every LR(k) grammar without using lookahead"
+ *     Theoretical Computer Science 82: 165-176
+ *
+ * [3] Aycock, John; Horspool, R. Nigel (2002). "Practical Earley Parsing"
+ *     The Computer Journal 45 (6): 620-630
+ *
+ * [4] Scott, Elizabeth; Johnstone, Adrian (2010). "GLL Parsing"
+ *     Electronic Notes in Theoretical Computer Science 253 (7): 177-189
+ *
+ * =============================================================================
+ * FILE ORGANIZATION
+ * =============================================================================
+ *
+ * Lines    | Section
+ * ---------|------------------------------------------------------------------
+ * 1-158    | Headers, macros, configuration
+ * 159-225  | struct grammar - Grammar representation
+ * 226-476  | Grammar global state and basic functions
+ * 477-1038 | Symbol management (terminals, nonterminals)
+ * 1039-1417| Terminal set management (for lookahead)
+ * 1418-1741| Rule management
+ * 1742-1773| struct sit - Earley items (situations)
+ * 1774-1952| Situation management and hashing
+ * 1953-2008| struct set_core, struct set - Earley sets
+ * 2009-2275| Set management, hashing, deduplication
+ * 2276-2565| struct core_symb_vect - Transition vectors
+ * 2566-4403| Core and transition vector management
+ * 4404-4603| Situation distance tracking
+ * 4604-4803| add_derived_nonstart_sits() - Distance propagation
+ * 4804-5020| expand_new_start_set() - PREDICTION operation
+ * 5021-5053| build_start_set() - Initial set construction
+ * 5054-5185| build_new_set() - SCAN and COMPLETE operations
+ * 5186-5693| build_pl() - Main parsing loop
+ * 5694-6200| Error recovery
+ * 6201-7000| Parse tree construction (make_parse)
+ * 7001-7300| yaep_parse_internal() - Parse driver
+ * 7301-end | Public API functions
+ *
+ ******************************************************************************/
+
+
 /* The following is major structure which stores information about
    grammar. */
+
+/**
+ * Grammar structure - Complete grammar representation
+ *
+ * This structure holds all information about a context-free grammar including
+ * rules, symbols, configuration, and allocated resources. A grammar must be
+ * created via yaep_create_grammar() and populated via yaep_read_grammar()
+ * or yaep_parse_grammar() before use.
+ *
+ * LIFECYCLE:
+ * 1. yaep_create_grammar() - Allocates and initializes
+ * 2. yaep_read_grammar() or yaep_parse_grammar() - Populates from description
+ * 3. yaep_parse() - Uses grammar to parse input (can be called multiple times)
+ * 4. yaep_free_grammar() - Deallocates all resources
+ *
+ * MEMORY MANAGEMENT:
+ * - Uses custom allocator (alloc member) for all allocations
+ * - Owns symbs_ptr, rules_ptr, term_sets_ptr (freed with grammar)
+ * - Client responsible for freeing grammar via yaep_free_grammar()
+ *
+ * THREAD SAFETY:
+ * - NOT thread-safe for concurrent parsing with same grammar instance
+ * - Each thread should have its own grammar instance
+ * - Read-only after yaep_read_grammar() completes
+ */
 struct grammar
 {
+  /* ==========================================================================
+   * ERROR STATE
+   * ========================================================================== */
+  
   /* The following member is TRUE if the grammar is undefined (you
      should set up the grammar by yaep_read_grammar or
-     yaep_parse_grammar) or bad (error was occured in setting up the
+     yaep_parse_grammar) or bad (error was occurred in setting up the
      grammar). */
   int undefined_p;
 
   /* This member always contains the last occurred error code for
      given grammar. */
   int error_code;
+  
   /* This member contains message are always contains error message
      corresponding to the last occurred error code. */
   char error_message[YAEP_MAX_ERROR_MESSAGE_LENGTH + 1];
 
-  /* The following is grammar axiom.  There is only one rule with axiom
-     in lhs. */
+  /* ==========================================================================
+   * GRAMMAR STRUCTURE
+   * ========================================================================== */
+  
+  /** Grammar axiom (start symbol)
+   * There is only one rule with axiom in LHS. This is the root of the parse.
+   * Example: In C grammar, axiom might be "translation_unit"
+   */
   struct symb *axiom;
-  /* The following auxiliary symbol denotes EOF. */
+  
+  /** Auxiliary symbol denoting EOF (end-of-file/end-of-input)
+   * Used internally to mark input end during parsing.
+   */
   struct symb *end_marker;
-  /* The following auxiliary symbol is used for describing error
-     recovery. */
+  
+  /** Auxiliary symbol used for error recovery
+   * Represents error tokens inserted during error recovery.
+   * Items with term_error in lookahead set are kept for recovery.
+   */
   struct symb *term_error;
-  /* And its internal number. */
+  
+  /** Internal number of term_error symbol
+   * Cached for fast lookup during error recovery.
+   */
   int term_error_num;
-  /* The level of usage of lookaheads:
-     0    - no usage
-     1    - static lookaheads
-     >= 2 - dynamic lookaheads */
+  
+  /* ==========================================================================
+   * PARSER CONFIGURATION
+   * ========================================================================== */
+  
+  /** Level of lookahead usage:
+   *  0    - No lookahead (pure Earley algorithm)
+   *  1    - Static lookaheads (FIRST/FOLLOW sets, computed once)
+   *  >= 2 - Dynamic lookaheads (context-sensitive, computed during parse)
+   *
+   * Higher levels provide better disambiguation but cost more time.
+   * Level 1 recommended for most grammars.
+   */
   int lookahead_level;
-  /* The following value means how much subsequent tokens should be
-     successfuly shifted to finish error recovery. */
+  
+  /** Number of tokens to successfully shift to finish error recovery
+   * Default: 3 tokens
+   * Higher values = more conservative recovery (fewer false fixes)
+   */
   int recovery_token_matches;
 
-  /* The following value is debug level:
-     <0 - print translation for graphviz.
-     0 - print nothing.
-     1 - print statistics.
-     2 - print parse tree.
-     3 - print rules, parser list
-     4 - print sets.
-     5 - print also nonstart situations.
-     6 - print additionally lookaheads. */
+  /** Debug level controls diagnostic output:
+   *  <0 - Print translation for graphviz (visualize parse graph)
+   *   0 - Print nothing (production mode)
+   *   1 - Print statistics (parse time, set counts, etc.)
+   *   2 - Print parse tree
+   *   3 - Print rules and parser list (Earley sets)
+   *   4 - Print detailed set contents
+   *   5 - Print nonstart situations (derived items)
+   *   6 - Print lookahead sets for each item
+   *
+   * Use for debugging grammar issues and parser behavior.
+   */
   int debug_level;
 
-  /* The following value is TRUE if we need only one parse. */
+  /** If TRUE, stop after finding first parse
+   * If FALSE, find all parses (for ambiguous grammars)
+   * 
+   * Set via yaep_set_one_parse_flag()
+   * Recommended: TRUE for production, FALSE for testing ambiguity
+   */
   int one_parse_p;
 
-  /* The following value is TRUE if we need parse(s) with minimal
-     costs. */
+  /** If TRUE, find parse(s) with minimal cost
+   * Requires grammar rules to have cost annotations.
+   * Used for disambiguation by preferring lower-cost derivations.
+   */
   int cost_p;
 
-  /* The following value is TRUE if we need to make error recovery. */
+  /** If TRUE, perform error recovery on syntax errors
+   * If FALSE, abort on first syntax error
+   * 
+   * Error recovery tries to skip/insert tokens to continue parsing.
+   * Useful for IDEs and lint tools to report multiple errors.
+   */
   int error_recovery_p;
 
-  /* The following vocabulary used for this grammar. */
+  /* ==========================================================================
+   * ALLOCATED RESOURCES (owned by grammar)
+   * ========================================================================== */
+  
+  /** Symbol table for this grammar
+   * Contains all terminals and nonterminals.
+   * Freed when grammar is freed.
+   */
   struct symbs *symbs_ptr;
-  /* The following rules used for this grammar. */
+  
+  /** Rule table for this grammar
+   * Contains all production rules.
+   * Freed when grammar is freed.
+   */
   struct rules *rules_ptr;
-  /* The following terminal sets used for this grammar. */
+  
+  /** Terminal set table for lookahead computation
+   * Contains FIRST/FOLLOW sets and context sets.
+   * Freed when grammar is freed.
+   */
   struct term_sets *term_sets_ptr;
-  /* Allocator. */
+  
+  /** Custom allocator for all grammar allocations
+   * All memory allocated for grammar uses this allocator.
+   * Client provides this at yaep_create_grammar() time.
+   */
   YaepAllocator *alloc;
 };
 
@@ -1739,31 +2030,109 @@ tok_fin (void)
 /* The following describes situation without distance of its original
    set.  To save memory we extract such structure because there are
    many duplicated structures. */
+/**
+ * Situation (Earley Item) - Core parsing state
+ *
+ * A "situation" represents a partially-matched production rule at a specific
+ * point in the parse. This is the fundamental unit of the Earley algorithm.
+ *
+ * NOTATION: A → α . β  at origin position j
+ *   - rule: The production A → α β
+ *   - pos: Position of dot (between α and β)
+ *   - Origin j: Stored in set distances (not in situation itself)
+ *
+ * EXAMPLE:
+ *   Rule: expr → expr '+' term
+ *   Situation at pos=2: expr → expr '+' . term
+ *   Meaning: We've seen "expr '+'" and expect "term" next
+ *
+ * SITUATION TYPES:
+ * 1. Initial: Dot at start (pos=0): A → . α
+ *    Created by PREDICTION when nonterminal A appears after dot
+ *
+ * 2. Non-initial: Dot in middle (0 < pos < rhs_len): A → α . β
+ *    Created by SCANNING (terminal) or COMPLETION (nonterminal)
+ *
+ * 3. Complete: Dot at end (pos=rhs_len): A → α .
+ *    Triggers COMPLETION for all items waiting for A
+ *
+ * DEDUPLICATION:
+ * Situations are deduplicated in global sit_table hash table by:
+ * (rule, pos, context) → unique sit instance
+ * This ensures identical situations share the same memory.
+ *
+ * MEMORY MANAGEMENT:
+ * - Allocated in sits_os object stack (parse-local)
+ * - Reused across sets via sit_table deduplication
+ * - Freed when parse completes
+ */
 struct sit
 {
-  /* The following is the situation rule. */
+  /** The production rule for this situation
+   * Example: A → α β where α is before dot, β is after dot
+   */
   struct rule *rule;
-  /* The following is position of dot in rhs of the situation rule. */
+  
+  /** Position of dot in RHS (0 to rhs_len inclusive)
+   * pos=0: Initial situation (A → . α β)
+   * pos=k: Middle situation (A → α[0..k-1] . α[k..])  
+   * pos=rhs_len: Complete situation (A → α .)
+   */
   short pos;
-  /* The following member is TRUE if the tail can derive empty
-     string. */
+  
+  /** TRUE if tail (symbols after dot) can derive empty string
+   * Computed during situation creation via can_derive_empty()
+   * 
+   * If TRUE, this is a "complete" situation for purposes of COMPLETION.
+   * Example: A → α . B C  where B and C are both nullable
+   * 
+   * Used to trigger completion even when dot is not at end.
+   */
   char empty_tail_p;
-  /* unique situation number.  */
+  
+  /** Unique situation number (index in global situation table)
+   * Used for hashing, debugging, and graphviz output.
+   * Assigned sequentially as situations are created.
+   */
   int sit_number;
-  /* The following is number of situation context which is number of
-     the corresponding terminal set in the table.  It is really used
-     only for dynamic lookahead. */
+  
+  /** Lookahead context number (for dynamic lookahead only)
+   * Index into term_sets_ptr table representing the lookahead set.
+   * 
+   * For lookahead_level <= 1: Always 0 (static lookahead)
+   * For lookahead_level > 1: Context-sensitive set computed during parse
+   * 
+   * Context represents: FIRST(tail || parent_lookahead)
+   * Used for: Pruning incompatible parse paths
+   */
   int context;
+  
 #ifdef TRANSITIVE_TRANSITION
-  /* The following member is used for using transitive transition
-     vectors to exclude multiple situation processing.  */
+  /** Marker to exclude multiple processing in transitive transitions
+   * Set to curr_sit_check during each iteration of build_new_set().
+   * If sit->sit_check == curr_sit_check, situation already processed.
+   * 
+   * Optimization: Avoids reprocessing situations in transitive transition vectors.
+   */
   int sit_check;
 #endif
-  /* The following member is the situation lookahead it is equal to
-     FIRST (the situation tail || FOLLOW (lhs)) for static lookaheads
-     and FIRST (the situation tail || context) for dynamic ones. */
+
+  /** Lookahead terminal set for disambiguation
+   * Points into global term sets table.
+   * 
+   * Represents: FIRST(tail || lookahead_from_parent)
+   * Where:
+   *   - tail = symbols after dot in this situation
+   *   - lookahead_from_parent = lookahead from item that predicted/advanced this one
+   * 
+   * For static lookahead (level 1): Computed once from FIRST/FOLLOW
+   * For dynamic lookahead (level >1): Computed during parse from context
+   * 
+   * Used for: Filtering out parse paths that can't match next terminal
+   */
   term_set_el_t *lookahead;
 };
+
 
 /* The following contains current number of unique situations.  It can
    be read externally. */
@@ -1951,57 +2320,155 @@ sit_fin (void)
    information.  Because there are many duplications of such
    structures we extract the set cores and store them in one
    exemplar. */
+/**
+ * Set Core - LR(0) core of an Earley set
+ *
+ * The "core" of an Earley set contains the situations (items) without their
+ * origin positions (distances). This is analogous to an LR(0) core in LR parsing.
+ *
+ * WHY SEPARATE CORE FROM SET:
+ * Multiple sets can share the same core but with different distance mappings.
+ * Example:
+ *   Set A: Core {S → E ., E → E '+' . T} with distances [0, 0]
+ *   Set B: Core {S → E ., E → E '+' . T} with distances [0, 2]
+ * Both sets have same items but different origins, so they share core but
+ * are different sets.
+ *
+ * SITUATION ORDERING in sits[]:
+ * 1. Start situations (items from SCAN/COMPLETE)
+ * 2. Nonstart non-initial situations (derived items with distance tracking)
+ * 3. Initial situations (prediction items, always distance 0)
+ *
+ * This ordering optimizes distance tracking - only start situations need
+ * per-set distance storage.
+ *
+ * MEMORY MANAGEMENT:
+ * - Shared across multiple sets (reference counted implicitly)
+ * - Allocated in parse-local arena
+ * - Freed when parse completes
+ */
 struct set_core
 {
-  /* The following is unique number of the set core. It is defined
-     only after forming all set. */
+  /** Unique number of set core (assigned after all sets formed)
+   * Used for debugging, graphviz output, and set identification.
+   * Assigned in pl_create() after parse completes.
+   */
   int num;
-  /* The set core hash.  We save it as it is used several times.  */
+  
+  /** Hash of the set core (cached for performance)
+   * Computed from situations using sits_hash().
+   * Used multiple times during set deduplication, so we cache it.
+   */
   unsigned int hash;
-  /* The following is term shifting which resulted into this core.  It
-     is defined only after forming all set. */
+  
+  /** Terminal that was scanned to reach this core
+   * NULL for initial set (set 0).
+   * For set N: terminal at token position N-1.
+   * 
+   * Used for: Error messages, debugging, parse tree construction
+   */
   struct symb *term;
-  /* The following are numbers of all situations and start situations
-     in the following array. */
+  
+  /** Total number of situations in sits[] array
+   * Includes: start situations + nonstart situations + initial situations
+   */
   int n_sits;
+  
+  /** Number of start situations (from SCAN/COMPLETE)
+   * Start situations are first n_start_sits entries in sits[].
+   * These have per-set distance values stored in set->dists[].
+   */
   int n_start_sits;
-  /* Array of situations.  Start situations are always placed the
-     first in the order of their creation (with subsequent duplicates
-     are removed), then nonstart noninitial (situation with at least
-     one symbol before the dot) situations are placed and then initial
-     situations are placed.  You should access to a set situation only
-     through this member or variable `new_sits' (in other words don't
-     save the member value in another variable). */
+  
+  /** Array of situations in this core
+   * IMPORTANT: Access only via this member or new_sits[] global variable.
+   * Do NOT save pointer to local variable (array can be reallocated).
+   * 
+   * Ordering:
+   *   [0..n_start_sits): Start situations (have distances)
+   *   [n_start_sits..n_all_dists): Nonstart situations (derive distance from parent)
+   *   [n_all_dists..n_sits): Initial situations (distance always 0)
+   */
   struct sit **sits;
-  /* The following member is number of start situations and nonstart
-     (noninitial) situations whose distance is defined from a start
-     situation distance.  All nonstart initial situations have zero
-     distances.  This distances are not stored.  */
+  
+  /** Number of situations with distance tracking
+   * n_all_dists = n_start_sits + nonstart non-initial situations
+   * Situations [0..n_all_dists) have distance information.
+   * Situations [n_all_dists..n_sits) are initial (distance 0).
+   */
   int n_all_dists;
-  /* The following is array containing number of start situation from
-     which distance of (nonstart noninitial) situation with given
-     index (between n_start_situations -> n_all_dists) is taken. */
+  
+  /** Parent indexes for deriving distances of nonstart situations
+   * For situation i where n_start_sits <= i < n_all_dists:
+   *   parent_indexes[i] gives index of start situation to inherit distance from.
+   * 
+   * Example: If situation 5 is derived from start situation 2,
+   *   parent_indexes[5] = 2, and distance[5] = distance[2] + offset
+   * 
+   * Array size: n_all_dists - n_start_sits
+   */
   int *parent_indexes;
 };
 
-/* The following describes set in Earley's algorithm. */
+/**
+ * Earley Set - All parse states at a token position
+ *
+ * An Earley set represents all possible parse states after consuming a specific
+ * number of input tokens. Set i contains all items after consuming i tokens.
+ *
+ * COMPOSITION:
+ * set = core + distances
+ *   - core: The situations (items) without origin positions
+ *   - distances: Origin positions for each start situation
+ *
+ * EXAMPLE:
+ * After parsing "1 + 2" in expression grammar, set 3 might contain:
+ *   E → E '+' T .    (originated at position 0)
+ *   E → T .          (originated at position 2)
+ *   T → num .        (originated at position 2)
+ *
+ * DEDUPLICATION:
+ * Sets are deduplicated in set_tab hash table by:
+ * (core, distances) → unique set instance
+ * If two sets have same core and same distances, they're the same set.
+ *
+ * MEMORY MANAGEMENT:
+ * - Stored in parse list pl[] array
+ * - Core is shared (may be referenced by multiple sets)
+ * - Distances array is per-set
+ * - Freed when parse completes
+ */
 struct set
 {
-  /* The following is set core of the set.  You should access to set
-     core only through this member or variable `new_core' (in other
-     words don't save the member value in another variable). */
+  /** Set core containing the situations (items)
+   * IMPORTANT: Access only via this member or new_core global variable.
+   * Do NOT save pointer to local variable.
+   * 
+   * May be shared with other sets that have same items but different distances.
+   */
   struct set_core *core;
-  /* Hash of the set distances.  We save it as it is used several
-     times.  */
+  
+  /** Hash of the distance array (cached for performance)
+   * Computed from dists[] array.
+   * Used multiple times during set deduplication, so we cache it.
+   */
   unsigned int dists_hash;
-  /* The following is distances only for start situations.  Other
-     situations have their distances equal to 0.  The start situation
-     in set core and the corresponding distance has the same index.
-     You should access to distances only through this member or
-     variable `new_dists' (in other words don't save the member value
-     in another variable). */
+  
+  /** Origin positions for start situations
+   * IMPORTANT: Access only via this member or new_dists[] global variable.
+   * Do NOT save pointer to local variable.
+   * 
+   * dists[i] = origin position for start situation core->sits[i]
+   * where i < core->n_start_sits
+   * 
+   * Example: If dists[3] = 5, then start situation 3 originated at token 5.
+   * 
+   * Array size: core->n_start_sits
+   * Other situations either derive from parent (via parent_indexes) or are initial (distance 0).
+   */
   int *dists;
 };
+
 
 /* Maximal goto sets saved for triple (set, terminal, lookahead).  */
 #define MAX_CACHED_GOTO_RESULTS 3
