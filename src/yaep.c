@@ -4603,6 +4603,91 @@ form_transitive_transition_vectors (void)
    further fast search of start situations from given core by
    transition on given symbol (see comment for abstract data
    `core_symb_vect'). */
+
+/**
+ * Expand new start set - PREDICTION operation
+ *
+ * This function implements the PREDICTION (closure) operation of the Earley
+ * algorithm. It expands nonterminals in the newly constructed set by adding
+ * items for all rules that can derive those nonterminals.
+ *
+ * ALGORITHM OVERVIEW:
+ * For each item in new set:
+ *   If item has nonterminal N after dot:  A → α . N β
+ *   Add initial items for all rules with LHS = N:  N → . γ
+ *
+ * This is the "closure" operation, completing the Earley triple:
+ * - SCAN: Advance items via terminals
+ * - COMPLETE: Advance items when nonterminals complete
+ * - PREDICT: Add items when nonterminals appear after dot
+ *
+ * ADDITIONAL PROCESSING:
+ * Beyond simple prediction, this function also:
+ * 1. Adds derived non-start situations (items with distance tracking)
+ * 2. Builds transition vectors (maps symbols to items expecting them)
+ * 3. Builds reduce vectors (maps LHS nonterminals to complete items)
+ * 4. Forms transitive transition vectors (optimization for completion)
+ * 5. Computes lookahead contexts (for grammars with lookahead > 1)
+ *
+ * WHY PREDICTION HAPPENS HERE:
+ * Prediction is called AFTER scanning and completion (build_new_set()) because:
+ * - New items from scan/complete may have nonterminals after dot
+ * - Those nonterminals need prediction to add their rule items
+ * - Prediction can add more items, which might themselves need prediction
+ * - This creates a fixed-point iteration until no new items are added
+ *
+ * TRANSITION VECTORS:
+ * For each symbol S, we maintain a vector of items expecting S:
+ *   Items of form: A → α . S β
+ * This enables fast lookup during scanning (terminals) and completion (nonterminals).
+ *
+ * REDUCE VECTORS:
+ * For each nonterminal N, we maintain a vector of complete items:
+ *   Items of form: N → γ .
+ * Used during completion to find what items finished deriving N.
+ *
+ * LOOKAHEAD CONTEXT (lookahead_level > 1):
+ * For high lookahead levels, compute context sets for each prediction item.
+ * Context represents the set of terminals that can follow this nonterminal.
+ * Uses fixed-point iteration to propagate contexts through predictions.
+ *
+ * COMPLEXITY:
+ * Time: O(items × rules_per_nonterminal) for prediction
+ *       O(items × symbols) for transition vector construction  
+ *       O(items²) worst case for lookahead context computation
+ * Space: O(items) for new situations
+ *        O(items × symbols) for transition vectors
+ *
+ * OPTIMIZATIONS:
+ * - core_symb_vect deduplicates items by symbol (avoids redundant prediction)
+ * - Transitive transitions for faster completion (optional)
+ * - Nullable symbol handling (advance through epsilon transitions)
+ *
+ * GLOBAL STATE MODIFIED:
+ * - new_sits[] - Items in new set (grows with predictions)
+ * - new_core->n_sits - Count of items (includes predicted items)
+ * - new_core->transition_vectors - Maps symbols to items expecting them
+ * - new_core->reduce_vectors - Maps nonterminals to complete items
+ * - term_set structures - For lookahead context computation
+ *
+ * GLOBAL STATE USED:
+ * - new_sits[] - Items from scan/complete to expand
+ * - new_n_start_sits - Count of start situations (from scan/complete)
+ * - new_core - Core being constructed
+ * - grammar - Grammar structure (rules, symbols, lookahead level)
+ *
+ * @return Implicitly returns via global state modification
+ *         new_sits[] and new_core contain expanded set with predictions
+ *
+ * @note This function is called AFTER build_new_set() completes scan/complete
+ * @note Prediction can add items, which themselves may need prediction (fixed-point)
+ * @note For lookahead > 1, uses iterative context refinement (can be expensive)
+ *
+ * REFERENCE: Earley (1970) Section 3, Aycock & Horspool (2002) Section 3.2
+ *
+ * TESTING: All parsing tests exercise this function
+ *          See test/test*.tst for various grammar types
+ */
 #if MAKE_INLINE
 INLINE
 #endif
@@ -4616,98 +4701,212 @@ expand_new_start_set (void)
   size_t i;
   size_t _tmp_i;
 
-  /* Add non start situations with nonzero distances. */
+  /* ========================================================================
+   * PHASE 1: Add derived non-start situations
+   * 
+   * For items created during scan/complete (start situations), add any
+   * derived items needed for distance tracking and parse tree construction.
+   * ======================================================================== */
   for (i = 0; i < YAEP_STATIC_CAST(size_t, new_n_start_sits); i++)
     {
       _tmp_i = i;
       assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
       add_derived_nonstart_sits (new_sits[i], YAEP_STATIC_CAST(int, _tmp_i));
     }
-  /* Add non start situations and form transitions vectors. */
+  
+  /* ========================================================================
+   * PHASE 2: Build transition vectors and perform PREDICTION
+   * 
+   * For each item in new set:
+   * 1. If item has symbol after dot (not complete), find/create transition vector
+   * 2. If symbol is nonterminal N, add prediction items for all rules: N → . γ
+   * 3. If symbol is nullable (can derive empty string), advance past it
+   * 
+   * This loop builds the transition structure while simultaneously adding
+   * predicted items. The loop processes new_core->n_sits items, but this
+   * count can grow during the loop as predictions add more items (fixed-point).
+   * ======================================================================== */
   for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
+      
+      /* Check if item has symbol after dot (not at end of rule) */
       if (sit->pos < sit->rule->rhs_len)
 	{
-	  /* There is a symbol after dot in the situation. */
+	  /* TRANSITION VECTOR: Get or create vector for symbol after dot
+	   * 
+	   * Transition vector maps a symbol S to all items of form: A → α . S β
+	   * Used during scanning (S is terminal) and completion (S is nonterminal) */
 	  symb = sit->rule->rhs[sit->pos];
 	  core_symb_vect = core_symb_vect_find (new_core, symb);
+	  
 	  if (core_symb_vect == NULL)
 	    {
+	      /* First time seeing this symbol in new set - create transition vector */
 	      core_symb_vect = core_symb_vect_new (new_core, symb);
+	      
+	      /* PREDICTION: If symbol is nonterminal, add initial items
+	       * 
+	       * For nonterminal N after dot, add items for all rules with LHS = N:
+	       *   N → . γ  (initial items with dot at start)
+	       * 
+	       * This is the PREDICTION operation - the core of Earley's closure.
+	       * Example: If we have S → . A b, and A has rules A → x and A → y,
+	       *          we add:  A → . x  and  A → . y */
 	      if (!symb->term_p)
 		for (rule = symb->u.nonterm.rules;
 		     rule != NULL; rule = rule->lhs_next)
 		  set_new_add_initial_sit (sit_create (rule, 0, 0));
 	    }
+  
   _tmp_i = i;
   assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+  
+  /* Add current item to transition vector for its symbol after dot */
+  /* Add current item to transition vector for its symbol after dot */
   core_symb_vect_new_add_transition_el (core_symb_vect, YAEP_STATIC_CAST(int, _tmp_i));
+  
+      /* NULLABLE SYMBOL HANDLING: Advance through epsilon transitions
+       * 
+       * If symbol after dot can derive empty string (nullable), we can
+       * immediately advance past it. This creates an implicit epsilon
+       * transition: A → α . N β  becomes  A → α N . β  when N is nullable.
+       * 
+       * This handles rules like:  optional → ε  (where ε derives nothing)
+       * Without this, parser would miss valid parses through nullable rules. */
       if (symb->empty_p && i >= YAEP_STATIC_CAST(size_t, new_core->n_all_dists))
         set_new_add_initial_sit (sit_create (sit->rule, sit->pos + 1, 0));
 	}
     }
-  /* Now forming reduce vectors. */
+  
+  /* ========================================================================
+   * PHASE 3: Build reduce vectors
+   * 
+   * For each complete item (dot at end of rule), add to reduce vector.
+   * Reduce vectors map LHS nonterminals to items that completed deriving them.
+   * 
+   * Example: For item  A → x y .  add to reduce vector for nonterminal A
+   * 
+   * Used during completion to find what items finished deriving a nonterminal.
+   * ======================================================================== */
   for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
+      
+      /* Check if item is complete (dot at end of rule) */
       if (sit->pos == sit->rule->rhs_len)
 	{
+	  /* Get LHS nonterminal of completed rule */
 	  symb = sit->rule->lhs;
+	  
+	  /* Find or create reduce vector for this nonterminal */
 	  core_symb_vect = core_symb_vect_find (new_core, symb);
 	  if (core_symb_vect == NULL)
 	    core_symb_vect = core_symb_vect_new (new_core, symb);
+      
       _tmp_i = i;
       assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+      
+      /* Add this complete item to reduce vector */
       core_symb_vect_new_add_reduce_el (core_symb_vect, YAEP_STATIC_CAST(int, _tmp_i));
 	}
     }
+  
 #ifdef TRANSITIVE_TRANSITION
+  /* OPTIMIZATION: Form transitive transition vectors
+   * 
+   * Transitive transitions provide shortcuts for completion operations.
+   * Instead of following completion chains step-by-step, we can jump
+   * directly to the final result using precomputed transitive closure.
+   * 
+   * This trades setup time for faster completion during parsing. */
   form_transitive_transition_vectors ();
 #endif
+  
+  /* ========================================================================
+   * PHASE 4: Lookahead context computation (lookahead_level > 1 only)
+   * 
+   * For grammars with lookahead > 1, compute context sets for prediction items.
+   * Context represents the set of terminals that can follow a nonterminal.
+   * 
+   * Uses fixed-point iteration:
+   * 1. For each prediction item N → . γ
+   * 2. Find all items A → α . N β that caused this prediction
+   * 3. Compute FIRST(β) + lookahead from A's context
+   * 4. Set N's context to union of all such contexts
+   * 5. Repeat until no contexts change
+   * 
+   * This can be expensive (O(items²) iterations) but provides better
+   * disambiguation for complex grammars.
+   * ======================================================================== */
   if (grammar->lookahead_level > 1)
     {
       struct sit *new_sit, *shifted_sit;
       term_set_el_t *context_set;
   int changed_p, sit_ind, context; ptrdiff_t j;
 
-      /* Now we have incorrect initial situations because their
-         context is not correct. */
+      /* Initialize context computation */
       context_set = term_set_create ();
+      
+      /* FIXED-POINT ITERATION: Refine contexts until stable
+       * 
+       * Each iteration propagates context information through predictions.
+       * Terminates when no context sets change (fixed point reached). */
       do
 	{
 	  changed_p = FALSE;
+	  
+	  /* Process all prediction items (those added after scan/complete) */
   for (i = YAEP_STATIC_CAST(size_t, new_core->n_all_dists);
        i < YAEP_STATIC_CAST(size_t, new_core->n_sits);
        i++)
 	    {
+	      /* Compute context for this prediction item */
 	      term_set_clear (context_set);
 	      new_sit = new_sits[i];
+	      
+	      /* Find all items that transitioned to this prediction */
 	      core_symb_vect = core_symb_vect_find (new_core,
 						    new_sit->rule->lhs);
+	      
+	      /* For each item A → α . N β that caused prediction N → . γ,
+	       * add FIRST(β) + lookahead to context */
 	      for (j = 0; j < core_symb_vect->transitions.len; j++)
 		{
 		  sit_ind = core_symb_vect->transitions.els[j];
 		  sit = new_sits[sit_ind];
+		  
+		  /* Shift item (advance dot) to get lookahead */
 		  shifted_sit = sit_create (sit->rule, sit->pos + 1,
 					    sit->context);
+		  
+		  /* Union lookahead into context */
 		  term_set_or (context_set, shifted_sit->lookahead);
 		}
+	      
+	      /* Insert context into global context table (deduplicate) */
 	      context = term_set_insert (context_set);
 	      if (context >= 0)
+		/* New context - allocate new set for next iteration */
 		context_set = term_set_create ();
 	      else
+		/* Existing context - reuse index */
 		context = -context - 1;
+	      
+	      /* Create new item with updated context if changed */
 	      sit = sit_create (new_sit->rule, new_sit->pos, context);
 	      if (sit != new_sit)
 		{
+		  /* Context changed - update item and mark for another iteration */
 		  new_sits[i] = sit;
 		  changed_p = TRUE;
 		}
 	    }
 	}
-      while (changed_p);
+      while (changed_p); /* Continue until fixed point (no context changes) */
     }
+  
+  /* Finalize new core construction */
   set_new_core_stop ();
   core_symb_vect_new_all_stop ();
 }
