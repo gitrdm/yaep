@@ -113,8 +113,8 @@ echo "✅ Pre-commit checks passed"
 | P2-001-D | Document build_pl() function | ✅ DONE | 219a141 |
 | P2-001-E | Document build_new_set() function | ✅ DONE | cb422b7 |
 | P2-001-F | Document expand_new_start_set() function | ✅ DONE | cf16f5d |
-| P2-002 | Document core data structures | ⬜ TODO | - |
-| P2-003 | Add algorithm overview comments | ⬜ TODO | - |
+| P2-002 | Document core data structures | ✅ DONE | 98ceae0 |
+| P2-003 | Add algorithm overview comments | ✅ DONE | 98ceae0 |
 | P2-GATE | Complete P2 gate report | ⬜ TODO | - |
 
 ### 2.3 P2-001-D: Document build_pl()
@@ -597,7 +597,7 @@ typedef struct leo_item {
 |-------|--------|--------------|---------|-----------|-------------|
 | P0: Baseline | ✅ Complete | 100% | Oct 8 | Oct 8 | `GATE_P0_REPORT.md` |
 | P1: Warnings | ✅ Complete | 100% | Oct 8 | Oct 9 | (in master branch) |
-| P2: Documentation | 🔄 In Progress | 67% | Oct 9 | - | - |
+| P2: Documentation | 🔄 In Progress | 89% | Oct 9 | - | - |
 | P3: Infrastructure | ⬜ Not Started | 0% | - | - | - |
 | P4: Leo Optimization | ⬜ Not Started | 0% | - | - | - |
 | P5: SPPF | ⬜ Not Started | 0% | - | - | - |
