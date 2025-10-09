@@ -71,6 +71,9 @@ get_property( YAEP_TEST_EXECUTABLES GLOBAL PROPERTY YAEP_TEST_EXECUTABLES )
 if( YAEP_TEST_EXECUTABLES )
 	list( REMOVE_DUPLICATES YAEP_TEST_EXECUTABLES )
 
+	# (No suppression here — test and generated code warnings should be fixed,
+	# not hidden. Remaining test-only warnings will be addressed individually.)
+
 	add_custom_target( yaep-test-build
 		DEPENDS ${YAEP_TEST_EXECUTABLES}
 	)

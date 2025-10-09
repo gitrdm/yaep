@@ -80,7 +80,8 @@ void add_typedef (const char *id, int scope_level)
 
   (void) scope_level; /* Unused - included for API compatibility */
   
-  entry_ptr = find_hash_table_entry (table, id, 1);
+  /* Use const-aware probe helper to avoid discarding qualifiers at call sites. */
+  entry_ptr = find_hash_table_entry_c (table, id, 1);
   if (*entry_ptr == NULL)
     {
       /* Use union to avoid cast-qual warning when storing const char* */
@@ -105,7 +106,7 @@ int find_typedef (const char *id, int scope_level)
 
   (void) scope_level; /* Unused - included for API compatibility */
   
-  entry_ptr = find_hash_table_entry (table, id, 0);
+  entry_ptr = find_hash_table_entry_c (table, id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)
     fprintf (stderr, "found typedef %s\n", id);

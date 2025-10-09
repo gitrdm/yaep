@@ -380,8 +380,8 @@ struct symb
 struct symbs
 {
   /* The following is number of all symbols and terminals.  The
-     variables can be read externally. */
-  int n_terms, n_nonterms;
+    variables can be read externally. */
+  size_t n_terms, n_nonterms;
 
   /* All symbols are placed in the following object. */
 #ifndef __cplusplus
@@ -732,9 +732,9 @@ symb_add_term (const char *name, int code)
 
   symb.repr = name;
   symb.term_p = TRUE;
-  symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
+  symb.num = YAEP_STATIC_CAST(int, symbs_ptr->n_nonterms + symbs_ptr->n_terms);
   symb.u.term.code = code;
-  symb.u.term.term_num = symbs_ptr->n_terms++;
+  symb.u.term.term_num = YAEP_STATIC_CAST(int, symbs_ptr->n_terms++);
   symb.empty_p = FALSE;
   repr_entry =
     find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
@@ -784,10 +784,10 @@ symb_add_nonterm (const char *name)
 
   symb.repr = name;
   symb.term_p = FALSE;
-  symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
+  symb.num = YAEP_STATIC_CAST(int, symbs_ptr->n_nonterms + symbs_ptr->n_terms);
   symb.u.nonterm.rules = NULL;
   symb.u.nonterm.loop_p = 0;
-  symb.u.nonterm.nonterm_num = symbs_ptr->n_nonterms++;
+  symb.u.nonterm.nonterm_num = YAEP_STATIC_CAST(int, symbs_ptr->n_nonterms++);
   entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
   assert (*entry == NULL);
   OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
@@ -980,7 +980,7 @@ struct term_sets
 
   /* The following variables can be read externally.  Their values are
      number of terminal sets and their overall size. */
-  int n_term_sets, n_term_sets_size;
+  size_t n_term_sets, n_term_sets_size;
 
   /* The following is hash table of terminal sets (key is member
      `set'). */
@@ -1003,11 +1003,11 @@ term_set_hash (hash_table_entry_t s)
      avoid casting away qualifiers at call sites. */
   const term_set_el_t *set = YAEP_STATIC_CAST(const struct tab_term_set *, s)->set;
   const term_set_el_t *bound;
-  int size;
+  size_t size;
   unsigned result = jauquet_prime_mod32;
 
-  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
-    / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     result = result * hash_shift + YAEP_STATIC_CAST(unsigned, *set++);
@@ -1021,10 +1021,10 @@ term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
   const term_set_el_t *set1 = YAEP_STATIC_CAST(const struct tab_term_set *, s1)->set;
   const term_set_el_t *set2 = YAEP_STATIC_CAST(const struct tab_term_set *, s2)->set;
   const term_set_el_t *bound;
-  int size;
+  size_t size;
 
-  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
-    / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set1 + size;
   while (set1 < bound)
     if (*set1++ != *set2++)
@@ -1144,7 +1144,7 @@ fail:
 static term_set_el_t *
 term_set_create (void)
 {
-  int size;
+  size_t size;
   term_set_el_t *result;
 
   assert (sizeof (term_set_el_t) <= 8);
@@ -1168,10 +1168,10 @@ static void
 term_set_clear (term_set_el_t * set)
 {
   term_set_el_t *bound;
-  int size;
+  size_t size;
 
-  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
-	  / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     *set++ = 0;
@@ -1185,10 +1185,10 @@ static void
 term_set_copy (term_set_el_t * dest, term_set_el_t * src)
 {
   term_set_el_t *bound;
-  int size;
+  size_t size;
 
-  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
-	  / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = dest + size;
   while (dest < bound)
     *dest++ = *src++;
@@ -1203,10 +1203,11 @@ static int
 term_set_or (term_set_el_t * set, term_set_el_t * op)
 {
   term_set_el_t *bound;
-  int size, changed_p;
+  size_t size;
+  int changed_p;
 
-  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)) - 1)
-	  / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   changed_p = 0;
   while (set < bound)
@@ -1284,8 +1285,8 @@ term_set_insert (term_set_el_t * set)
       (void*) to make the intention explicit and avoid warnings. */
     *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, tab_term_set_ptr));
       tab_term_set_ptr->set = set;
-      tab_term_set_ptr->num = YAEP_STATIC_CAST(int, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-			       / sizeof (struct tab_term_set *));
+  tab_term_set_ptr->num = YAEP_STATIC_CAST(int, YAEP_STATIC_CAST(size_t, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+       / sizeof (struct tab_term_set *)));
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
   /* See comment above: use a const-qualified view for reads. */
@@ -1311,13 +1312,13 @@ term_set_from_table (int num)
 static void
 term_set_print (FILE * f, term_set_el_t * set)
 {
-  int i;
+  size_t i;
 
   for (i = 0; i < symbs_ptr->n_terms; i++)
-    if (term_set_test (set, i))
+    if (term_set_test (set, YAEP_STATIC_CAST(int, i)))
       {
-	fprintf (f, " ");
-	symb_print (f, term_get (i), FALSE);
+    fprintf (f, " ");
+    symb_print (f, term_get (YAEP_STATIC_CAST(int, i)), FALSE);
       }
 }
 
@@ -3181,8 +3182,9 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
   if (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr) >= YAEP_REINTERPRET_CAST(char *, core_symb_table_vlo->bound ()))
 #endif
     {
-      struct core_symb_vect ***ptr, ***bound;
-      int diff, i;
+  struct core_symb_vect ***ptr, ***bound;
+  int diff;
+  size_t i;
 
 #ifndef __cplusplus
       diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr)
@@ -3195,7 +3197,7 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
       if (diff == YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **)))
 	diff *= 10;
 #ifndef __cplusplus
-      VLO_EXPAND (core_symb_table_vlo, diff);
+  VLO_EXPAND (core_symb_table_vlo, YAEP_STATIC_CAST(size_t, diff));
       core_symb_table
 	= YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BEGIN (core_symb_table_vlo));
       core_symb_vect_ptr = core_symb_table + set_core->num;
@@ -3223,8 +3225,8 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
 	  *ptr = YAEP_STATIC_CAST(struct core_symb_vect **, core_symb_tab_rows->top_begin ());
 	  core_symb_tab_rows->top_finish ();
 #endif
-	  for (i = 0; i < symbs_ptr->n_terms + symbs_ptr->n_nonterms; i++)
-	    (*ptr)[i] = NULL;
+    for (i = 0; i < symbs_ptr->n_terms + symbs_ptr->n_nonterms; i++)
+      (*ptr)[YAEP_STATIC_CAST(int, i)] = NULL;
 	  ptr++;
 	}
     }
@@ -7003,16 +7005,16 @@ yaep_parse_internal (void *user)
 #ifndef NO_YAEP_DEBUG_PRINT
   if (grammar->debug_level > 0)
     {
-      fprintf (stderr, "%sGrammar: #terms = %d, #nonterms = %d, ",
-	       *ctx->ambiguous_p ? "AMBIGUOUS " : "",
-	       symbs_ptr->n_terms, symbs_ptr->n_nonterms);
+  fprintf (stderr, "%sGrammar: #terms = %zu, #nonterms = %zu, ",
+        *ctx->ambiguous_p ? "AMBIGUOUS " : "",
+        symbs_ptr->n_terms, symbs_ptr->n_nonterms);
       fprintf (stderr, "#rules = %d, rules size = %d\n",
 	       rules_ptr->n_rules,
 	       rules_ptr->n_rhs_lens + rules_ptr->n_rules);
       fprintf (stderr, "Input: #tokens = %d, #unique situations = %d\n",
 	       toks_len, n_all_sits);
-      fprintf (stderr, "       #terminal sets = %d, their size = %d\n",
-	       term_sets_ptr->n_term_sets, term_sets_ptr->n_term_sets_size);
+  fprintf (stderr, "       #terminal sets = %zu, their size = %zu\n",
+        term_sets_ptr->n_term_sets, term_sets_ptr->n_term_sets_size);
       fprintf (stderr,
 	       "       #unique set cores = %d, #their start situations = %d\n",
 	       n_set_cores, n_set_core_start_sits);
