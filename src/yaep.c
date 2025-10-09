@@ -1415,7 +1415,7 @@ rule_init (struct grammar *g, struct rules **out_rules)
 
   assert (g != NULL);
 
-  result = (struct rules *) yaep_malloc (g->alloc, sizeof (struct rules));
+  result = YAEP_STATIC_CAST(struct rules *, yaep_malloc (g->alloc, sizeof (struct rules)));
   if (result == NULL)
     {
       yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule storage");
@@ -1461,7 +1461,7 @@ rule_new_start (struct symb *lhs, const char *anode, int anode_cost)
 
   assert (!lhs->term_p);
   OS_TOP_EXPAND (rules_ptr->rules_os, sizeof (struct rule));
-  rule = (struct rule *) OS_TOP_BEGIN (rules_ptr->rules_os);
+  rule = YAEP_STATIC_CAST(struct rule *, OS_TOP_BEGIN (rules_ptr->rules_os));
   OS_TOP_FINISH (rules_ptr->rules_os);
   rule->lhs = lhs;
   if (anode == NULL)
@@ -1472,7 +1472,7 @@ rule_new_start (struct symb *lhs, const char *anode, int anode_cost)
   else
     {
       OS_TOP_ADD_STRING (rules_ptr->rules_os, anode);
-      rule->anode = (char *) OS_TOP_BEGIN (rules_ptr->rules_os);
+      rule->anode = YAEP_STATIC_CAST(char *, OS_TOP_BEGIN (rules_ptr->rules_os));
       OS_TOP_FINISH (rules_ptr->rules_os);
       rule->anode_cost = anode_cost;
     }
@@ -1486,7 +1486,7 @@ rule_new_start (struct symb *lhs, const char *anode, int anode_cost)
   rule->rhs_len = 0;
   empty = NULL;
   OS_TOP_ADD_MEMORY (rules_ptr->rules_os, &empty, sizeof (struct symb *));
-  rule->rhs = (struct symb **) OS_TOP_BEGIN (rules_ptr->rules_os);
+  rule->rhs = YAEP_STATIC_CAST(struct symb **, OS_TOP_BEGIN (rules_ptr->rules_os));
   rules_ptr->curr_rule = rule;
   if (rules_ptr->first_rule == NULL)
     rules_ptr->first_rule = rule;
@@ -1504,7 +1504,7 @@ rule_new_symb_add (struct symb *symb)
   empty = NULL;
   OS_TOP_ADD_MEMORY (rules_ptr->rules_os, &empty, sizeof (struct symb *));
   rules_ptr->curr_rule->rhs
-    = (struct symb **) OS_TOP_BEGIN (rules_ptr->rules_os);
+    = YAEP_STATIC_CAST(struct symb **, OS_TOP_BEGIN (rules_ptr->rules_os));
   rules_ptr->curr_rule->rhs[rules_ptr->curr_rule->rhs_len] = symb;
   rules_ptr->curr_rule->rhs_len++;
   rules_ptr->n_rhs_lens++;
@@ -1519,8 +1519,8 @@ rule_new_stop (void)
 
   OS_TOP_FINISH (rules_ptr->rules_os);
   OS_TOP_EXPAND (rules_ptr->rules_os,
-		 (size_t)rules_ptr->curr_rule->rhs_len * sizeof (int));
-  rules_ptr->curr_rule->order = (int *) OS_TOP_BEGIN (rules_ptr->rules_os);
+		 YAEP_STATIC_CAST(size_t, rules_ptr->curr_rule->rhs_len) * sizeof (int));
+  rules_ptr->curr_rule->order = YAEP_STATIC_CAST(int *, OS_TOP_BEGIN (rules_ptr->rules_os));
   OS_TOP_FINISH (rules_ptr->rules_os);
   for (i = 0; i < rules_ptr->curr_rule->rhs_len; i++)
     rules_ptr->curr_rule->order[i] = -1;
@@ -1671,17 +1671,17 @@ tok_add (int code, void *attr)
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
       fprintf (stderr, "YAEP_DEBUG_TOK_ADD code=%d attr=%p symb=%p toks=%p toks_len=%d\n",
-               code, attr, (void *) symb, (void *) toks, toks_len);
+               code, attr, YAEP_STATIC_CAST(void *, symb), YAEP_STATIC_CAST(void *, toks), toks_len);
       fflush (stderr);
       /* Detect ASan-poisoned pointer pattern (0xbebebebebebebebe) early and
          print a backtrace to help locate the corruption site. */
       {
-        uintptr_t s = (uintptr_t) symb;
-        if ((s & 0xffffffffULL) == 0xbebebebeULL || s == (uintptr_t)0xbebebebebebebebeULL)
+        uintptr_t s = YAEP_REINTERPRET_CAST(uintptr_t, symb);
+        if ((s & 0xffffffffULL) == 0xbebebebeULL || s == YAEP_STATIC_CAST(uintptr_t, 0xbebebebebebebebeULL))
           {
             void *bt[32];
             int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
-            fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", (void *) symb);
+            fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", YAEP_STATIC_CAST(void *, symb));
             backtrace_symbols_fd (bt, n, STDERR_FILENO);
             fflush (stderr);
             /* Abort so ASan/runner reports the exact site in native tooling. */
@@ -1693,7 +1693,7 @@ tok_add (int code, void *attr)
          even if it doesn't match the exact ASan poison pattern. */
       {
   size_t n_symbs = VLO_NELS (symbs_ptr->symbs_vlo, struct symb *);
-        struct symb **symb_arr = (struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo);
+        struct symb **symb_arr = YAEP_STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->symbs_vlo));
         size_t si;
         int found = 0;
         for (si = 0; si < n_symbs; ++si)
@@ -1709,7 +1709,7 @@ tok_add (int code, void *attr)
             void *bt[32];
             int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
             fprintf (stderr, "YAEP_DEBUG_SYMB_NOT_IN_VLO symb=%p toks=%p toks_len=%d n_symbs=%zu\n",
-                     (void *) symb, (void *) toks, toks_len, n_symbs);
+                     YAEP_STATIC_CAST(void *, symb), YAEP_STATIC_CAST(void *, toks), toks_len, n_symbs);
             backtrace_symbols_fd (bt, n, STDERR_FILENO);
             fflush (stderr);
             abort ();
@@ -2191,16 +2191,16 @@ set_term_lookahead_hash (hash_table_entry_t s)
      treats the pointer as opaque and does not mutate the object. */
   union { const struct set *cs; void *v; } u;
   u.cs = set;
-  return ((set_core_dists_hash ((hash_table_entry_t) u.v) * hash_shift
-	   + (unsigned)term->u.term.term_num) * hash_shift + (unsigned)lookahead);
+  return ((set_core_dists_hash (YAEP_STATIC_CAST(hash_table_entry_t, u.v)) * hash_shift
+	   + YAEP_STATIC_CAST(unsigned, term->u.term.term_num)) * hash_shift + YAEP_STATIC_CAST(unsigned, lookahead));
 }
 
 /* Equality of tripes (set, term, lookahead). */
 static int
 set_term_lookahead_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct set_term_lookahead *t1 = (const struct set_term_lookahead *) s1;
-  const struct set_term_lookahead *t2 = (const struct set_term_lookahead *) s2;
+  const struct set_term_lookahead *t1 = YAEP_STATIC_CAST(const struct set_term_lookahead *, s1);
+  const struct set_term_lookahead *t2 = YAEP_STATIC_CAST(const struct set_term_lookahead *, s2);
   const struct set *set1 = t1->set;
   const struct set *set2 = t2->set;
   const struct symb *term1 = t1->term;
@@ -2252,10 +2252,10 @@ sit_dist_insert (struct sit *sit, int dist)
 
   sit_number = sit->sit_number;
   /* Expand the set to accommodate possibly a new situation.  */
-  len = (int)VLO_NELS (sit_dist_vec_vlo, vlo_t);
+  len = YAEP_STATIC_CAST(int, VLO_NELS (sit_dist_vec_vlo, vlo_t));
   if (len <= sit_number)
     {
-      VLO_EXPAND (sit_dist_vec_vlo, (size_t)(sit_number + 1 - len) * sizeof (vlo_t));
+      VLO_EXPAND (sit_dist_vec_vlo, YAEP_STATIC_CAST(size_t, sit_number + 1 - len) * sizeof (vlo_t));
       for (i = len; i <= sit_number; i++)
 #ifndef __cplusplus
 	VLO_CREATE (STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[i],
@@ -2267,11 +2267,11 @@ sit_dist_insert (struct sit *sit, int dist)
     }
 #ifndef __cplusplus
   check_dist_vlo = &STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = (int)VLO_NELS (*check_dist_vlo, int);
+  len = YAEP_STATIC_CAST(int, VLO_NELS (*check_dist_vlo, int));
   if (len <= dist)
     {
       /* Expand VLO to accommodate new distance, avoid conversion warnings. */
-      VLO_EXPAND (*check_dist_vlo, (size_t)(dist + 1 - len) * sizeof (int));
+      VLO_EXPAND (*check_dist_vlo, YAEP_STATIC_CAST(size_t, dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
         STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[i] = 0;
     }
@@ -2281,16 +2281,16 @@ sit_dist_insert (struct sit *sit, int dist)
   return TRUE;
 #else
   check_dist_vlo = STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = (int)(check_dist_vlo->length () / sizeof (int));
+  len = YAEP_STATIC_CAST(int, check_dist_vlo->length () / sizeof (int));
   if (len <= dist)
     {
-      check_dist_vlo->expand ((size_t)(dist + 1 - len) * sizeof (int));
+      check_dist_vlo->expand (YAEP_STATIC_CAST(size_t, dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
-	((int *) check_dist_vlo->begin ())[i] = 0;
+	YAEP_STATIC_CAST(int *, check_dist_vlo->begin ())[i] = 0;
     }
-  if (((int *) check_dist_vlo->begin ())[dist] == curr_sit_dist_vec_check)
+  if (YAEP_STATIC_CAST(int *, check_dist_vlo->begin ())[dist] == curr_sit_dist_vec_check)
     return FALSE;
-  ((int *) check_dist_vlo->begin ())[dist] = curr_sit_dist_vec_check;
+  YAEP_STATIC_CAST(int *, check_dist_vlo->begin ())[dist] = curr_sit_dist_vec_check;
   return TRUE;
 #endif
 }
