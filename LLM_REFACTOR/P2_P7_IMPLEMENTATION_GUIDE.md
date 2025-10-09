@@ -316,10 +316,10 @@ Refs: P2-001-D
 
 | ID | Task | Status |
 |----|------|--------|
-| P3-001 | Implement nullable set computation | ⬜ TODO |
-| P3-002 | Add nullable preprocessing to grammar build | ⬜ TODO |
+| P3-001 | Implement nullable set computation | ✅ DONE (28da3bc) - Already exists as set_empty_access_derives() |
+| P3-002 | Add nullable preprocessing to grammar build | ✅ DONE (28da3bc) - Already integrated, symb->empty_p |
 | P3-003 | Implement state deduplication | ⬜ TODO |
-| P3-004 | Create memory pool allocator | ⬜ TODO |
+| P3-004 | Create memory pool allocator | ✅ DONE (ab794a5) - mem_pool.{h,c} + tests |
 | P3-005 | Integrate pools into set/situation allocation | ⬜ TODO |
 | P3-006 | Create micro-benchmark harness | ⬜ TODO |
 | P3-007 | Capture performance baseline | ⬜ TODO |
@@ -598,7 +598,7 @@ typedef struct leo_item {
 | P0: Baseline | ✅ Complete | 100% | Oct 8 | Oct 8 | `GATE_P0_REPORT.md` |
 | P1: Warnings | ✅ Complete | 100% | Oct 8 | Oct 9 | (in master branch) |
 | P2: Documentation | ✅ Complete | 100% | Oct 9 | Oct 9 | `GATE_P2_REPORT.md` |
-| P3: Infrastructure | ⬜ Ready | 0% | - | - | - |
+| P3: Infrastructure | 🔄 In Progress | 38% | Oct 9 | - | - |
 | P4: Leo Optimization | ⬜ Not Started | 0% | - | - | - |
 | P5: SPPF | ⬜ Not Started | 0% | - | - | - |
 | P6: Final Optimizations | ⬜ Not Started | 0% | - | - | - |
