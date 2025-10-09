@@ -76,7 +76,7 @@
 /* Helper: number of elements stored in a VLO for element type `el`.
   Cast to size_t to avoid sign/width conversion warnings when used in
   size/loop index contexts. */
-#define VLO_NELS(vlo, el) ((size_t) (VLO_LENGTH (vlo) / sizeof (el)))
+#define VLO_NELS(vlo, el) (YAEP_STATIC_CAST(size_t, (VLO_LENGTH (vlo) / sizeof (el))))
 /* Cast to size_t to avoid sign/width conversion warnings when used in size/loop index contexts. */
 
 
@@ -303,11 +303,11 @@ expand_int_vlo (vlo_t * vlo, int n_els)
 #else
   size_t i, prev_n_els = vlo->length () / sizeof (int);
 
-  if ((int) prev_n_els >= n_els)
+  if (YAEP_STATIC_CAST(int, prev_n_els) >= n_els)
     return FALSE;
-  vlo->expand ((size_t)(n_els - (int) prev_n_els) * sizeof (int));
-  for (i = prev_n_els; i < (size_t) n_els; i++)
-    ((int *) vlo->begin ())[i] = 0;
+  vlo->expand (YAEP_STATIC_CAST(size_t, (n_els - YAEP_STATIC_CAST(int, prev_n_els))) * sizeof (int));
+  for (i = prev_n_els; i < YAEP_STATIC_CAST(size_t, n_els); i++)
+    (YAEP_STATIC_CAST(int *, vlo->begin ()))[i] = 0;
   return TRUE;
 #endif
 }
@@ -824,7 +824,7 @@ symb_get (int n)
   struct symb *symb;
 
   if (n < 0 || (VLO_LENGTH (symbs_ptr->symbs_vlo) / sizeof (struct symb *)
-		<= (size_t) n))
+		<= YAEP_STATIC_CAST(size_t, n)))
     return NULL;
   symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->symbs_vlo))[n];
   assert (symb->num == n);
@@ -839,7 +839,7 @@ term_get (int n)
   struct symb *symb;
 
   if (n < 0 || (VLO_LENGTH (symbs_ptr->terms_vlo)
-		/ sizeof (struct symb *) <= (size_t) n))
+		/ sizeof (struct symb *) <= YAEP_STATIC_CAST(size_t, n)))
     return NULL;
   symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->terms_vlo))[n];
   assert (symb->term_p && symb->u.term.term_num == n);
@@ -854,7 +854,7 @@ nonterm_get (int n)
   struct symb *symb;
 
   if (n < 0 || (VLO_LENGTH (symbs_ptr->nonterms_vlo) / sizeof (struct symb *)
-		<= (size_t) n))
+		<= YAEP_STATIC_CAST(size_t, n)))
     return NULL;
   symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->nonterms_vlo))[n];
   assert (!symb->term_p && symb->u.nonterm.nonterm_num == n);
@@ -1301,10 +1301,10 @@ INLINE
 static term_set_el_t *
 term_set_from_table (int num)
 {
-  assert (num < (int)(VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-	  / sizeof (struct tab_term_set *)));
-  return ((struct tab_term_set **)
-	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo))[num]->set;
+  assert (num < YAEP_STATIC_CAST(int, (VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+	  / sizeof (struct tab_term_set *))));
+  return (YAEP_STATIC_CAST(struct tab_term_set **,
+	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo)))[num]->set;
 }
 
 /* Print terminal SET into file F. */
@@ -1552,7 +1552,7 @@ rule_print (FILE * f, struct rule *rule, int trans_p)
 	  for (j = 0; j < rule->rhs_len; j++)
 	    if (rule->order[j] == i)
 	      {
-		fprintf (f, " %ld:", (long) j);
+		fprintf (f, " %ld:", YAEP_STATIC_CAST(long, j));
 		symb_print (f, rule->rhs[j], FALSE);
 		break;
 	      }
@@ -1849,7 +1849,7 @@ sit_create (struct rule *rule, int pos, int context)
   assert (context >= 0);
   context_sit_table_ptr = sit_table + context;
   /* Cast pointers to char* for pointer arithmetic, as required by C standard. */
-  if ((char *) context_sit_table_ptr >= (char *) VLO_BOUND (sit_table_vlo))
+  if (YAEP_REINTERPRET_CAST(char *, context_sit_table_ptr) >= YAEP_REINTERPRET_CAST(char *, VLO_BOUND (sit_table_vlo)))
     {
       struct sit ***bound, ***ptr;
       int i, diff;
@@ -1857,20 +1857,20 @@ sit_create (struct rule *rule, int pos, int context)
       assert ((grammar->lookahead_level <= 1 && context == 0)
 	      || (grammar->lookahead_level > 1 && context >= 0));
     /* Compute difference in bytes between pointers. */
-    diff = (int)((uintptr_t)context_sit_table_ptr - (uintptr_t)VLO_BOUND (sit_table_vlo));
-      diff += (int)sizeof (struct sit **);
-      if (grammar->lookahead_level > 1 && diff == (int)sizeof (struct sit **))
+    diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(uintptr_t, context_sit_table_ptr) - YAEP_REINTERPRET_CAST(uintptr_t, VLO_BOUND (sit_table_vlo))));
+      diff += YAEP_STATIC_CAST(int, sizeof (struct sit **));
+      if (grammar->lookahead_level > 1 && diff == YAEP_STATIC_CAST(int, sizeof (struct sit **)))
 	diff *= 10;
-      VLO_EXPAND (sit_table_vlo, (size_t)diff);
-      sit_table = (struct sit ***) VLO_BEGIN (sit_table_vlo);
-      bound = (struct sit ***) VLO_BOUND (sit_table_vlo);
+      VLO_EXPAND (sit_table_vlo, YAEP_STATIC_CAST(size_t, diff));
+      sit_table = YAEP_STATIC_CAST(struct sit ***, VLO_BEGIN (sit_table_vlo));
+      bound = YAEP_STATIC_CAST(struct sit ***, VLO_BOUND (sit_table_vlo));
       context_sit_table_ptr = sit_table + context;
-      ptr = bound - diff / (int)sizeof (struct sit **);
+      ptr = bound - diff / YAEP_STATIC_CAST(int, sizeof (struct sit **));
       while (ptr < bound)
 	{
-	  OS_TOP_EXPAND (sits_os, (size_t)(rules_ptr->n_rhs_lens + rules_ptr->n_rules)
+	  OS_TOP_EXPAND (sits_os, YAEP_STATIC_CAST(size_t, (rules_ptr->n_rhs_lens + rules_ptr->n_rules))
 			 * sizeof (struct sit *));
-	  *ptr = (struct sit **) OS_TOP_BEGIN (sits_os);
+	  *ptr = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (sits_os));
 	  OS_TOP_FINISH (sits_os);
 	  for (i = 0; i < rules_ptr->n_rhs_lens + rules_ptr->n_rules; i++)
 	    (*ptr)[i] = NULL;
@@ -1880,14 +1880,14 @@ sit_create (struct rule *rule, int pos, int context)
   if ((sit = (*context_sit_table_ptr)[rule->rule_start_offset + pos]) != NULL)
     return sit;
   OS_TOP_EXPAND (sits_os, sizeof (struct sit));
-  sit = (struct sit *) OS_TOP_BEGIN (sits_os);
+  sit = YAEP_STATIC_CAST(struct sit *, OS_TOP_BEGIN (sits_os));
   OS_TOP_FINISH (sits_os);
   n_all_sits++;
   sit->rule = rule;
-  sit->pos = (short)pos;
+  sit->pos = YAEP_STATIC_CAST(short, pos);
   sit->sit_number = n_all_sits;
   sit->context = context;
-  sit->empty_tail_p = (char)sit_set_lookahead (sit);
+  sit->empty_tail_p = YAEP_STATIC_CAST(char, sit_set_lookahead (sit));
 #ifdef TRANSITIVE_TRANSITION
   sit->sit_check = 0;
 #endif
@@ -2106,7 +2106,7 @@ static hash_table_t set_term_lookahead_tab;	/* key is (core, distances, lookeahe
 static unsigned
 set_core_hash (hash_table_entry_t s)
 {
-  const struct set *cs = (const struct set *) s;
+  const struct set *cs = YAEP_STATIC_CAST(const struct set *, s);
   return cs->core->hash;
 }
 
@@ -2114,8 +2114,8 @@ set_core_hash (hash_table_entry_t s)
 static int
 set_core_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct set_core *set_core1 = ((const struct set *) s1)->core;
-  const struct set_core *set_core2 = ((const struct set *) s2)->core;
+  const struct set_core *set_core1 = (YAEP_STATIC_CAST(const struct set *, s1))->core;
+  const struct set_core *set_core2 = (YAEP_STATIC_CAST(const struct set *, s2))->core;
   struct sit **sit_ptr1, **sit_ptr2, **sit_bound1;
 
   if (set_core1->n_start_sits != set_core2->n_start_sits)
@@ -2133,7 +2133,7 @@ set_core_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 static unsigned
 dists_hash (hash_table_entry_t s)
 {
-  const struct set *cs = (const struct set *) s;
+  const struct set *cs = YAEP_STATIC_CAST(const struct set *, s);
   return cs->dists_hash;
 }
 
@@ -2141,14 +2141,14 @@ dists_hash (hash_table_entry_t s)
 static int
 dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct set *set1c = (const struct set *) s1;
-  const struct set *set2c = (const struct set *) s2;
+  const struct set *set1c = YAEP_STATIC_CAST(const struct set *, s1);
+  const struct set *set2c = YAEP_STATIC_CAST(const struct set *, s2);
   int *dists1 = set1c->dists;
   int *dists2 = set2c->dists;
   int n_dists = set1c->core->n_start_sits;
   int *bound;
 
-  if (n_dists != ((struct set *) s2)->core->n_start_sits)
+  if (n_dists != (YAEP_STATIC_CAST(struct set *, s2))->core->n_start_sits)
     return FALSE;
   bound = dists1 + n_dists;
   while (dists1 < bound)
@@ -2168,8 +2168,8 @@ set_core_dists_hash (hash_table_entry_t s)
 static int
 set_core_dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct set *set1c = (const struct set *) s1;
-  const struct set *set2c = (const struct set *) s2;
+  const struct set *set1c = YAEP_STATIC_CAST(const struct set *, s1);
+  const struct set *set2c = YAEP_STATIC_CAST(const struct set *, s2);
   const struct set_core *set_core1 = set1c->core;
   const struct set_core *set_core2 = set2c->core;
   int *dists1 = set1c->dists;
@@ -2182,7 +2182,7 @@ set_core_dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 static unsigned
 set_term_lookahead_hash (hash_table_entry_t s)
 {
-  const struct set_term_lookahead *triple = (const struct set_term_lookahead *) s;
+  const struct set_term_lookahead *triple = YAEP_STATIC_CAST(const struct set_term_lookahead *, s);
   const struct set *set = triple->set;
   const struct symb *term = triple->term;
   int lookahead = triple->lookahead;
