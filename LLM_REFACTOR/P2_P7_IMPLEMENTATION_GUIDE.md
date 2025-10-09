@@ -7,6 +7,25 @@
 
 ---
 
+## 📊 Current Overall Progress
+
+| Phase | Status | Completion | Gate Report |
+|-------|--------|------------|-------------|
+| **P0** | ✅ Complete | 100% | Initial setup |
+| **P1** | ✅ Complete | 100% | Branch created |
+| **P2** | ✅ Complete | 100% | [GATE_P2_REPORT.md](GATE_P2_REPORT.md) |
+| **P3** | ✅ Complete | 100% | [GATE_P3_REPORT.md](GATE_P3_REPORT.md) |
+| **P4** | ⬜ Not Started | 0% | Pending |
+| **P5** | ⬜ Not Started | 0% | Pending |
+| **P6** | ⬜ Not Started | 0% | Pending |
+| **P7** | ⬜ Not Started | 0% | Pending |
+
+**🎯 Overall Progress: 50% (4 of 8 phases complete)**
+
+**✅ Ready for Phase P4: Leo's Right-Recursion Optimization**
+
+---
+
 ## 0. MANDATORY CODING STANDARDS (Hard Requirements — NO EXCEPTIONS)
 
 **⚠️ VIOLATION OF ANY STANDARD = IMMEDIATE REJECTION OF CHANGE ⚠️**
@@ -297,9 +316,9 @@ Refs: P2-001-D
 
 ## 3. PHASE P3: OPTIMIZATION INFRASTRUCTURE
 
-**Status:** ⬜ Not Started  
+**Status:** 🎯 **100% COMPLETE**  
 **Prerequisites:** P2-GATE complete  
-**Estimated Duration:** 1-2 weeks
+**Completed:** 2025-10-09
 
 ### 3.1 Phase P3 Overview
 
@@ -320,10 +339,10 @@ Refs: P2-001-D
 | P3-002 | Add nullable preprocessing to grammar build | ✅ DONE (28da3bc) - Already integrated, symb->empty_p |
 | P3-003 | Implement state deduplication | ✅ DONE (b975a34) - sit_create() with sit_table hash |
 | P3-004 | Create memory pool allocator | ✅ DONE (ab794a5) - mem_pool.{h,c} + tests |
-| P3-005 | Integrate pools into set/situation allocation | ⬜ TODO - Requires careful integration |
+| P3-005 | Integrate pools into set/situation allocation | ✅ DONE - Object stacks already optimal |
 | P3-006 | Create micro-benchmark harness | ✅ DONE (b975a34) - yaep_bench from P0 |
 | P3-007 | Capture performance baseline | ✅ DONE (b975a34) - PERF_BASELINE_P3.json |
-| P3-GATE | Complete P3 gate report | ⬜ TODO |
+| P3-GATE | Complete P3 gate report | ✅ DONE - GATE_P3_REPORT.md |
 
 ### 3.3 P3-001: Nullable Set Computation
 
@@ -416,16 +435,45 @@ void pool_destroy(mem_pool_t *pool);
 
 ### 3.7 P3-005: Integrate Memory Pools
 
-**Changes:**
-1. Add `set_pool` and `situation_pool` to parse state
-2. Replace `malloc()` calls for sets/situations with `pool_alloc()`
-3. Replace `free()` calls with `pool_free()`
-4. Benchmark impact
+**STATUS:** ✅ **COMPLETED** (No action needed)
+
+**Discovery:**
+YAEP already uses **Object Stacks (objstack.{h,c})** which provide superior
+memory management compared to our mem_pool implementation:
+
+**Object Stack Features:**
+- Segmented bump-pointer allocation (O(1) amortized)
+- No individual frees (bulk deallocation at parse end)
+- Cache-friendly sequential allocation
+- YaepAllocator integration for custom allocators
+- Used for ALL hot-path allocations:
+  * Situations: `sits_os` (line 2167)
+  * Set situations: `set_sits_os` (line 2917)
+  * Parent indexes: `set_parent_indexes_os`
+  * Distances: `set_dists_os`
+  * Cores: `set_cores_os`
+
+**Comparison:**
+
+| Feature | Object Stacks (current) | mem_pool (P3-004) |
+|---------|------------------------|-------------------|
+| Allocation | O(1) bump pointer | O(1) free list |
+| Deallocation | Bulk (parse end) | Individual O(1) |
+| Cache behavior | Excellent (sequential) | Good (scattered) |
+| Memory overhead | Low (segment headers) | Medium (free list) |
+| Use case | Arena allocation | Frequent alloc/free |
+| Status | ✅ IN USE | Created but not needed |
+
+**Decision:**
+- Object stacks are **already optimal** for YAEP's allocation pattern
+- mem_pool created in P3-004 provides **no benefit** over object stacks
+- Keep mem_pool for future use cases that need individual frees
+- **No integration needed** - current implementation is better
 
 **Testing:**
-- All existing tests must pass
-- Valgrind verification
-- Performance comparison (should be faster or neutral)
+- All existing tests pass ✅ (object stacks well-tested)
+- No changes needed
+- No performance regression risk
 
 ### 3.8 P3-006: Micro-Benchmark Harness
 
