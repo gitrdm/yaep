@@ -182,7 +182,7 @@ yywrap()
 void
 comment(void)
 {
-	char c, c1;
+	int c, c1;
 
 loop:
 	while ((c = input()) != '*' && c != 0)
