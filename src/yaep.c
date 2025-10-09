@@ -743,10 +743,10 @@ symb_add_term (const char *name, int code)
     find_hash_table_entry (symbs_ptr->code_to_symb_tab, &symb, TRUE);
   assert (*code_entry == NULL);
   OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
-  symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  symb.repr = YAEP_STATIC_CAST(char *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
-  result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  result = YAEP_STATIC_CAST(struct symb *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   /* The hash table API stores entries as 'const void *'.  Here we
     insert newly-allocated mutable objects into the table which the
@@ -2397,10 +2397,10 @@ set_new_add_start_sit (struct sit *sit, int dist)
   assert (!new_set_ready_p);
   /* Expand object stack for new distance entry. */
   OS_TOP_EXPAND (set_dists_os, sizeof (int));
-  new_dists = (int *) OS_TOP_BEGIN (set_dists_os);
+  new_dists = YAEP_STATIC_CAST(int *, OS_TOP_BEGIN (set_dists_os));
   /* Expand object stack for new sit pointer. */
   OS_TOP_EXPAND (set_sits_os, sizeof (struct sit *));
-  new_sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
+  new_sits = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (set_sits_os));
   new_sits[new_n_start_sits] = sit;
   new_dists[new_n_start_sits] = dist;
   new_n_start_sits++;
@@ -2426,10 +2426,10 @@ set_add_new_nonstart_sit (struct sit *sit, int parent)
     if (new_sits[i] == sit && new_core->parent_indexes[i] == parent)
       return;
   OS_TOP_EXPAND (set_sits_os, sizeof (struct sit *));
-  new_sits = new_core->sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
+  new_sits = new_core->sits = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (set_sits_os));
   OS_TOP_EXPAND (set_parent_indexes_os, sizeof (int));
   new_core->parent_indexes
-    = (int *) OS_TOP_BEGIN (set_parent_indexes_os) - new_n_start_sits;
+    = YAEP_STATIC_CAST(int *, OS_TOP_BEGIN (set_parent_indexes_os)) - new_n_start_sits;
   new_sits[new_core->n_sits++] = sit;
   new_core->parent_indexes[new_core->n_all_dists++] = parent;
   n_parent_indexes++;
@@ -2456,7 +2456,7 @@ set_new_add_initial_sit (struct sit *sit)
       return;
   /* Remember we do not store distance for non-start situations. */
   OS_TOP_ADD_MEMORY (set_sits_os, &sit, sizeof (struct sit *));
-  new_sits = new_core->sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
+  new_sits = new_core->sits = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (set_sits_os));
   new_core->n_sits++;
 }
 
@@ -4494,7 +4494,7 @@ static void
 collect_core_symbols (void)
 {
   int i;
-  int *core_symbol_check_vec = (int *) VLO_BEGIN (core_symbol_check_vlo);
+  int *core_symbol_check_vec = YAEP_STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo));
   struct symb *symb;
   struct sit *sit;
 
@@ -4979,7 +4979,7 @@ restore_original_sets (int last_pl_el)
     {
       original_last_pl_el++;
       pl[original_last_pl_el]
-	= ((struct set **) VLO_BEGIN (original_pl_tail_stack))
+	= (YAEP_STATIC_CAST(struct set **, VLO_BEGIN (original_pl_tail_stack)))
 	[start_pl_curr - original_last_pl_el];
 #ifndef NO_YAEP_DEBUG_PRINT
       if (grammar->debug_level > 2)
@@ -5060,7 +5060,7 @@ new_recovery_state (int last_original_pl_el, int backward_move_cost)
 	}
 #endif
     }
-  state.pl_tail = (struct set **) OS_TOP_BEGIN (recovery_state_tail_sets);
+  state.pl_tail = YAEP_STATIC_CAST(struct set **, OS_TOP_BEGIN (recovery_state_tail_sets));
   OS_TOP_FINISH (recovery_state_tail_sets);
   state.start_tok = tok_curr;
   state.backward_move_cost = backward_move_cost;
@@ -6722,7 +6722,7 @@ make_parse (int *ambiguous_p)
 		      /* We allready have the translation. */
 		      assert (!grammar->one_parse_p);
 		      parse_state_free (state);
-		      state = ((struct parse_state **) VLO_BOUND (stack))[-1];
+		      state = (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1];
 		      node = table_state->anode;
 		      assert (node != NULL);
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
@@ -6748,7 +6748,7 @@ make_parse (int *ambiguous_p)
 		     nonterminal.  Add state to get a translation. */
 		  state = parse_state_alloc ();
 		  VLO_EXPAND (stack, sizeof (struct parse_state *));
-		  ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+		  (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
 		  state->rule = sit_rule;
 		  state->pos = sit->pos;
 		  state->orig = sit_orig;
