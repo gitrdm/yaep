@@ -1,0 +1,30 @@
+    196 conversion to ‘long unsigned int’ from ‘int’ may change the sign of the result 
+    127 cast discards ‘const’ qualifier from pointer target type 
+    108 use of old-style cast to ‘void*’ 
+     96 use of old-style cast to ‘char*’ 
+     75 conversion to ‘size_t’ {aka ‘long unsigned int’} from ‘int’ may change the sign of the result 
+     66 conversion from ‘long unsigned int’ to ‘int’ may change value 
+     48 use of old-style cast to ‘struct set*’ 
+     48 conversion to ‘unsigned int’ from ‘int’ may change the sign of the result 
+     45 cast from type ‘hash_table_entry_t’ {aka ‘const void*’} to type ‘set*’ casts away qualifiers 
+     41 conversion from ‘int’ to ‘char’ may change value 
+     36 use of old-style cast to ‘struct set_term_lookahead*’ 
+     36 use of old-style cast to ‘int*’ 
+     36 use of old-style cast to ‘hash_table_entry_t’ {aka ‘const void*’} 
+     36 declaration of ‘grammar’ shadows a global declaration 
+     33 use of old-style cast to ‘size_t’ {aka ‘long unsigned int’} 
+     30 use of old-style cast to ‘struct parse_state**’ 
+     30 conversion from ‘size_t’ {aka ‘long unsigned int’} to ‘int’ may change value 
+     27 cast from type ‘hash_table_entry_t’ {aka ‘const void*’} to type ‘set_term_lookahead*’ casts away qualifiers 
+     21 use of old-style cast to ‘vlo_t**’ {aka ‘class vlo**’} 
+     21 use of old-style cast to ‘struct yaep_tree_node*’ 
+     21 use of old-style cast to ‘struct symb**’ 
+     21 use of old-style cast to ‘struct sterm*’ 
+     18 use of old-style cast to ‘const struct symb*’ 
+     18 declaration of ‘parse_free’ shadows a global declaration 
+     15 use of old-style cast to ‘struct yaep_tree_node**’ 
+     15 use of old-style cast to ‘struct parse_state*’ 
+     15 use of old-style cast to ‘const struct tab_term_set*’ 
+     15 use of old-style cast to ‘const struct core_symb_vect*’ 
+     12 use of old-style cast to ‘uintptr_t’ {aka ‘long unsigned int’} 
+     12 use of old-style cast to ‘struct symb*’ 

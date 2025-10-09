@@ -85,6 +85,11 @@ add_subdirectory( src )
 add_subdirectory( test )
 add_subdirectory( doc )
 
+# Benchmark harness (Phase P0 baseline) -- lightweight, optional
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bench/CMakeLists.txt")
+	add_subdirectory( bench )
+endif()
+
 # Add Python wrapper tests if the python/ directory exists
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/python/CMakeLists.txt")
 	add_subdirectory( python )

@@ -28,6 +28,11 @@
 
 #include"common.h"
 
+/* Forward declarations for YAEP API callback functions */
+const char *read_terminal (int *code);
+const char *read_rule (const char ***rhs, const char **anode, 
+                       int *anode_cost, int **transl);
+
 /* The following variable is the current number of next input grammar
    terminal. */
 static int nterm;

@@ -44,6 +44,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 #include <string.h>
 #ifdef __cplusplus
 #include <new>
@@ -60,10 +61,23 @@
 #include "yaep_macros.h"
 #include <execinfo.h>
 
+/* Cast helpers for C vs C++ compilation.
+   In C++, use static_cast to avoid -Wold-style-cast.
+   In C, use traditional C casts. */
+#ifdef __cplusplus
+# define STATIC_CAST(type, expr) static_cast<type>(expr)
+# define CONST_CAST(type, expr) const_cast<type>(expr)
+# define REINTERPRET_CAST(type, expr) reinterpret_cast<type>(expr)
+#else
+# define STATIC_CAST(type, expr) ((type)(expr))
+# define CONST_CAST(type, expr) ((type)(expr))
+# define REINTERPRET_CAST(type, expr) ((type)(expr))
+#endif
+
 /* Helper: number of elements stored in a VLO for element type `el`.
   Cast to size_t to avoid sign/width conversion warnings when used in
   size/loop index contexts. */
-#define VLO_NELS(vlo, el) ((size_t) (VLO_LENGTH (vlo) / sizeof (el)))
+#define VLO_NELS(vlo, el) (YAEP_STATIC_CAST(size_t, (VLO_LENGTH (vlo) / sizeof (el))))
 /* Cast to size_t to avoid sign/width conversion warnings when used in size/loop index contexts. */
 
 
@@ -232,7 +246,7 @@ maybe_write_backtrace_for_symb_push (const char *label, struct symb *ptr)
   char **symbols = backtrace_symbols (frames, nframes);
 
   fprintf (stderr, "YAEP_WRITEBACKTRACE %s: pushing symb=%p into symbs_vlo\n",
-           label, (void *) ptr);
+           label, YAEP_STATIC_CAST(void *, ptr));
   if (symbols != NULL)
     {
       for (int i = 0; i < nframes; ++i)
@@ -241,7 +255,7 @@ maybe_write_backtrace_for_symb_push (const char *label, struct symb *ptr)
     }
 
   /* Print symbs_ptr so we can later inspect the VLO from a debug run. */
-  fprintf (stderr, "  symbs_ptr=%p\n", (void *) symbs_ptr);
+  fprintf (stderr, "  symbs_ptr=%p\n", YAEP_STATIC_CAST(void *, symbs_ptr));
   fflush (stderr);
 }
 
@@ -279,22 +293,22 @@ expand_int_vlo (vlo_t * vlo, int n_els)
   size_t i, prev_n_els = VLO_NELS (*vlo, int);
 
   /* Cast prev_n_els to int to avoid sign/width conversion warning. */
-  if ((int) prev_n_els >= n_els)
+  if (YAEP_STATIC_CAST(int, prev_n_els) >= n_els)
     return FALSE;
-  /* Cast prev_n_els to int to avoid sign/width conversion warning. */
-  VLO_EXPAND (*vlo, (n_els - (int) prev_n_els) * sizeof (int));
+  /* Cast the entire size expression to size_t to avoid sign/width conversion warning. */
+  VLO_EXPAND (*vlo, YAEP_STATIC_CAST(size_t, n_els - YAEP_STATIC_CAST(int, prev_n_els)) * sizeof (int));
   /* Cast n_els to size_t to avoid sign/width conversion warning. */
-  for (i = prev_n_els; i < (size_t) n_els; i++)
-    ((int *) VLO_BEGIN (*vlo))[i] = 0;
+  for (i = prev_n_els; i < YAEP_STATIC_CAST(size_t, n_els); i++)
+    STATIC_CAST(int *, VLO_BEGIN (*vlo))[i] = 0;
   return TRUE;
 #else
   size_t i, prev_n_els = vlo->length () / sizeof (int);
 
-  if ((int) prev_n_els >= n_els)
+  if (YAEP_STATIC_CAST(int, prev_n_els) >= n_els)
     return FALSE;
-  vlo->expand ((n_els - (int) prev_n_els) * sizeof (int));
-  for (i = prev_n_els; i < (size_t) n_els; i++)
-    ((int *) vlo->begin ())[i] = 0;
+  vlo->expand (YAEP_STATIC_CAST(size_t, (n_els - YAEP_STATIC_CAST(int, prev_n_els))) * sizeof (int));
+  for (i = prev_n_els; i < YAEP_STATIC_CAST(size_t, n_els); i++)
+    (YAEP_STATIC_CAST(int *, vlo->begin ()))[i] = 0;
   return TRUE;
 #endif
 }
@@ -367,8 +381,8 @@ struct symb
 struct symbs
 {
   /* The following is number of all symbols and terminals.  The
-     variables can be read externally. */
-  int n_terms, n_nonterms;
+    variables can be read externally. */
+  size_t n_terms, n_nonterms;
 
   /* All symbols are placed in the following object. */
 #ifndef __cplusplus
@@ -418,11 +432,11 @@ symb_repr_hash (hash_table_entry_t s)
   /* Read-only access to symbol repr; use const pointer to make
      intent explicit and avoid casting away const elsewhere. */
   unsigned result = jauquet_prime_mod32;
-  const char *str = ((const struct symb *) s)->repr;
+  const char *str = YAEP_STATIC_CAST(const struct symb *, s)->repr;
   int i;
 
   for (i = 0; str[i] != '\0'; i++)
-    result = result * hash_shift + (unsigned) str[i];
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned int, str[i]);
   return result;
 }
 
@@ -430,8 +444,8 @@ symb_repr_hash (hash_table_entry_t s)
 static int
 symb_repr_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct symb *a = ((const struct symb *) s1);
-  const struct symb *b = ((const struct symb *) s2);
+  const struct symb *a = YAEP_STATIC_CAST(const struct symb *, s1);
+  const struct symb *b = YAEP_STATIC_CAST(const struct symb *, s2);
   return strcmp (a->repr, b->repr) == 0;
 }
 
@@ -440,18 +454,18 @@ static unsigned
 symb_code_hash (hash_table_entry_t s)
 {
   /* Only reads the symbol structure to obtain its code. */
-  const struct symb *symb = ((const struct symb *) s);
+  const struct symb *symb = YAEP_STATIC_CAST(const struct symb *, s);
 
   assert (symb->term_p);
-  return symb->u.term.code;
+  return YAEP_STATIC_CAST(unsigned int, symb->u.term.code);
 }
 
 /* Equality of terminal codes. */
 static int
 symb_code_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct symb *symb1 = ((const struct symb *) s1);
-  const struct symb *symb2 = ((const struct symb *) s2);
+  const struct symb *symb1 = YAEP_STATIC_CAST(const struct symb *, s1);
+  const struct symb *symb2 = YAEP_STATIC_CAST(const struct symb *, s2);
 
   assert (symb1->term_p && symb2->term_p);
   return symb1->u.term.code == symb2->u.term.code;
@@ -472,7 +486,7 @@ symb_init (struct grammar *g, struct symbs **out_symbs)
 
   assert (g != NULL);
 
-  result = (struct symbs *) yaep_malloc (g->alloc, sizeof (struct symbs));
+  result = YAEP_STATIC_CAST(struct symbs *, yaep_malloc (g->alloc, sizeof (struct symbs)));
   if (result == NULL)
     {
       yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate symbol table");
@@ -644,10 +658,12 @@ static struct symb *
 symb_find_by_repr (const char *repr)
 {
   struct symb symb;
-
   symb.repr = repr;
-  return (struct symb *) *find_hash_table_entry (symbs_ptr->repr_to_symb_tab,
-						 &symb, FALSE);
+  /* find_hash_table_entry returns hash_table_entry_t*; underlying table stores (struct symb*).
+    The lookup key is on stack; returned entry already has correct (struct symb *) type.
+    Use intermediate pointer without discarding const. */
+  hash_table_entry_t *entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, FALSE);
+  return entry ? YAEP_STATIC_CAST(struct symb *, *entry) : NULL;
 }
 
 /* Return symbol (or NULL if it does not exist) which is terminal with
@@ -683,7 +699,7 @@ symb_find_by_code (int code)
             {
               fprintf (stderr, "YAEP_DEBUG_SYMB_VEC_LOOKUP code=%d idx=%d res=%p\n",
                        code, code - symbs_ptr->symb_code_trans_vect_start,
-                       (void *) res);
+                       YAEP_STATIC_CAST(void *, res));
               fflush (stderr);
             }
           return res;
@@ -693,13 +709,13 @@ symb_find_by_code (int code)
   symb.term_p = TRUE;
   symb.u.term.code = code;
   {
-    hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
-                                                   &symb, FALSE);
-    struct symb *res = (struct symb *) *e;
+  hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
+                           &symb, FALSE);
+  struct symb *res = e ? YAEP_STATIC_CAST(struct symb *, *e) : NULL;
     if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
       {
         fprintf (stderr, "YAEP_DEBUG_SYMB_FIND_BY_CODE code=%d entry=%p res=%p\n",
-                 code, (void *) e, (void *) res);
+                 code, YAEP_STATIC_CAST(void *, e), YAEP_STATIC_CAST(void *, res));
         fflush (stderr);
       }
     return res;
@@ -717,9 +733,9 @@ symb_add_term (const char *name, int code)
 
   symb.repr = name;
   symb.term_p = TRUE;
-  symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
+  symb.num = YAEP_STATIC_CAST(int, symbs_ptr->n_nonterms + symbs_ptr->n_terms);
   symb.u.term.code = code;
-  symb.u.term.term_num = symbs_ptr->n_terms++;
+  symb.u.term.term_num = YAEP_STATIC_CAST(int, symbs_ptr->n_terms++);
   symb.empty_p = FALSE;
   repr_entry =
     find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
@@ -728,10 +744,10 @@ symb_add_term (const char *name, int code)
     find_hash_table_entry (symbs_ptr->code_to_symb_tab, &symb, TRUE);
   assert (*code_entry == NULL);
   OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
-  symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  symb.repr = YAEP_STATIC_CAST(char *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
-  result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  result = YAEP_STATIC_CAST(struct symb *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   /* The hash table API stores entries as 'const void *'.  Here we
     insert newly-allocated mutable objects into the table which the
@@ -743,8 +759,8 @@ symb_add_term (const char *name, int code)
     parser owns; perform a deliberate cast through (void*) with a
     comment so future maintainers understand we are not discarding
     const accidentally but intentionally storing owned mutable data. */
-  *repr_entry = (hash_table_entry_t) (void *) result;
-  *code_entry = (hash_table_entry_t) (void *) result;
+  *repr_entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, result));
+  *code_entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, result));
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-terms", result);
@@ -752,7 +768,7 @@ symb_add_term (const char *name, int code)
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
   fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_TERM repr='%s' code=%d result=%p symbs_ptr=%p\n",
-       name, code, (void *) result, (void *) symbs_ptr);
+       name, code, YAEP_STATIC_CAST(void *, result), YAEP_STATIC_CAST(void *, symbs_ptr));
       fflush (stderr);
     }
   return result;
@@ -769,17 +785,17 @@ symb_add_nonterm (const char *name)
 
   symb.repr = name;
   symb.term_p = FALSE;
-  symb.num = symbs_ptr->n_nonterms + symbs_ptr->n_terms;
+  symb.num = YAEP_STATIC_CAST(int, symbs_ptr->n_nonterms + symbs_ptr->n_terms);
   symb.u.nonterm.rules = NULL;
   symb.u.nonterm.loop_p = 0;
-  symb.u.nonterm.nonterm_num = symbs_ptr->n_nonterms++;
+  symb.u.nonterm.nonterm_num = YAEP_STATIC_CAST(int, symbs_ptr->n_nonterms++);
   entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
   assert (*entry == NULL);
   OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
-  symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  symb.repr = YAEP_STATIC_CAST(char *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
-  result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  result = YAEP_STATIC_CAST(struct symb *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   /* See note above about deliberate cast-through-void: we store an
     owned, mutable struct symb pointer in the table (table's public
@@ -787,7 +803,7 @@ symb_add_nonterm (const char *name)
   /* See note above about deliberate cast-through-void: we store an
     owned, mutable struct symb pointer in the table (table's public
     typedef is const-qualified). */
-  *entry = (hash_table_entry_t) (void *) result;
+  *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, result));
   maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-nonterms", result);
@@ -795,7 +811,7 @@ symb_add_nonterm (const char *name)
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
   fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_NONTERM repr='%s' result=%p symbs_ptr=%p\n",
-       name, (void *) result, (void *) symbs_ptr);
+       name, YAEP_STATIC_CAST(void *, result), YAEP_STATIC_CAST(void *, symbs_ptr));
       fflush (stderr);
     }
   return result;
@@ -809,9 +825,9 @@ symb_get (int n)
   struct symb *symb;
 
   if (n < 0 || (VLO_LENGTH (symbs_ptr->symbs_vlo) / sizeof (struct symb *)
-		<= (size_t) n))
+		<= YAEP_STATIC_CAST(size_t, n)))
     return NULL;
-  symb = ((struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo))[n];
+  symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->symbs_vlo))[n];
   assert (symb->num == n);
   return symb;
 }
@@ -824,9 +840,9 @@ term_get (int n)
   struct symb *symb;
 
   if (n < 0 || (VLO_LENGTH (symbs_ptr->terms_vlo)
-		/ sizeof (struct symb *) <= (size_t) n))
+		/ sizeof (struct symb *) <= YAEP_STATIC_CAST(size_t, n)))
     return NULL;
-  symb = ((struct symb **) VLO_BEGIN (symbs_ptr->terms_vlo))[n];
+  symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->terms_vlo))[n];
   assert (symb->term_p && symb->u.term.term_num == n);
   return symb;
 }
@@ -839,9 +855,9 @@ nonterm_get (int n)
   struct symb *symb;
 
   if (n < 0 || (VLO_LENGTH (symbs_ptr->nonterms_vlo) / sizeof (struct symb *)
-		<= (size_t) n))
+		<= YAEP_STATIC_CAST(size_t, n)))
     return NULL;
-  symb = ((struct symb **) VLO_BEGIN (symbs_ptr->nonterms_vlo))[n];
+  symb = STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->nonterms_vlo))[n];
   assert (!symb->term_p && symb->u.nonterm.nonterm_num == n);
   return symb;
 }
@@ -884,13 +900,13 @@ symb_finish_adding_terms (void)
       symbs_ptr->symb_code_trans_vect_start = min_code;
       symbs_ptr->symb_code_trans_vect_end = max_code + 1;
       mem = yaep_malloc (grammar->alloc,
-          sizeof (struct symb*) * (max_code - min_code + 1));
-    symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
+          sizeof (struct symb*) * YAEP_STATIC_CAST(size_t, max_code - min_code + 1));
+    symbs_ptr->symb_code_trans_vect = YAEP_STATIC_CAST(struct symb **, mem);
     /* Zero-initialize the vector so codes without corresponding
      terminals map to NULL instead of containing uninitialized
      memory (which can lead to ASan/Valgrind-reported invalid
      reads). */
-    memset (mem, 0, sizeof (struct symb*) * (max_code - min_code + 1));
+    memset (mem, 0, sizeof (struct symb*) * YAEP_STATIC_CAST(size_t, max_code - min_code + 1));
       for (i = 0; (symb = term_get (i)) != NULL; i++)
 	symbs_ptr->symb_code_trans_vect[symb->u.term.code - min_code] = symb;
     }
@@ -965,7 +981,7 @@ struct term_sets
 
   /* The following variables can be read externally.  Their values are
      number of terminal sets and their overall size. */
-  int n_term_sets, n_term_sets_size;
+  size_t n_term_sets, n_term_sets_size;
 
   /* The following is hash table of terminal sets (key is member
      `set'). */
@@ -986,16 +1002,16 @@ term_set_hash (hash_table_entry_t s)
 {
   /* Read-only access to the term-set bits; keep pointers const to
      avoid casting away qualifiers at call sites. */
-  const term_set_el_t *set = ((const struct tab_term_set *) s)->set;
+  const term_set_el_t *set = YAEP_STATIC_CAST(const struct tab_term_set *, s)->set;
   const term_set_el_t *bound;
-  int size;
+  size_t size;
   unsigned result = jauquet_prime_mod32;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-    / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
-    result = result * hash_shift + *set++;
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned, *set++);
   return result;
 }
 
@@ -1003,13 +1019,13 @@ term_set_hash (hash_table_entry_t s)
 static int
 term_set_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const term_set_el_t *set1 = ((const struct tab_term_set *) s1)->set;
-  const term_set_el_t *set2 = ((const struct tab_term_set *) s2)->set;
+  const term_set_el_t *set1 = YAEP_STATIC_CAST(const struct tab_term_set *, s1)->set;
+  const term_set_el_t *set2 = YAEP_STATIC_CAST(const struct tab_term_set *, s2)->set;
   const term_set_el_t *bound;
-  int size;
+  size_t size;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-    / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set1 + size;
   while (set1 < bound)
     if (*set1++ != *set2++)
@@ -1029,8 +1045,8 @@ term_set_init (struct grammar *g, struct term_sets **out_term_sets)
 
   assert (g != NULL);
 
-  result = (struct term_sets *) yaep_malloc (g->alloc,
-                                             sizeof (struct term_sets));
+  result = YAEP_STATIC_CAST(struct term_sets *, yaep_malloc (g->alloc,
+                                             sizeof (struct term_sets)));
   if (result == NULL)
     {
       yaep_set_error (g, YAEP_NO_MEMORY,
@@ -1129,16 +1145,16 @@ fail:
 static term_set_el_t *
 term_set_create (void)
 {
-  int size;
+  size_t size;
   term_set_el_t *result;
 
   assert (sizeof (term_set_el_t) <= 8);
   size = 8;
   /* Make it 64 bit multiple to have the same statistics for 64 bit
      machines. */
-  size = ((symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8;
-  OS_TOP_EXPAND (term_sets_ptr->term_set_os, size);
-  result = (term_set_el_t *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
+  size = YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8u;
+  OS_TOP_EXPAND (term_sets_ptr->term_set_os, YAEP_STATIC_CAST(size_t, size));
+  result = YAEP_STATIC_CAST(term_set_el_t *, OS_TOP_BEGIN (term_sets_ptr->term_set_os));
   OS_TOP_FINISH (term_sets_ptr->term_set_os);
   term_sets_ptr->n_term_sets++;
   term_sets_ptr->n_term_sets_size += size;
@@ -1153,10 +1169,10 @@ static void
 term_set_clear (term_set_el_t * set)
 {
   term_set_el_t *bound;
-  int size;
+  size_t size;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   while (set < bound)
     *set++ = 0;
@@ -1170,10 +1186,10 @@ static void
 term_set_copy (term_set_el_t * dest, term_set_el_t * src)
 {
   term_set_el_t *bound;
-  int size;
+  size_t size;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = dest + size;
   while (dest < bound)
     *dest++ = *src++;
@@ -1188,10 +1204,11 @@ static int
 term_set_or (term_set_el_t * set, term_set_el_t * op)
 {
   term_set_el_t *bound;
-  int size, changed_p;
+  size_t size;
+  int changed_p;
 
-  size = ((symbs_ptr->n_terms + CHAR_BIT * sizeof (term_set_el_t) - 1)
-	  / (CHAR_BIT * sizeof (term_set_el_t)));
+  size = ((symbs_ptr->n_terms + YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)) - 1)
+    / YAEP_STATIC_CAST(size_t, CHAR_BIT * sizeof (term_set_el_t)));
   bound = set + size;
   changed_p = 0;
   while (set < bound)
@@ -1214,9 +1231,9 @@ term_set_up (term_set_el_t * set, int num)
   int ind, changed_p;
   term_set_el_t bit;
 
-  assert (num < symbs_ptr->n_terms);
-  ind = num / (CHAR_BIT * sizeof (term_set_el_t));
-  bit = ((term_set_el_t) 1) << (num % (CHAR_BIT * sizeof (term_set_el_t)));
+  assert (YAEP_STATIC_CAST(size_t, num) < symbs_ptr->n_terms);
+  ind = num / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t));
+  bit = YAEP_STATIC_CAST(term_set_el_t, 1) << (num % YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   changed_p = (set[ind] & bit ? 0 : 1);
   set[ind] |= bit;
   return changed_p;
@@ -1232,9 +1249,9 @@ term_set_test (term_set_el_t * set, int num)
   int ind;
   term_set_el_t bit;
 
-  assert (num >= 0 && num < symbs_ptr->n_terms);
-  ind = num / (CHAR_BIT * sizeof (term_set_el_t));
-  bit = ((term_set_el_t) 1) << (num % (CHAR_BIT * sizeof (term_set_el_t)));
+  assert (num >= 0 && YAEP_STATIC_CAST(size_t, num) < symbs_ptr->n_terms);
+  ind = num / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t));
+  bit = YAEP_STATIC_CAST(term_set_el_t, 1) << (num % YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   return (set[ind] & bit) != 0;
 }
 
@@ -1255,26 +1272,30 @@ term_set_insert (term_set_el_t * set)
     /* Treat stored table entries as const when only reading to avoid
        casting away qualifiers. The actual objects are owned elsewhere
        and are mutable, but we only need read access here. */
-    return -((const struct tab_term_set *) *entry)->num - 1;
+    return -YAEP_STATIC_CAST(const struct tab_term_set *, *entry)->num - 1;
   else
     {
       OS_TOP_EXPAND (term_sets_ptr->term_set_os,
-		     sizeof (struct tab_term_set));
+        YAEP_STATIC_CAST(size_t, sizeof (struct tab_term_set)));
       tab_term_set_ptr =
-	(struct tab_term_set *) OS_TOP_BEGIN (term_sets_ptr->term_set_os);
+	YAEP_STATIC_CAST(struct tab_term_set *, OS_TOP_BEGIN (term_sets_ptr->term_set_os));
       OS_TOP_FINISH (term_sets_ptr->term_set_os);
     /* Insert owned tab_term_set_ptr into the table. Cast through
       (void*) to make the intention explicit and avoid warnings. */
     /* Insert owned tab_term_set_ptr into the table. Cast through
       (void*) to make the intention explicit and avoid warnings. */
-    *entry = (hash_table_entry_t) (void *) tab_term_set_ptr;
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, tab_term_set_ptr));
       tab_term_set_ptr->set = set;
-      tab_term_set_ptr->num = (VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-			       / sizeof (struct tab_term_set *));
+  {
+    size_t _tmp_tab_term_set_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+       / sizeof (struct tab_term_set *));
+    assert (_tmp_tab_term_set_n <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    tab_term_set_ptr->num = YAEP_STATIC_CAST(int, _tmp_tab_term_set_n);
+  }
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
   /* See comment above: use a const-qualified view for reads. */
-  return ((const struct tab_term_set *) *entry)->num;
+  return YAEP_STATIC_CAST(const struct tab_term_set *, *entry)->num;
     }
 }
 
@@ -1286,23 +1307,23 @@ INLINE
 static term_set_el_t *
 term_set_from_table (int num)
 {
-  assert (num < VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-	  / sizeof (struct tab_term_set *));
-  return ((struct tab_term_set **)
-	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo))[num]->set;
+  assert (YAEP_STATIC_CAST(size_t, num) < YAEP_STATIC_CAST(size_t, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+      / sizeof (struct tab_term_set *)));
+  return (YAEP_STATIC_CAST(struct tab_term_set **,
+	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo)))[num]->set;
 }
 
 /* Print terminal SET into file F. */
 static void
 term_set_print (FILE * f, term_set_el_t * set)
 {
-  int i;
+  size_t i;
 
   for (i = 0; i < symbs_ptr->n_terms; i++)
-    if (term_set_test (set, i))
+    if (term_set_test (set, YAEP_STATIC_CAST(int, i)))
       {
-	fprintf (f, " ");
-	symb_print (f, term_get (i), FALSE);
+    fprintf (f, " ");
+    symb_print (f, term_get (YAEP_STATIC_CAST(int, i)), FALSE);
       }
 }
 
@@ -1400,7 +1421,7 @@ rule_init (struct grammar *g, struct rules **out_rules)
 
   assert (g != NULL);
 
-  result = (struct rules *) yaep_malloc (g->alloc, sizeof (struct rules));
+  result = YAEP_STATIC_CAST(struct rules *, yaep_malloc (g->alloc, sizeof (struct rules)));
   if (result == NULL)
     {
       yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate rule storage");
@@ -1446,7 +1467,7 @@ rule_new_start (struct symb *lhs, const char *anode, int anode_cost)
 
   assert (!lhs->term_p);
   OS_TOP_EXPAND (rules_ptr->rules_os, sizeof (struct rule));
-  rule = (struct rule *) OS_TOP_BEGIN (rules_ptr->rules_os);
+  rule = YAEP_STATIC_CAST(struct rule *, OS_TOP_BEGIN (rules_ptr->rules_os));
   OS_TOP_FINISH (rules_ptr->rules_os);
   rule->lhs = lhs;
   if (anode == NULL)
@@ -1457,7 +1478,7 @@ rule_new_start (struct symb *lhs, const char *anode, int anode_cost)
   else
     {
       OS_TOP_ADD_STRING (rules_ptr->rules_os, anode);
-      rule->anode = (char *) OS_TOP_BEGIN (rules_ptr->rules_os);
+      rule->anode = YAEP_STATIC_CAST(char *, OS_TOP_BEGIN (rules_ptr->rules_os));
       OS_TOP_FINISH (rules_ptr->rules_os);
       rule->anode_cost = anode_cost;
     }
@@ -1471,7 +1492,7 @@ rule_new_start (struct symb *lhs, const char *anode, int anode_cost)
   rule->rhs_len = 0;
   empty = NULL;
   OS_TOP_ADD_MEMORY (rules_ptr->rules_os, &empty, sizeof (struct symb *));
-  rule->rhs = (struct symb **) OS_TOP_BEGIN (rules_ptr->rules_os);
+  rule->rhs = YAEP_STATIC_CAST(struct symb **, OS_TOP_BEGIN (rules_ptr->rules_os));
   rules_ptr->curr_rule = rule;
   if (rules_ptr->first_rule == NULL)
     rules_ptr->first_rule = rule;
@@ -1489,7 +1510,7 @@ rule_new_symb_add (struct symb *symb)
   empty = NULL;
   OS_TOP_ADD_MEMORY (rules_ptr->rules_os, &empty, sizeof (struct symb *));
   rules_ptr->curr_rule->rhs
-    = (struct symb **) OS_TOP_BEGIN (rules_ptr->rules_os);
+    = YAEP_STATIC_CAST(struct symb **, OS_TOP_BEGIN (rules_ptr->rules_os));
   rules_ptr->curr_rule->rhs[rules_ptr->curr_rule->rhs_len] = symb;
   rules_ptr->curr_rule->rhs_len++;
   rules_ptr->n_rhs_lens++;
@@ -1504,8 +1525,8 @@ rule_new_stop (void)
 
   OS_TOP_FINISH (rules_ptr->rules_os);
   OS_TOP_EXPAND (rules_ptr->rules_os,
-		 rules_ptr->curr_rule->rhs_len * sizeof (int));
-  rules_ptr->curr_rule->order = (int *) OS_TOP_BEGIN (rules_ptr->rules_os);
+		 YAEP_STATIC_CAST(size_t, rules_ptr->curr_rule->rhs_len) * sizeof (int));
+  rules_ptr->curr_rule->order = YAEP_STATIC_CAST(int *, OS_TOP_BEGIN (rules_ptr->rules_os));
   OS_TOP_FINISH (rules_ptr->rules_os);
   for (i = 0; i < rules_ptr->curr_rule->rhs_len; i++)
     rules_ptr->curr_rule->order[i] = -1;
@@ -1537,7 +1558,7 @@ rule_print (FILE * f, struct rule *rule, int trans_p)
 	  for (j = 0; j < rule->rhs_len; j++)
 	    if (rule->order[j] == i)
 	      {
-		fprintf (f, " %d:", j);
+		fprintf (f, " %ld:", YAEP_STATIC_CAST(long, j));
 		symb_print (f, rule->rhs[j], FALSE);
 		break;
 	      }
@@ -1651,22 +1672,22 @@ tok_add (int code, void *attr)
   tok.symb = symb;
 
   VLO_ADD_MEMORY (toks_vlo, &tok, sizeof (struct tok));
-  toks = (struct tok *) VLO_BEGIN (toks_vlo);
+  toks = YAEP_STATIC_CAST(struct tok *, VLO_BEGIN (toks_vlo));
   toks_len++;
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
       fprintf (stderr, "YAEP_DEBUG_TOK_ADD code=%d attr=%p symb=%p toks=%p toks_len=%d\n",
-               code, attr, (void *) symb, (void *) toks, toks_len);
+               code, attr, YAEP_STATIC_CAST(void *, symb), YAEP_STATIC_CAST(void *, toks), toks_len);
       fflush (stderr);
       /* Detect ASan-poisoned pointer pattern (0xbebebebebebebebe) early and
          print a backtrace to help locate the corruption site. */
       {
-        uintptr_t s = (uintptr_t) symb;
-        if ((s & 0xffffffffULL) == 0xbebebebeULL || s == (uintptr_t)0xbebebebebebebebeULL)
+        uintptr_t s = YAEP_REINTERPRET_CAST(uintptr_t, symb);
+        if ((s & 0xffffffffULL) == 0xbebebebeULL || s == YAEP_STATIC_CAST(uintptr_t, 0xbebebebebebebebeULL))
           {
             void *bt[32];
             int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
-            fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", (void *) symb);
+            fprintf (stderr, "YAEP_DEBUG_POISON_DETECTED symb=%p backtrace:\n", YAEP_STATIC_CAST(void *, symb));
             backtrace_symbols_fd (bt, n, STDERR_FILENO);
             fflush (stderr);
             /* Abort so ASan/runner reports the exact site in native tooling. */
@@ -1678,7 +1699,7 @@ tok_add (int code, void *attr)
          even if it doesn't match the exact ASan poison pattern. */
       {
   size_t n_symbs = VLO_NELS (symbs_ptr->symbs_vlo, struct symb *);
-        struct symb **symb_arr = (struct symb **) VLO_BEGIN (symbs_ptr->symbs_vlo);
+        struct symb **symb_arr = YAEP_STATIC_CAST(struct symb **, VLO_BEGIN (symbs_ptr->symbs_vlo));
         size_t si;
         int found = 0;
         for (si = 0; si < n_symbs; ++si)
@@ -1694,7 +1715,7 @@ tok_add (int code, void *attr)
             void *bt[32];
             int n = backtrace (bt, sizeof (bt) / sizeof (bt[0]));
             fprintf (stderr, "YAEP_DEBUG_SYMB_NOT_IN_VLO symb=%p toks=%p toks_len=%d n_symbs=%zu\n",
-                     (void *) symb, (void *) toks, toks_len, n_symbs);
+                     YAEP_STATIC_CAST(void *, symb), YAEP_STATIC_CAST(void *, toks), toks_len, n_symbs);
             backtrace_symbols_fd (bt, n, STDERR_FILENO);
             fflush (stderr);
             abort ();
@@ -1776,7 +1797,7 @@ sit_init (void)
   n_all_sits = 0;
   OS_CREATE (sits_os, grammar->alloc, 0);
   VLO_CREATE (sit_table_vlo, grammar->alloc, 4096);
-  sit_table = (struct sit ***) VLO_BEGIN (sit_table_vlo);
+  sit_table = YAEP_STATIC_CAST(struct sit ***, VLO_BEGIN (sit_table_vlo));
 }
 
 /* The following function sets up lookahead of situation SIT.  The
@@ -1834,7 +1855,7 @@ sit_create (struct rule *rule, int pos, int context)
   assert (context >= 0);
   context_sit_table_ptr = sit_table + context;
   /* Cast pointers to char* for pointer arithmetic, as required by C standard. */
-  if ((char *) context_sit_table_ptr >= (char *) VLO_BOUND (sit_table_vlo))
+  if (YAEP_REINTERPRET_CAST(char *, context_sit_table_ptr) >= YAEP_REINTERPRET_CAST(char *, VLO_BOUND (sit_table_vlo)))
     {
       struct sit ***bound, ***ptr;
       int i, diff;
@@ -1842,20 +1863,20 @@ sit_create (struct rule *rule, int pos, int context)
       assert ((grammar->lookahead_level <= 1 && context == 0)
 	      || (grammar->lookahead_level > 1 && context >= 0));
     /* Compute difference in bytes between pointers. */
-    diff = (int)((uintptr_t)context_sit_table_ptr - (uintptr_t)VLO_BOUND (sit_table_vlo));
-      diff += sizeof (struct sit **);
-      if (grammar->lookahead_level > 1 && diff == sizeof (struct sit **))
+    diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(uintptr_t, context_sit_table_ptr) - YAEP_REINTERPRET_CAST(uintptr_t, VLO_BOUND (sit_table_vlo))));
+      diff += YAEP_STATIC_CAST(int, sizeof (struct sit **));
+      if (grammar->lookahead_level > 1 && diff == YAEP_STATIC_CAST(int, sizeof (struct sit **)))
 	diff *= 10;
-      VLO_EXPAND (sit_table_vlo, diff);
-      sit_table = (struct sit ***) VLO_BEGIN (sit_table_vlo);
-      bound = (struct sit ***) VLO_BOUND (sit_table_vlo);
+      VLO_EXPAND (sit_table_vlo, YAEP_STATIC_CAST(size_t, diff));
+      sit_table = YAEP_STATIC_CAST(struct sit ***, VLO_BEGIN (sit_table_vlo));
+      bound = YAEP_STATIC_CAST(struct sit ***, VLO_BOUND (sit_table_vlo));
       context_sit_table_ptr = sit_table + context;
-      ptr = bound - diff / sizeof (struct sit **);
+      ptr = bound - diff / YAEP_STATIC_CAST(int, sizeof (struct sit **));
       while (ptr < bound)
 	{
-	  OS_TOP_EXPAND (sits_os, (rules_ptr->n_rhs_lens + rules_ptr->n_rules)
+	  OS_TOP_EXPAND (sits_os, YAEP_STATIC_CAST(size_t, (rules_ptr->n_rhs_lens + rules_ptr->n_rules))
 			 * sizeof (struct sit *));
-	  *ptr = (struct sit **) OS_TOP_BEGIN (sits_os);
+	  *ptr = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (sits_os));
 	  OS_TOP_FINISH (sits_os);
 	  for (i = 0; i < rules_ptr->n_rhs_lens + rules_ptr->n_rules; i++)
 	    (*ptr)[i] = NULL;
@@ -1865,14 +1886,14 @@ sit_create (struct rule *rule, int pos, int context)
   if ((sit = (*context_sit_table_ptr)[rule->rule_start_offset + pos]) != NULL)
     return sit;
   OS_TOP_EXPAND (sits_os, sizeof (struct sit));
-  sit = (struct sit *) OS_TOP_BEGIN (sits_os);
+  sit = YAEP_STATIC_CAST(struct sit *, OS_TOP_BEGIN (sits_os));
   OS_TOP_FINISH (sits_os);
   n_all_sits++;
   sit->rule = rule;
-  sit->pos = pos;
+  sit->pos = YAEP_STATIC_CAST(short, pos);
   sit->sit_number = n_all_sits;
   sit->context = context;
-  sit->empty_tail_p = sit_set_lookahead (sit);
+  sit->empty_tail_p = YAEP_STATIC_CAST(char, sit_set_lookahead (sit));
 #ifdef TRANSITIVE_TRANSITION
   sit->sit_check = 0;
 #endif
@@ -1909,7 +1930,7 @@ sits_hash (int n_sits, struct sit **sits)
   for (i = 0; i < n_sits; i++)
     {
       n = sits[i]->sit_number;
-      result = result * hash_shift + n;
+      result = result * hash_shift + YAEP_STATIC_CAST(unsigned, n);
     }
   return result;
 }
@@ -2091,15 +2112,16 @@ static hash_table_t set_term_lookahead_tab;	/* key is (core, distances, lookeahe
 static unsigned
 set_core_hash (hash_table_entry_t s)
 {
-  return ((struct set *) s)->core->hash;
+  const struct set *cs = YAEP_STATIC_CAST(const struct set *, s);
+  return cs->core->hash;
 }
 
 /* Equality of set cores. */
 static int
 set_core_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct set_core *set_core1 = ((struct set *) s1)->core;
-  struct set_core *set_core2 = ((struct set *) s2)->core;
+  const struct set_core *set_core1 = (YAEP_STATIC_CAST(const struct set *, s1))->core;
+  const struct set_core *set_core2 = (YAEP_STATIC_CAST(const struct set *, s2))->core;
   struct sit **sit_ptr1, **sit_ptr2, **sit_bound1;
 
   if (set_core1->n_start_sits != set_core2->n_start_sits)
@@ -2117,19 +2139,22 @@ set_core_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 static unsigned
 dists_hash (hash_table_entry_t s)
 {
-  return ((struct set *) s)->dists_hash;
+  const struct set *cs = YAEP_STATIC_CAST(const struct set *, s);
+  return cs->dists_hash;
 }
 
 /* Equality of distances. */
 static int
 dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  int *dists1 = ((struct set *) s1)->dists;
-  int *dists2 = ((struct set *) s2)->dists;
-  int n_dists = ((struct set *) s1)->core->n_start_sits;
+  const struct set *set1c = YAEP_STATIC_CAST(const struct set *, s1);
+  const struct set *set2c = YAEP_STATIC_CAST(const struct set *, s2);
+  int *dists1 = set1c->dists;
+  int *dists2 = set2c->dists;
+  int n_dists = set1c->core->n_start_sits;
   int *bound;
 
-  if (n_dists != ((struct set *) s2)->core->n_start_sits)
+  if (n_dists != (YAEP_STATIC_CAST(struct set *, s2))->core->n_start_sits)
     return FALSE;
   bound = dists1 + n_dists;
   while (dists1 < bound)
@@ -2149,10 +2174,12 @@ set_core_dists_hash (hash_table_entry_t s)
 static int
 set_core_dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct set_core *set_core1 = ((struct set *) s1)->core;
-  struct set_core *set_core2 = ((struct set *) s2)->core;
-  int *dists1 = ((struct set *) s1)->dists;
-  int *dists2 = ((struct set *) s2)->dists;
+  const struct set *set1c = YAEP_STATIC_CAST(const struct set *, s1);
+  const struct set *set2c = YAEP_STATIC_CAST(const struct set *, s2);
+  const struct set_core *set_core1 = set1c->core;
+  const struct set_core *set_core2 = set2c->core;
+  int *dists1 = set1c->dists;
+  int *dists2 = set2c->dists;
 
   return set_core1 == set_core2 && dists1 == dists2;
 }
@@ -2161,24 +2188,31 @@ set_core_dists_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 static unsigned
 set_term_lookahead_hash (hash_table_entry_t s)
 {
-  struct set *set = ((struct set_term_lookahead *) s)->set;
-  struct symb *term = ((struct set_term_lookahead *) s)->term;
-  int lookahead = ((struct set_term_lookahead *) s)->lookahead;
-
-  return ((set_core_dists_hash (set) * hash_shift
-	   + term->u.term.term_num) * hash_shift + lookahead);
+  const struct set_term_lookahead *triple = YAEP_STATIC_CAST(const struct set_term_lookahead *, s);
+  const struct set *set = triple->set;
+  const struct symb *term = triple->term;
+  int lookahead = triple->lookahead;
+  /* NOTE: Use union-based type punning to convert const pointer to non-const
+     for hash function call without triggering -Wcast-qual. The hash function
+     treats the pointer as opaque and does not mutate the object. */
+  union { const struct set *cs; void *v; } u;
+  u.cs = set;
+  return ((set_core_dists_hash (YAEP_STATIC_CAST(hash_table_entry_t, u.v)) * hash_shift
+	   + YAEP_STATIC_CAST(unsigned, term->u.term.term_num)) * hash_shift + YAEP_STATIC_CAST(unsigned, lookahead));
 }
 
 /* Equality of tripes (set, term, lookahead). */
 static int
 set_term_lookahead_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  struct set *set1 = ((struct set_term_lookahead *) s1)->set;
-  struct set *set2 = ((struct set_term_lookahead *) s2)->set;
-  struct symb *term1 = ((struct set_term_lookahead *) s1)->term;
-  struct symb *term2 = ((struct set_term_lookahead *) s2)->term;
-  int lookahead1 = ((struct set_term_lookahead *) s1)->lookahead;
-  int lookahead2 = ((struct set_term_lookahead *) s2)->lookahead;
+  const struct set_term_lookahead *t1 = YAEP_STATIC_CAST(const struct set_term_lookahead *, s1);
+  const struct set_term_lookahead *t2 = YAEP_STATIC_CAST(const struct set_term_lookahead *, s2);
+  const struct set *set1 = t1->set;
+  const struct set *set2 = t2->set;
+  const struct symb *term1 = t1->term;
+  const struct symb *term2 = t2->term;
+  int lookahead1 = t1->lookahead;
+  int lookahead2 = t2->lookahead;
 
   return set1 == set2 && term1 == term2 && lookahead1 == lookahead2;
 }
@@ -2224,45 +2258,53 @@ sit_dist_insert (struct sit *sit, int dist)
 
   sit_number = sit->sit_number;
   /* Expand the set to accommodate possibly a new situation.  */
-  len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
+  {
+    size_t _tmp_len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
+    assert (_tmp_len <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    len = YAEP_STATIC_CAST(int, _tmp_len);
+  }
   if (len <= sit_number)
     {
-      VLO_EXPAND (sit_dist_vec_vlo, (sit_number + 1 - len) * sizeof (vlo_t));
+      VLO_EXPAND (sit_dist_vec_vlo, YAEP_STATIC_CAST(size_t, sit_number + 1 - len) * sizeof (vlo_t));
       for (i = len; i <= sit_number; i++)
 #ifndef __cplusplus
-	VLO_CREATE (((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[i],
+	VLO_CREATE (STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[i],
 		    grammar->alloc, 64);
 #else
-	((vlo_t **) VLO_BEGIN (sit_dist_vec_vlo))[i] =
+	STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[i] =
 	  new vlo (grammar->alloc, 64);
 #endif
     }
 #ifndef __cplusplus
-  check_dist_vlo = &((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = VLO_NELS (*check_dist_vlo, int);
+  check_dist_vlo = &STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
+  {
+    size_t _tmp_len = VLO_NELS (*check_dist_vlo, int);
+    assert (_tmp_len <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    len = YAEP_STATIC_CAST(int, _tmp_len);
+  }
   if (len <= dist)
     {
       /* Expand VLO to accommodate new distance, avoid conversion warnings. */
-      VLO_EXPAND (*check_dist_vlo, (dist + 1 - len) * sizeof (int));
+      VLO_EXPAND (*check_dist_vlo, YAEP_STATIC_CAST(size_t, dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
-        ((int *) VLO_BEGIN (*check_dist_vlo))[i] = 0;
+        STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[i] = 0;
     }
-  if (((int *) VLO_BEGIN (*check_dist_vlo))[dist] == curr_sit_dist_vec_check)
+  if (STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[dist] == curr_sit_dist_vec_check)
     return FALSE;
-  ((int *) VLO_BEGIN (*check_dist_vlo))[dist] = curr_sit_dist_vec_check;
+  STATIC_CAST(int *, VLO_BEGIN (*check_dist_vlo))[dist] = curr_sit_dist_vec_check;
   return TRUE;
 #else
-  check_dist_vlo = ((vlo_t **) VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = check_dist_vlo->length () / sizeof (int);
+  check_dist_vlo = STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
+  len = YAEP_STATIC_CAST(int, check_dist_vlo->length () / sizeof (int));
   if (len <= dist)
     {
-      check_dist_vlo->expand ((dist + 1 - len) * sizeof (int));
+      check_dist_vlo->expand (YAEP_STATIC_CAST(size_t, dist + 1 - len) * sizeof (int));
       for (i = len; i <= dist; i++)
-	((int *) check_dist_vlo->begin ())[i] = 0;
+	YAEP_STATIC_CAST(int *, check_dist_vlo->begin ())[i] = 0;
     }
-  if (((int *) check_dist_vlo->begin ())[dist] == curr_sit_dist_vec_check)
+  if (YAEP_STATIC_CAST(int *, check_dist_vlo->begin ())[dist] == curr_sit_dist_vec_check)
     return FALSE;
-  ((int *) check_dist_vlo->begin ())[dist] = curr_sit_dist_vec_check;
+  YAEP_STATIC_CAST(int *, check_dist_vlo->begin ())[dist] = curr_sit_dist_vec_check;
   return TRUE;
 #endif
 }
@@ -2276,9 +2318,9 @@ sit_dist_set_fin (void)
 
   for (i = 0; i < len; i++)
 #ifndef __cplusplus
-    VLO_DELETE (((vlo_t *) VLO_BEGIN (sit_dist_vec_vlo))[i]);
+    VLO_DELETE (STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[i]);
 #else
-    delete ((vlo_t **) VLO_BEGIN (sit_dist_vec_vlo))[i];
+    delete STATIC_CAST(vlo_t **, VLO_BEGIN (sit_dist_vec_vlo))[i];
 #endif
   VLO_DELETE (sit_dist_vec_vlo);
 }
@@ -2321,13 +2363,13 @@ set_init (int n_toks)
   set_core_tab =
     create_hash_table (grammar->alloc, 2000, set_core_hash, set_core_eq);
   set_dists_tab =
-    create_hash_table (grammar->alloc, n < 20000 ? 20000 : n, dists_hash,
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, (n < 20000 ? 20000 : n)), dists_hash,
 		       dists_eq);
   set_tab =
-    create_hash_table (grammar->alloc, n < 20000 ? 20000 : n,
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, (n < 20000 ? 20000 : n)),
 		       set_core_dists_hash, set_core_dists_eq);
   set_term_lookahead_tab =
-    create_hash_table (grammar->alloc, n < 30000 ? 30000 : n,
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, (n < 30000 ? 30000 : n)),
 		       set_term_lookahead_hash, set_term_lookahead_eq);
   n_set_cores = n_set_core_start_sits = 0;
   n_set_dists = n_set_dists_len = n_parent_indexes = 0;
@@ -2369,10 +2411,10 @@ set_new_add_start_sit (struct sit *sit, int dist)
   assert (!new_set_ready_p);
   /* Expand object stack for new distance entry. */
   OS_TOP_EXPAND (set_dists_os, sizeof (int));
-  new_dists = (int *) OS_TOP_BEGIN (set_dists_os);
+  new_dists = YAEP_STATIC_CAST(int *, OS_TOP_BEGIN (set_dists_os));
   /* Expand object stack for new sit pointer. */
   OS_TOP_EXPAND (set_sits_os, sizeof (struct sit *));
-  new_sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
+  new_sits = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (set_sits_os));
   new_sits[new_n_start_sits] = sit;
   new_dists[new_n_start_sits] = dist;
   new_n_start_sits++;
@@ -2398,10 +2440,10 @@ set_add_new_nonstart_sit (struct sit *sit, int parent)
     if (new_sits[i] == sit && new_core->parent_indexes[i] == parent)
       return;
   OS_TOP_EXPAND (set_sits_os, sizeof (struct sit *));
-  new_sits = new_core->sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
+  new_sits = new_core->sits = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (set_sits_os));
   OS_TOP_EXPAND (set_parent_indexes_os, sizeof (int));
   new_core->parent_indexes
-    = (int *) OS_TOP_BEGIN (set_parent_indexes_os) - new_n_start_sits;
+    = YAEP_STATIC_CAST(int *, OS_TOP_BEGIN (set_parent_indexes_os)) - new_n_start_sits;
   new_sits[new_core->n_sits++] = sit;
   new_core->parent_indexes[new_core->n_all_dists++] = parent;
   n_parent_indexes++;
@@ -2428,7 +2470,7 @@ set_new_add_initial_sit (struct sit *sit)
       return;
   /* Remember we do not store distance for non-start situations. */
   OS_TOP_ADD_MEMORY (set_sits_os, &sit, sizeof (struct sit *));
-  new_sits = new_core->sits = (struct sit **) OS_TOP_BEGIN (set_sits_os);
+  new_sits = new_core->sits = YAEP_STATIC_CAST(struct sit **, OS_TOP_BEGIN (set_sits_os));
   new_core->n_sits++;
 }
 
@@ -2436,7 +2478,7 @@ set_new_add_initial_sit (struct sit *sit)
 static void
 setup_set_dists_hash (hash_table_entry_t s)
 {
-  struct set *set = ((struct set *) s);
+  struct set *set = YAEP_STATIC_CAST(struct set *, s);
   int *dist_ptr = set->dists;
   int n_dists = set->core->n_start_sits;
   int *dist_bound;
@@ -2445,7 +2487,7 @@ setup_set_dists_hash (hash_table_entry_t s)
   dist_bound = dist_ptr + n_dists;
   result = jauquet_prime_mod32;
   while (dist_ptr < dist_bound)
-    result = result * hash_shift + *dist_ptr++;
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned, *dist_ptr++);
   set->dists_hash = result;
 }
 
@@ -2453,7 +2495,7 @@ setup_set_dists_hash (hash_table_entry_t s)
 static void
 setup_set_core_hash (hash_table_entry_t s)
 {
-  struct set_core *set_core = ((struct set *) s)->core;
+  struct set_core *set_core = YAEP_STATIC_CAST(struct set *, s)->core;
 
   set_core->hash = sits_hash (set_core->n_start_sits, set_core->sits);
 }
@@ -2472,10 +2514,10 @@ set_insert (void)
   int result;
 
   OS_TOP_EXPAND (sets_os, sizeof (struct set));
-  new_set = (struct set *) OS_TOP_BEGIN (sets_os);
+  new_set = YAEP_STATIC_CAST(struct set *, OS_TOP_BEGIN (sets_os));
   new_set->dists = new_dists;
   OS_TOP_EXPAND (set_cores_os, sizeof (struct set_core));
-  new_set->core = new_core = (struct set_core *) OS_TOP_BEGIN (set_cores_os);
+  new_set->core = new_core = YAEP_STATIC_CAST(struct set_core *, OS_TOP_BEGIN (set_cores_os));
   new_core->n_start_sits = new_n_start_sits;
   new_core->sits = new_sits;
   new_set_ready_p = TRUE;
@@ -2487,7 +2529,7 @@ set_insert (void)
     {
       /* Read-only access to the stored set's dists; use const to make
          it explicit we won't mutate the stored object here. */
-      new_dists = new_set->dists = ((const struct set *) *entry)->dists;
+      new_dists = new_set->dists = YAEP_STATIC_CAST(const struct set *, *entry)->dists;
       OS_TOP_NULLIFY (set_dists_os);
     }
   else
@@ -2497,7 +2539,7 @@ set_insert (void)
       deliberate cast to hash_table_entry_t (through void*). */
     /* new_set is owned and mutable; store it in the table via a
       deliberate cast to hash_table_entry_t (through void*). */
-    *entry = (hash_table_entry_t) (void *) new_set;
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set));
       n_set_dists++;
       n_set_dists_len += new_n_start_sits;
     }
@@ -2512,9 +2554,8 @@ set_insert (void)
   if (*entry != NULL)
     {
       OS_TOP_NULLIFY (set_cores_os);
-      /* The stored set in the table is not modified here; access via
-         a const-qualified pointer to avoid casting away qualifiers. */
-      new_set->core = new_core = ((const struct set *) *entry)->core;
+    /* Reuse existing set core (hash table entry already stores mutable struct set*). */
+    new_set->core = new_core = YAEP_STATIC_CAST(struct set *, *entry)->core;
       new_sits = new_core->sits;
       OS_TOP_NULLIFY (set_sits_os);
       result = FALSE;
@@ -2528,7 +2569,7 @@ set_insert (void)
       new_core->parent_indexes = NULL;
   /* See above: store owned mutable set in hash table. */
   /* See above: store owned mutable set in hash table. */
-  *entry = (hash_table_entry_t) (void *) new_set;
+  *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set));
       n_set_core_start_sits += new_n_start_sits;
       result = TRUE;
     }
@@ -2537,14 +2578,14 @@ set_insert (void)
   entry = find_hash_table_entry (set_tab, new_set, TRUE);
   if (*entry == NULL)
     {
-  *entry = (hash_table_entry_t) (void *) new_set;
+  *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set));
       n_sets++;
       n_sets_start_sits += new_n_start_sits;
       OS_TOP_FINISH (sets_os);
     }
   else
     {
-      new_set = (struct set *) *entry;
+  new_set = YAEP_STATIC_CAST(struct set *, *entry);
       OS_TOP_NULLIFY (sets_os);
     }
 #else
@@ -2674,8 +2715,8 @@ pl_create (void)
 
   /* Because of error recovery we may have sets 2 times more than tokens. */
   mem =
-    yaep_malloc (grammar->alloc, sizeof (struct set *) * (toks_len + 1) * 2);
-  pl = (struct set **) mem;
+    yaep_malloc (grammar->alloc, sizeof (struct set *) * YAEP_STATIC_CAST(size_t, toks_len + 1) * 2);
+  pl = YAEP_STATIC_CAST(struct set **, mem);
   pl_curr = -1;
 }
 
@@ -2732,29 +2773,29 @@ vlo_array_expand (void)
 #ifndef __cplusplus
   vlo_t *vlo_ptr;
 
-  if ((unsigned) vlo_array_len >= VLO_NELS (vlo_array, vlo_t))
+  if (YAEP_STATIC_CAST(size_t, vlo_array_len) >= VLO_NELS (vlo_array, vlo_t))
     {
       VLO_EXPAND (vlo_array, sizeof (vlo_t));
-      vlo_ptr = &((vlo_t *) VLO_BEGIN (vlo_array))[vlo_array_len];
+      vlo_ptr = &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[vlo_array_len];
       VLO_CREATE (*vlo_ptr, grammar->alloc, 64);
     }
   else
     {
-      vlo_ptr = &((vlo_t *) VLO_BEGIN (vlo_array))[vlo_array_len];
+      vlo_ptr = &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[vlo_array_len];
       VLO_NULLIFY (*vlo_ptr);
     }
 #else
   vlo_t **vlo_ptr;
 
-  if ((unsigned) vlo_array_len >= vlo_array->length () / sizeof (vlo_t *))
+  if (YAEP_STATIC_CAST(unsigned, vlo_array_len) >= vlo_array->length () / sizeof (vlo_t *))
     {
       vlo_array->expand (sizeof (vlo_t *));
-      vlo_ptr = &((vlo_t **) vlo_array->begin ())[vlo_array_len];
+      vlo_ptr = &(YAEP_STATIC_CAST(vlo_t **, vlo_array->begin ()))[vlo_array_len];
       *vlo_ptr = new vlo (grammar->alloc, 64);
     }
   else
     {
-      vlo_ptr = &((vlo_t **) vlo_array->begin ())[vlo_array_len];
+      vlo_ptr = &(YAEP_STATIC_CAST(vlo_t **, vlo_array->begin ()))[vlo_array_len];
       (*vlo_ptr)->nullify ();
     }
 #endif
@@ -2780,9 +2821,9 @@ vlo_array_el (int index)
 {
   assert (index >= 0 && vlo_array_len > index);
 #ifndef __cplusplus
-  return &((vlo_t *) VLO_BEGIN (vlo_array))[index];
+  return &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[index];
 #else
-  return ((vlo_t **) vlo_array->begin ())[index];
+  return (YAEP_STATIC_CAST(vlo_t **, vlo_array->begin ()))[index];
 #endif
 }
 
@@ -2796,15 +2837,15 @@ vlo_array_fin (void)
 #ifndef __cplusplus
   vlo_t *vlo_ptr;
 
-  for (vlo_ptr = VLO_BEGIN (vlo_array);
-       (char *) vlo_ptr < (char *) VLO_BOUND (vlo_array); vlo_ptr++)
+  for (vlo_ptr = YAEP_STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array));
+       YAEP_REINTERPRET_CAST(char *, vlo_ptr) < YAEP_REINTERPRET_CAST(char *, VLO_BOUND (vlo_array)); vlo_ptr++)
     VLO_DELETE (*vlo_ptr);
   VLO_DELETE (vlo_array);
 #else
   vlo_t **vlo_ptr;
 
-  for (vlo_ptr = (vlo_t **) vlo_array->begin ();
-       (char *) vlo_ptr < (char *) vlo_array->bound (); vlo_ptr++)
+  for (vlo_ptr = YAEP_REINTERPRET_CAST(vlo_t **, vlo_array->begin ());
+       YAEP_REINTERPRET_CAST(char *, vlo_ptr) < YAEP_REINTERPRET_CAST(char *, vlo_array->bound ()); vlo_ptr++)
     delete *vlo_ptr;
   delete vlo_array;
 #endif
@@ -2969,7 +3010,7 @@ vect_els_hash (const struct vect *v)
   int i;
 
   for (i = 0; i < v->len; i++)
-    result = result * hash_shift + v->els[i];
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned, v->els[i]);
   return result;
 }
 
@@ -2993,7 +3034,7 @@ vect_els_eq (const struct vect *v1, const struct vect *v2)
 static unsigned
 transition_els_hash (hash_table_entry_t t)
 {
-  const struct core_symb_vect *cv = (const struct core_symb_vect *) t;
+  const struct core_symb_vect *cv = YAEP_STATIC_CAST(const struct core_symb_vect *, t);
   return vect_els_hash (&cv->transitions);
 }
 
@@ -3001,8 +3042,8 @@ transition_els_hash (hash_table_entry_t t)
 static int
 transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  const struct core_symb_vect *cv1 = (const struct core_symb_vect *) t1;
-  const struct core_symb_vect *cv2 = (const struct core_symb_vect *) t2;
+  const struct core_symb_vect *cv1 = YAEP_STATIC_CAST(const struct core_symb_vect *, t1);
+  const struct core_symb_vect *cv2 = YAEP_STATIC_CAST(const struct core_symb_vect *, t2);
   return vect_els_eq (&cv1->transitions, &cv2->transitions);
 }
 
@@ -3011,7 +3052,7 @@ transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 static unsigned
 transitive_transition_els_hash (hash_table_entry_t t)
 {
-  return vect_els_hash (&((struct core_symb_vect *) t)->
+  return vect_els_hash (&YAEP_STATIC_CAST(struct core_symb_vect *, t)->
 			transitive_transitions);
 }
 
@@ -3019,8 +3060,8 @@ transitive_transition_els_hash (hash_table_entry_t t)
 static int
 transitive_transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  return vect_els_eq (&((struct core_symb_vect *) t1)->transitive_transitions,
-		      &((struct core_symb_vect *) t2)->
+  return vect_els_eq (&YAEP_STATIC_CAST(struct core_symb_vect *, t1)->transitive_transitions,
+		      &YAEP_STATIC_CAST(struct core_symb_vect *, t2)->
 		      transitive_transitions);
 }
 #endif
@@ -3029,15 +3070,15 @@ transitive_transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 static unsigned
 reduce_els_hash (hash_table_entry_t t)
 {
-  return vect_els_hash (&((struct core_symb_vect *) t)->reduces);
+  return vect_els_hash (&YAEP_STATIC_CAST(struct core_symb_vect *, t)->reduces);
 }
 
 /* Equality of reduce vector elements. */
 static int
 reduce_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  return vect_els_eq (&((struct core_symb_vect *) t1)->reduces,
-		      &((struct core_symb_vect *) t2)->reduces);
+  return vect_els_eq (&YAEP_STATIC_CAST(struct core_symb_vect *, t1)->reduces,
+		      &YAEP_STATIC_CAST(struct core_symb_vect *, t2)->reduces);
 }
 
 /* Initialize work with the triples (set core, symbol, vector). */
@@ -3068,11 +3109,11 @@ core_symb_vect_init (void)
 #ifndef __cplusplus
   VLO_CREATE (core_symb_table_vlo, grammar->alloc, 4096);
   core_symb_table
-    = (struct core_symb_vect ***) VLO_BEGIN (core_symb_table_vlo);
+    = YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BEGIN (core_symb_table_vlo));
   OS_CREATE (core_symb_tab_rows, grammar->alloc, 8192);
 #else
   core_symb_table_vlo = new vlo (grammar->alloc, 4096);
-  core_symb_table = (struct core_symb_vect ***) core_symb_table_vlo->begin ();
+  core_symb_table = YAEP_STATIC_CAST(struct core_symb_vect ***, core_symb_table_vlo->begin ());
   core_symb_tab_rows = new os (grammar->alloc, 8192);
 #endif
 #endif
@@ -3149,55 +3190,56 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
 
   core_symb_vect_ptr = core_symb_table + set_core->num;
 #ifndef __cplusplus
-  if ((char *) core_symb_vect_ptr >= (char *) VLO_BOUND (core_symb_table_vlo))
+  if (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr) >= YAEP_REINTERPRET_CAST(char *, VLO_BOUND (core_symb_table_vlo)))
 #else
-  if ((char *) core_symb_vect_ptr >= (char *) core_symb_table_vlo->bound ())
+  if (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr) >= YAEP_REINTERPRET_CAST(char *, core_symb_table_vlo->bound ()))
 #endif
     {
-      struct core_symb_vect ***ptr, ***bound;
-      int diff, i;
+  struct core_symb_vect ***ptr, ***bound;
+  int diff;
+  size_t i;
 
 #ifndef __cplusplus
-      diff = ((char *) core_symb_vect_ptr
-	      - (char *) VLO_BOUND (core_symb_table_vlo));
+      diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr)
+	      - YAEP_REINTERPRET_CAST(char *, VLO_BOUND (core_symb_table_vlo))));
 #else
-      diff = ((char *) core_symb_vect_ptr
-	      - (char *) core_symb_table_vlo->bound ());
+      diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr)
+	      - YAEP_REINTERPRET_CAST(char *, core_symb_table_vlo->bound ())));
 #endif
-      diff += sizeof (struct core_symb_vect **);
-      if (diff == sizeof (struct core_symb_vect **))
+      diff += YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **));
+      if (diff == YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **)))
 	diff *= 10;
 #ifndef __cplusplus
-      VLO_EXPAND (core_symb_table_vlo, diff);
+  VLO_EXPAND (core_symb_table_vlo, YAEP_STATIC_CAST(size_t, diff));
       core_symb_table
-	= (struct core_symb_vect ***) VLO_BEGIN (core_symb_table_vlo);
+	= YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BEGIN (core_symb_table_vlo));
       core_symb_vect_ptr = core_symb_table + set_core->num;
-      bound = (struct core_symb_vect ***) VLO_BOUND (core_symb_table_vlo);
+      bound = YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BOUND (core_symb_table_vlo));
 #else
-      core_symb_table_vlo->expand (diff);
+      core_symb_table_vlo->expand (YAEP_STATIC_CAST(size_t, diff));
       core_symb_table
-	= (struct core_symb_vect ***) core_symb_table_vlo->begin ();
+	= YAEP_STATIC_CAST(struct core_symb_vect ***, core_symb_table_vlo->begin ());
       core_symb_vect_ptr = core_symb_table + set_core->num;
-      bound = (struct core_symb_vect ***) core_symb_table_vlo->bound ();
+      bound = YAEP_STATIC_CAST(struct core_symb_vect ***, core_symb_table_vlo->bound ());
 #endif
-      ptr = bound - diff / sizeof (struct core_symb_vect **);
+      ptr = bound - diff / YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **));
       while (ptr < bound)
 	{
 #ifndef __cplusplus
 	  OS_TOP_EXPAND (core_symb_tab_rows,
-			 (symbs_ptr->n_terms + symbs_ptr->n_nonterms)
+			 YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + symbs_ptr->n_nonterms))
 			 * sizeof (struct core_symb_vect *));
 	  *ptr = OS_TOP_BEGIN (core_symb_tab_rows);
 	  OS_TOP_FINISH (core_symb_tab_rows);
 #else
 	  core_symb_tab_rows->top_expand
-	    ((symbs_ptr->n_terms + symbs_ptr->n_nonterms)
+	    (YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + symbs_ptr->n_nonterms))
 	     * sizeof (struct core_symb_vect *));
-	  *ptr = (struct core_symb_vect **) core_symb_tab_rows->top_begin ();
+	  *ptr = YAEP_STATIC_CAST(struct core_symb_vect **, core_symb_tab_rows->top_begin ());
 	  core_symb_tab_rows->top_finish ();
 #endif
-	  for (i = 0; i < symbs_ptr->n_terms + symbs_ptr->n_nonterms; i++)
-	    (*ptr)[i] = NULL;
+    for (i = 0; i < symbs_ptr->n_terms + symbs_ptr->n_nonterms; i++)
+      (*ptr)[YAEP_STATIC_CAST(int, i)] = NULL;
 	  ptr++;
 	}
     }
@@ -3236,10 +3278,10 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   /* Create table element. */
 #ifndef __cplusplus
   OS_TOP_EXPAND (core_symb_vect_os, sizeof (struct core_symb_vect));
-  triple = ((struct core_symb_vect *) OS_TOP_BEGIN (core_symb_vect_os));
+  triple = (YAEP_STATIC_CAST(struct core_symb_vect *, OS_TOP_BEGIN (core_symb_vect_os)));
 #else
   core_symb_vect_os->top_expand (sizeof (struct core_symb_vect));
-  triple = ((struct core_symb_vect *) core_symb_vect_os->top_begin ());
+  triple = (YAEP_STATIC_CAST(struct core_symb_vect *, core_symb_vect_os->top_begin ()));
 #endif
   triple->set_core = set_core;
   triple->symb = symb;
@@ -3261,9 +3303,9 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   vlo_ptr = vlo_array_el (triple->transitions.intern);
   triple->transitions.len = 0;
 #ifndef __cplusplus
-  triple->transitions.els = (int *) VLO_BEGIN (*vlo_ptr);
+  triple->transitions.els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
 #else
-  triple->transitions.els = (int *) vlo_ptr->begin ();
+  triple->transitions.els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
 #endif
 
 #ifdef TRANSITIVE_TRANSITION
@@ -3271,9 +3313,9 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   vlo_ptr = vlo_array_el (triple->transitive_transitions.intern);
   triple->transitive_transitions.len = 0;
 #ifndef __cplusplus
-  triple->transitive_transitions.els = (int *) VLO_BEGIN (*vlo_ptr);
+  triple->transitive_transitions.els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
 #else
-  triple->transitive_transitions.els = (int *) vlo_ptr->begin ();
+  triple->transitive_transitions.els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
 #endif
 #endif
 
@@ -3281,11 +3323,11 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   vlo_ptr = vlo_array_el (triple->reduces.intern);
   triple->reduces.len = 0;
 #ifndef __cplusplus
-  triple->reduces.els = (int *) VLO_BEGIN (*vlo_ptr);
+  triple->reduces.els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
   VLO_ADD_MEMORY (new_core_symb_vect_vlo, &triple,
 		  sizeof (struct core_symb_vect *));
 #else
-  triple->reduces.els = (int *) vlo_ptr->begin ();
+  triple->reduces.els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
   new_core_symb_vect_vlo->add_memory (&triple,
 				      sizeof (struct core_symb_vect *));
 #endif
@@ -3303,10 +3345,10 @@ vect_new_add_el (struct vect *vec, int el)
   vlo_ptr = vlo_array_el (vec->intern);
 #ifndef __cplusplus
   VLO_ADD_MEMORY (*vlo_ptr, &el, sizeof (int));
-  vec->els = (int *) VLO_BEGIN (*vlo_ptr);
+  vec->els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
 #else
   vlo_ptr->add_memory (&el, sizeof (int));
-  vec->els = (int *) vlo_ptr->begin ();
+  vec->els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
 #endif
   n_core_symb_vect_len++;
 }
@@ -3365,25 +3407,25 @@ process_core_symb_vect_el (struct core_symb_vect *core_symb_vect,
          const-qualified view to avoid removing const qualifiers. */
       vec->els
         = (&core_symb_vect->transitions == vec
-           ? ((const struct core_symb_vect *) *entry)->transitions.els
+           ? (YAEP_STATIC_CAST(const struct core_symb_vect *, *entry))->transitions.els
 #ifdef TRANSITIVE_TRANSITION
            : &core_symb_vect->transitive_transitions == vec
-           ? ((const struct core_symb_vect *) *entry)->transitive_transitions.els
+           ? (YAEP_STATIC_CAST(const struct core_symb_vect *, *entry))->transitive_transitions.els
 #endif
-           : ((const struct core_symb_vect *) *entry)->reduces.els);
+           : (YAEP_STATIC_CAST(const struct core_symb_vect *, *entry))->reduces.els);
     }
   else
     {
     /* core_symb_vect is allocated/owned here; cast through void*
        to satisfy the const-qualified hash_table_entry_t type. */
-    *entry = (hash_table_entry_t) (void *) core_symb_vect;
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, core_symb_vect));
 #ifndef __cplusplus
-	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, vec->len * sizeof (int));
+	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, YAEP_STATIC_CAST(size_t, vec->len) * sizeof (int));
 	  vec->els = OS_TOP_BEGIN (vect_els_os);
 	  OS_TOP_FINISH (vect_els_os);
 #else
-	  vect_els_os->top_add_memory (vec->els, vec->len * sizeof (int));
-	  vec->els = (int *) vect_els_os->top_begin ();
+	  vect_els_os->top_add_memory (vec->els, YAEP_STATIC_CAST(size_t, vec->len) * sizeof (int));
+	  vec->els = YAEP_STATIC_CAST(int *, vect_els_os->top_begin ());
 	  vect_els_os->top_finish ();
 #endif
 	  (*n_vects)++;
@@ -3401,12 +3443,12 @@ core_symb_vect_new_all_stop (void)
 
 #ifndef __cplusplus
   for (triple_ptr = VLO_BEGIN (new_core_symb_vect_vlo);
-       (char *) triple_ptr < (char *) VLO_BOUND (new_core_symb_vect_vlo);
+       YAEP_REINTERPRET_CAST(char *, triple_ptr) < YAEP_REINTERPRET_CAST(char *, VLO_BOUND (new_core_symb_vect_vlo));
        triple_ptr++)
 #else
   for (triple_ptr
-       = (struct core_symb_vect **) new_core_symb_vect_vlo->begin ();
-       (char *) triple_ptr < (char *) new_core_symb_vect_vlo->bound ();
+       = YAEP_STATIC_CAST(struct core_symb_vect **, new_core_symb_vect_vlo->begin ());
+       YAEP_REINTERPRET_CAST(char *, triple_ptr) < YAEP_REINTERPRET_CAST(char *, new_core_symb_vect_vlo->bound ());
        triple_ptr++)
 #endif
     {
@@ -3539,7 +3581,7 @@ yaep_initialize_error_handling (void)
 static void
 error_func_for_allocate_safe (void *userptr)
 {
-  struct grammar *g = (struct grammar *) userptr;
+  struct grammar *g = YAEP_STATIC_CAST(struct grammar *, userptr);
 
   yaep_set_error (g, YAEP_NO_MEMORY, "no memory");
 }
@@ -3563,7 +3605,7 @@ vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc, size_t initial_length)
   assert (vlo != NULL);
 
   length = (initial_length != 0 ? initial_length : VLO_DEFAULT_LENGTH);
-  start = (char *) yaep_malloc (alloc, length);
+  start = YAEP_STATIC_CAST(char *, yaep_malloc (alloc, length));
   if (start == NULL)
     return -1;
 
@@ -3604,7 +3646,7 @@ yaep_create_grammar (void)
   previous_userptr = yaep_alloc_getuserptr (allocator);
   yaep_alloc_seterr (allocator, error_func_for_allocate_safe, NULL);
 
-  g = (struct grammar *) yaep_malloc (allocator, sizeof (*g));
+  g = YAEP_STATIC_CAST(struct grammar *, yaep_malloc (allocator, sizeof (*g)));
   if (g == NULL)
     {
       yaep_alloc_seterr (allocator, previous_error_handler,
@@ -3770,7 +3812,7 @@ create_first_follow_sets (void)
 		    if (first_continue_p)
 		      changed_p |= term_set_or (symb->u.nonterm.first,
 						rhs_symb->u.nonterm.first);
-		    for (k = j + 1; k < rhs_len; k++)
+		    for (k = YAEP_STATIC_CAST(int, j + 1); k < rhs_len; k++)
 		      {
 			next_rhs_symb = rhs[k];
 			if (next_rhs_symb->term_p)
@@ -3836,12 +3878,12 @@ set_empty_access_derives (void)
 	    if (empty_p)
 	      {
 		empty_changed_p |= symb->empty_p ^ empty_p;
-		symb->empty_p = empty_p;
+		symb->empty_p = YAEP_STATIC_CAST(char, empty_p);
 	      }
 	    if (derivation_p)
 	      {
 		derivation_changed_p |= symb->derivation_p ^ derivation_p;
-		symb->derivation_p = derivation_p;
+		symb->derivation_p = YAEP_STATIC_CAST(char, derivation_p);
 	      }
 	  }
     }
@@ -4064,9 +4106,9 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 static int
 yaep_read_grammar_internal (void *user)
 {
-  struct yaep_read_grammar_context *ctx = (struct yaep_read_grammar_context *) user;
+  struct yaep_read_grammar_context *ctx = YAEP_STATIC_CAST(struct yaep_read_grammar_context *, user);
   const char *name, *lhs, **rhs, *anode;
-  struct symb *symb, *start;
+  struct symb *symb, *start = NULL; /* Initialize start to detect missing first rule safely */
   struct rule *rule;
   int anode_cost;
   int *transl;
@@ -4218,7 +4260,12 @@ yaep_read_grammar_internal (void *user)
   if (grammar->axiom == NULL)
     return yaep_set_error
       (grammar, YAEP_NO_RULES, "grammar does not contains rules");
-  assert (start != NULL);
+  if (start == NULL)
+    {
+      /* Defensive: if no rules were encountered, we already emit YAEP_NO_RULES above; reaching
+         here with start NULL would indicate an internal logic change. */
+      return yaep_set_error (grammar, YAEP_NO_RULES, "no start symbol established");
+    }
   /* Adding axiom : error $eof if it is neccessary. */
   for (rule = start->u.nonterm.rules; rule != NULL; rule = rule->lhs_next)
     if (rule->rhs[0] == grammar->term_error)
@@ -4276,10 +4323,27 @@ yaep_read_grammar_internal (void *user)
   return 0;
 }
 
+/* Suppress warnings from generated grammar parser code.
+   sgramm.c is Bison-generated and contains unavoidable old-style casts,
+   const-qualifier discards in qsort callbacks, and sign conversions.
+   Rather than modify generated code, we bracket it with pragma guards. */
+#ifdef __cplusplus
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wcomment"
+#endif
+
 #ifdef CMAKE_BINARY_DIR
 #  include "sgramm.c"
 #else
 #  include "../build/src/sgramm.c"
+#endif
+
+#ifdef __cplusplus
+#pragma GCC diagnostic pop
 #endif
 
 /* The following functions set up parameter which affect parser work
@@ -4289,13 +4353,13 @@ yaep_read_grammar_internal (void *user)
 static
 #endif
 int
-yaep_set_lookahead_level (struct grammar *grammar, int level)
+yaep_set_lookahead_level (struct grammar *g, int level)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->lookahead_level;
-  grammar->lookahead_level = (level < 0 ? 0 : level > 2 ? 2 : level);
+  assert (g != NULL);
+  old = g->lookahead_level;
+  g->lookahead_level = (level < 0 ? 0 : level > 2 ? 2 : level);
   return old;
 }
 
@@ -4303,13 +4367,13 @@ yaep_set_lookahead_level (struct grammar *grammar, int level)
 static
 #endif
 int
-yaep_set_debug_level (struct grammar *grammar, int level)
+yaep_set_debug_level (struct grammar *g, int level)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->debug_level;
-  grammar->debug_level = level;
+  assert (g != NULL);
+  old = g->debug_level;
+  g->debug_level = level;
   return old;
 }
 
@@ -4317,13 +4381,13 @@ yaep_set_debug_level (struct grammar *grammar, int level)
 static
 #endif
 int
-yaep_set_one_parse_flag (struct grammar *grammar, int flag)
+yaep_set_one_parse_flag (struct grammar *g, int flag)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->one_parse_p;
-  grammar->one_parse_p = flag;
+  assert (g != NULL);
+  old = g->one_parse_p;
+  g->one_parse_p = flag;
   return old;
 }
 
@@ -4331,13 +4395,13 @@ yaep_set_one_parse_flag (struct grammar *grammar, int flag)
 static
 #endif
 int
-yaep_set_cost_flag (struct grammar *grammar, int flag)
+yaep_set_cost_flag (struct grammar *g, int flag)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->cost_p;
-  grammar->cost_p = flag;
+  assert (g != NULL);
+  old = g->cost_p;
+  g->cost_p = flag;
   return old;
 }
 
@@ -4345,13 +4409,13 @@ yaep_set_cost_flag (struct grammar *grammar, int flag)
 static
 #endif
 int
-yaep_set_error_recovery_flag (struct grammar *grammar, int flag)
+yaep_set_error_recovery_flag (struct grammar *g, int flag)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->error_recovery_p;
-  grammar->error_recovery_p = flag;
+  assert (g != NULL);
+  old = g->error_recovery_p;
+  g->error_recovery_p = flag;
   return old;
 }
 
@@ -4359,13 +4423,13 @@ yaep_set_error_recovery_flag (struct grammar *grammar, int flag)
 static
 #endif
 int
-yaep_set_recovery_match (struct grammar *grammar, int n_toks)
+yaep_set_recovery_match (struct grammar *g, int n_toks)
 {
   int old;
 
-  assert (grammar != NULL);
-  old = grammar->recovery_token_matches;
-  grammar->recovery_token_matches = n_toks;
+  assert (g != NULL);
+  old = g->recovery_token_matches;
+  g->recovery_token_matches = n_toks;
   return old;
 }
 
@@ -4444,12 +4508,12 @@ add_derived_nonstart_sits (struct sit *sit, int parent)
 static void
 collect_core_symbols (void)
 {
-  int i;
-  int *core_symbol_check_vec = (int *) VLO_BEGIN (core_symbol_check_vlo);
+  size_t i;
+  int *core_symbol_check_vec = YAEP_STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo));
   struct symb *symb;
   struct sit *sit;
 
-  for (i = 0; i < new_core->n_sits; i++)
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
       if (sit->pos >= sit->rule->rhs_len)
@@ -4482,44 +4546,48 @@ form_transitive_transition_vectors (void)
   collect_core_symbols ();
   for (i = 0; i < VLO_NELS (core_symbols_vlo, struct symb *); i++)
     {
-      symb = ((struct symb **) VLO_BEGIN (core_symbols_vlo))[i];
+      symb = STATIC_CAST(struct symb **, VLO_BEGIN (core_symbols_vlo))[i];
       core_symb_vect = core_symb_vect_find (new_core, symb);
       if (core_symb_vect == NULL)
 	core_symb_vect = core_symb_vect_new (new_core, symb);
       core_symbol_check++;
       VLO_NULLIFY (core_symbol_queue_vlo);
       /* Put the symbol into the queue.  */
-      VLO_ADD_MEMORY (core_symbol_queue_vlo, &symb, sizeof (symb));
+  VLO_ADD_MEMORY (core_symbol_queue_vlo, &symb, sizeof (symb));
   for (j = 0;
    j < VLO_NELS (core_symbol_queue_vlo, struct symb *);
    j++)
 	{
-	  symb = ((struct symb **) VLO_BEGIN (core_symbol_queue_vlo))[j];
+	  symb = STATIC_CAST(struct symb **, VLO_BEGIN (core_symbol_queue_vlo))[j];
 	  symb_core_symb_vect = core_symb_vect_find (new_core, symb);
 	  if (symb_core_symb_vect == NULL)
 	    continue;
-	  for (k = 0; k < symb_core_symb_vect->transitions.len; k++)
+      for (k = 0; k < symb_core_symb_vect->transitions.len; k++)
 	    {
-	      sit_ind = symb_core_symb_vect->transitions.els[k];
-	      core_symb_vect_new_add_transitive_transition_el (core_symb_vect,
-							       sit_ind);
+ 	      sit_ind = symb_core_symb_vect->transitions.els[k];
+ 	      /* sit_ind comes from a vector of ints but may originate from
+ 	         size_t indices; ensure any upstream size_t->int conversions
+ 	         were checked.  Pass through as-is (sit_ind is already int). */
+ 	      core_symb_vect_new_add_transitive_transition_el (core_symb_vect,
+ 			       sit_ind);
 	      if (sit_ind < new_core->n_all_dists)
 		/* This situation is originated from other sets --
 		   stop.  */
 		continue;
-	      sit = new_sits[sit_ind];
-	      sit = sit_create (sit->rule, sit->pos + 1, sit->context);
+    sit = new_sits[sit_ind];
+    /* sit_ind is an int here; sit_create expects int parameters. */
+    sit = sit_create (sit->rule, sit->pos + 1, sit->context);
 	      if (sit->empty_tail_p)
 		{
 		  new_symb = sit->rule->lhs;
-		  if (((int *) VLO_BEGIN (core_symbol_check_vlo))[new_symb->
+		  if (STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo))[new_symb->
 								  num] !=
 		      core_symbol_check)
 		    {
 		      /* Put the LHS symbol into queue.  */
 		      VLO_ADD_MEMORY (core_symbol_queue_vlo,
 				      &new_symb, sizeof (new_symb));
-		      ((int *) VLO_BEGIN (core_symbol_check_vlo))[new_symb->
+		      STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo))[new_symb->
 								  num] =
 			core_symbol_check;
 		    }
@@ -4545,13 +4613,18 @@ expand_new_start_set (void)
   struct symb *symb;
   struct core_symb_vect *core_symb_vect;
   struct rule *rule;
-  int i;
+  size_t i;
+  size_t _tmp_i;
 
   /* Add non start situations with nonzero distances. */
-  for (i = 0; i < new_n_start_sits; i++)
-    add_derived_nonstart_sits (new_sits[i], i);
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_n_start_sits); i++)
+    {
+      _tmp_i = i;
+      assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+      add_derived_nonstart_sits (new_sits[i], YAEP_STATIC_CAST(int, _tmp_i));
+    }
   /* Add non start situations and form transitions vectors. */
-  for (i = 0; i < new_core->n_sits; i++)
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
       if (sit->pos < sit->rule->rhs_len)
@@ -4567,13 +4640,15 @@ expand_new_start_set (void)
 		     rule != NULL; rule = rule->lhs_next)
 		  set_new_add_initial_sit (sit_create (rule, 0, 0));
 	    }
-	  core_symb_vect_new_add_transition_el (core_symb_vect, i);
-	  if (symb->empty_p && i >= new_core->n_all_dists)
-	    set_new_add_initial_sit (sit_create (sit->rule, sit->pos + 1, 0));
+  _tmp_i = i;
+  assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+  core_symb_vect_new_add_transition_el (core_symb_vect, YAEP_STATIC_CAST(int, _tmp_i));
+      if (symb->empty_p && i >= YAEP_STATIC_CAST(size_t, new_core->n_all_dists))
+        set_new_add_initial_sit (sit_create (sit->rule, sit->pos + 1, 0));
 	}
     }
   /* Now forming reduce vectors. */
-  for (i = 0; i < new_core->n_sits; i++)
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
       if (sit->pos == sit->rule->rhs_len)
@@ -4582,7 +4657,9 @@ expand_new_start_set (void)
 	  core_symb_vect = core_symb_vect_find (new_core, symb);
 	  if (core_symb_vect == NULL)
 	    core_symb_vect = core_symb_vect_new (new_core, symb);
-	  core_symb_vect_new_add_reduce_el (core_symb_vect, i);
+      _tmp_i = i;
+      assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+      core_symb_vect_new_add_reduce_el (core_symb_vect, YAEP_STATIC_CAST(int, _tmp_i));
 	}
     }
 #ifdef TRANSITIVE_TRANSITION
@@ -4600,7 +4677,9 @@ expand_new_start_set (void)
       do
 	{
 	  changed_p = FALSE;
-	  for (i = new_core->n_all_dists; i < new_core->n_sits; i++)
+  for (i = YAEP_STATIC_CAST(size_t, new_core->n_all_dists);
+       i < YAEP_STATIC_CAST(size_t, new_core->n_sits);
+       i++)
 	    {
 	      term_set_clear (context_set);
 	      new_sit = new_sits[i];
@@ -4893,7 +4972,11 @@ save_original_sets (void)
   int length, curr_pl;
 
   assert (pl_curr >= 0 && original_last_pl_el <= start_pl_curr);
-  length = VLO_NELS (original_pl_tail_stack, struct set *);
+  {
+    size_t _tmp_length = VLO_NELS (original_pl_tail_stack, struct set *);
+    assert (_tmp_length <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    length = YAEP_STATIC_CAST(int, _tmp_length);
+  }
   for (curr_pl = start_pl_curr - length; curr_pl >= pl_curr; curr_pl--)
     {
       VLO_ADD_MEMORY (original_pl_tail_stack, &pl[curr_pl],
@@ -4930,7 +5013,7 @@ restore_original_sets (int last_pl_el)
     {
       original_last_pl_el++;
       pl[original_last_pl_el]
-	= ((struct set **) VLO_BEGIN (original_pl_tail_stack))
+	= (YAEP_STATIC_CAST(struct set **, VLO_BEGIN (original_pl_tail_stack)))
 	[start_pl_curr - original_last_pl_el];
 #ifndef NO_YAEP_DEBUG_PRINT
       if (grammar->debug_level > 2)
@@ -5011,7 +5094,7 @@ new_recovery_state (int last_original_pl_el, int backward_move_cost)
 	}
 #endif
     }
-  state.pl_tail = (struct set **) OS_TOP_BEGIN (recovery_state_tail_sets);
+  state.pl_tail = YAEP_STATIC_CAST(struct set **, OS_TOP_BEGIN (recovery_state_tail_sets));
   OS_TOP_FINISH (recovery_state_tail_sets);
   state.start_tok = tok_curr;
   state.backward_move_cost = backward_move_cost;
@@ -5095,7 +5178,7 @@ pop_recovery_state (void)
 {
   struct recovery_state *state;
 
-  state = &((struct recovery_state *) VLO_BOUND (recovery_state_stack))[-1];
+  state = &(YAEP_STATIC_CAST(struct recovery_state *, VLO_BOUND (recovery_state_stack)))[-1];
   VLO_SHORTEN (recovery_state_stack, sizeof (struct recovery_state));
 #ifndef NO_YAEP_DEBUG_PRINT
   if (grammar->debug_level > 2)
@@ -5449,9 +5532,9 @@ build_pl (void)
       if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
         {
           fprintf (stderr, "YAEP_DEBUG_LOOP tok=%d toks_len=%d toks=%p toks[idx]=%p term=%p\n",
-                   tok_curr, toks_len, (void *) toks,
-                   (void *) (tok_curr < toks_len ? &toks[tok_curr] : NULL),
-                   (void *) term);
+                   tok_curr, toks_len, YAEP_STATIC_CAST(void *, toks),
+                   YAEP_STATIC_CAST(void *, (tok_curr < toks_len ? &toks[tok_curr] : NULL)),
+                   YAEP_STATIC_CAST(void *, term));
           fflush (stderr);
         }
       if (grammar->lookahead_level != 0)
@@ -5473,7 +5556,7 @@ build_pl (void)
       OS_TOP_EXPAND (set_term_lookahead_os,
 		     sizeof (struct set_term_lookahead));
       new_set_term_lookahead =
-	(struct set_term_lookahead *) OS_TOP_BEGIN (set_term_lookahead_os);
+	YAEP_STATIC_CAST(struct set_term_lookahead *, OS_TOP_BEGIN (set_term_lookahead_os));
       new_set_term_lookahead->set = set;
       new_set_term_lookahead->term = term;
       new_set_term_lookahead->lookahead = lookahead_term_num;
@@ -5492,8 +5575,8 @@ build_pl (void)
         {
           const char *trepr = (term && term->repr) ? term->repr : "(null)";
           fprintf (stderr, "YAEP_DEBUG tok=%d pl=%d term=%p repr='%s' set=%p entry=%p *entry=%p\n",
-                   tok_curr, pl_curr, (void *) term, trepr, (void *) set,
-                   (void *) entry, (void *) (entry ? *entry : NULL));
+                   tok_curr, pl_curr, YAEP_STATIC_CAST(void *, term), trepr, YAEP_STATIC_CAST(void *, set),
+                   YAEP_STATIC_CAST(void *, entry), YAEP_STATIC_CAST(void *, (entry ? *entry : NULL)));
           /* fflush to ensure log reaches fuzzer output */
           fflush (stderr);
         }
@@ -5505,7 +5588,7 @@ build_pl (void)
          and checks. This documents the deliberate removal of the
          const qualifier at the mutation site while keeping the
          public API (hash_table_entry_t) const. */
-      struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+      struct set_term_lookahead *tab_ent = YAEP_STATIC_CAST(struct set_term_lookahead *, YAEP_STATIC_CAST(void *, *entry));
       struct set *tab_set;
 
       OS_TOP_NULLIFY (set_term_lookahead_os);
@@ -5527,7 +5610,7 @@ build_pl (void)
        /* Cache the newly-created mutable lookahead struct in the
          table. Deliberately cast through (void*) to document that
          this is owned mutable data stored in a const-typed slot. */
-       *entry = (hash_table_entry_t) (void *) new_set_term_lookahead;
+       *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set_term_lookahead));
 	  n_set_term_lookaheads++;
 	}
 
@@ -5564,7 +5647,7 @@ build_pl (void)
       /* Mutate the stored table entry — obtain local mutable pointer
          via documented void* cast as above. */
       {
-        struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+        struct set_term_lookahead *tab_ent = YAEP_STATIC_CAST(struct set_term_lookahead *, YAEP_STATIC_CAST(void *, *entry));
         i = tab_ent->curr;
         tab_ent->result[i] = new_set;
         tab_ent->place[i] = pl_curr;
@@ -5636,13 +5719,13 @@ parse_state_hash (hash_table_entry_t s)
   /* Treat the incoming entry as const because the hash function only
      reads fields; this avoids casting away const at call sites and
      documents that we won't mutate the stored object here. */
-  const struct parse_state *state = ((const struct parse_state *) s);
+  const struct parse_state *state = (YAEP_STATIC_CAST(const struct parse_state *, s));
 
   /* The table contains only states with dot at the end of rule. */
   assert (state->pos == state->rule->rhs_len);
   return (((jauquet_prime_mod32 * hash_shift +
-      (unsigned) (size_t) state->rule) * hash_shift +
-     state->orig) * hash_shift + state->pl_ind);
+      YAEP_STATIC_CAST(unsigned, YAEP_REINTERPRET_CAST(size_t, state->rule))) * hash_shift +
+     YAEP_STATIC_CAST(unsigned, state->orig)) * hash_shift + YAEP_STATIC_CAST(unsigned, state->pl_ind));
 }
 
 /* Equality of parse states. */
@@ -5651,8 +5734,8 @@ parse_state_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
   /* Equality comparison only reads the structures; keep pointers const
      to avoid casting away qualifiers and to make intent explicit. */
-  const struct parse_state *state1 = ((const struct parse_state *) s1);
-  const struct parse_state *state2 = ((const struct parse_state *) s2);
+  const struct parse_state *state1 = (YAEP_STATIC_CAST(const struct parse_state *, s1));
+  const struct parse_state *state2 = (YAEP_STATIC_CAST(const struct parse_state *, s2));
 
   /* The table contains only states with dot at the end of rule. */
   assert (state1->pos == state1->rule->rhs_len
@@ -5670,11 +5753,11 @@ parse_state_init (void)
   if (!grammar->one_parse_p)
 #ifndef __cplusplus
     parse_state_tab =
-      create_hash_table (grammar->alloc, toks_len * 2, parse_state_hash,
+      create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, parse_state_hash,
 			 parse_state_eq);
 #else
     parse_state_tab =
-      new hash_table (grammar->alloc, toks_len * 2, parse_state_hash,
+      new hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, parse_state_hash,
 		      parse_state_eq);
 #endif
 }
@@ -5691,13 +5774,13 @@ parse_state_alloc (void)
   if (free_parse_state == NULL)
     {
       OS_TOP_EXPAND (parse_state_os, sizeof (struct parse_state));
-      result = (struct parse_state *) OS_TOP_BEGIN (parse_state_os);
+      result = YAEP_STATIC_CAST(struct parse_state *, OS_TOP_BEGIN (parse_state_os));
       OS_TOP_FINISH (parse_state_os);
     }
   else
     {
       result = free_parse_state;
-      free_parse_state = (struct parse_state *) free_parse_state->rule;
+      free_parse_state = YAEP_REINTERPRET_CAST(struct parse_state *, free_parse_state->rule);
     }
   return result;
 }
@@ -5709,7 +5792,7 @@ INLINE
 static void
 parse_state_free (struct parse_state *state)
 {
-  state->rule = (struct rule *) free_parse_state;
+  state->rule = YAEP_REINTERPRET_CAST(struct rule *, free_parse_state);
   free_parse_state = state;
 }
 
@@ -5733,13 +5816,13 @@ parse_state_insert (struct parse_state *state, int *new_p)
 #endif
   *new_p = FALSE;
   if (*entry != NULL)
-    return (struct parse_state *) *entry;
+    return YAEP_STATIC_CAST(struct parse_state *, *entry);
   *new_p = TRUE;
   /* We make copy because pl_ind can be changed in further processing
      state. */
   *entry = parse_state_alloc ();
-  *(struct parse_state *) *entry = *state;
-  return (struct parse_state *) *entry;
+  *YAEP_STATIC_CAST(struct parse_state *, *entry) = *state;
+  return YAEP_STATIC_CAST(struct parse_state *, *entry);
 }
 
 /* The following function finalizes work with parser states. */
@@ -5792,16 +5875,16 @@ trans_visit_node_hash (hash_table_entry_t n)
 {
   /* The hash only needs to read the node pointer; use a const view to
      avoid casting away qualifiers and to make intent explicit. */
-  const struct trans_visit_node *tn = ((const struct trans_visit_node *) n);
-  return (size_t) tn->node;
+  const struct trans_visit_node *tn = (YAEP_STATIC_CAST(const struct trans_visit_node *, n));
+  return YAEP_STATIC_CAST(unsigned, YAEP_REINTERPRET_CAST(size_t, tn->node));
 }
 
 /* Equality of translation visit nodes. */
-int
+static int
 trans_visit_node_eq (hash_table_entry_t n1, hash_table_entry_t n2)
 {
-  const struct trans_visit_node *tn1 = ((const struct trans_visit_node *) n1);
-  const struct trans_visit_node *tn2 = ((const struct trans_visit_node *) n2);
+  const struct trans_visit_node *tn1 = (YAEP_STATIC_CAST(const struct trans_visit_node *, n1));
+  const struct trans_visit_node *tn2 = (YAEP_STATIC_CAST(const struct trans_visit_node *, n2));
   return (tn1->node == tn2->node);
 }
 
@@ -5831,10 +5914,10 @@ visit_node (struct yaep_tree_node *node)
 			 &trans_visit_node, sizeof (trans_visit_node));
     /* Store newly-created trans_visit_node (owned/mutable) in the
       global table; cast via void* to make the intent explicit. */
-    *entry = (hash_table_entry_t) (void *) OS_TOP_BEGIN (trans_visit_nodes_os);
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, OS_TOP_BEGIN (trans_visit_nodes_os)));
       OS_TOP_FINISH (trans_visit_nodes_os);
     }
-  return (struct trans_visit_node *) *entry;
+  return YAEP_STATIC_CAST(struct trans_visit_node *, *entry);
 }
 
 /* The following function returns the positive order number of node
@@ -5980,11 +6063,11 @@ print_parse (FILE * f, struct yaep_tree_node *root)
 {
 #ifndef __cplusplus
   trans_visit_nodes_tab =
-    create_hash_table (grammar->alloc, toks_len * 2, trans_visit_node_hash,
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, trans_visit_node_hash,
 		       trans_visit_node_eq);
 #else
   trans_visit_nodes_tab =
-    new hash_table (grammar->alloc, toks_len * 2, trans_visit_node_hash,
+    new hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, trans_visit_node_hash,
 		    trans_visit_node_eq);
 #endif
   n_trans_visit_nodes = 0;
@@ -6024,8 +6107,8 @@ place_translation (struct yaep_tree_node **place, struct yaep_tree_node *node)
 #ifndef NO_YAEP_DEBUG_PRINT
   n_parse_alt_nodes++;
 #endif
-  alt = (struct yaep_tree_node *) (*parse_alloc) (sizeof
-						  (struct yaep_tree_node));
+  alt = YAEP_STATIC_CAST(struct yaep_tree_node *, (*parse_alloc) (sizeof
+						  (struct yaep_tree_node)));
   alt->type = YAEP_ALT;
   alt->val.alt.node = node;
   if ((*place)->type == YAEP_ALT)
@@ -6036,8 +6119,8 @@ place_translation (struct yaep_tree_node **place, struct yaep_tree_node *node)
          alternative too. */
       n_parse_alt_nodes++;
       next_alt = alt->val.alt.next
-	= ((struct yaep_tree_node *)
-	   (*parse_alloc) (sizeof (struct yaep_tree_node)));
+	= (YAEP_STATIC_CAST(struct yaep_tree_node *,
+	   (*parse_alloc) (sizeof (struct yaep_tree_node))));
       next_alt->type = YAEP_ALT;
       next_alt->val.alt.node = *place;
       next_alt->val.alt.next = NULL;
@@ -6052,14 +6135,14 @@ copy_anode (struct yaep_tree_node **place, struct yaep_tree_node *anode,
   struct yaep_tree_node *node;
   int i;
 
-  node = ((struct yaep_tree_node *)
-	  (*parse_alloc) (sizeof (struct yaep_tree_node)
-			  + sizeof (struct yaep_tree_node *)
-			  * (rule->trans_len + 1)));
+  node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+	  (*parse_alloc) (YAEP_STATIC_CAST(int, (YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node))
+			  + YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node *))
+			  * YAEP_STATIC_CAST(size_t, (rule->trans_len + 1)))))));
   *node = *anode;
   node->val.anode.children
-    = ((struct yaep_tree_node **)
-       ((char *) node + sizeof (struct yaep_tree_node)));
+    = (YAEP_REINTERPRET_CAST(struct yaep_tree_node **,
+       (YAEP_REINTERPRET_CAST(char *, node) + sizeof (struct yaep_tree_node))));
   for (i = 0; i <= rule->trans_len; i++)
     node->val.anode.children[i] = anode->val.anode.children[i];
   node->val.anode.children[disp] = NULL;
@@ -6075,7 +6158,7 @@ static hash_table_t reserv_mem_tab;
 static unsigned
 reserv_mem_hash (hash_table_entry_t m)
 {
-  return (size_t) m;
+  return YAEP_STATIC_CAST(unsigned, YAEP_REINTERPRET_CAST(size_t, m));
 }
 
 /* The equity of the memory reference. */
@@ -6101,8 +6184,8 @@ static vlo_t *tnodes_vlo;
 static struct yaep_tree_node *
 prune_to_minimal (struct yaep_tree_node *node, int *cost)
 {
-  struct yaep_tree_node *child, *alt, *next_alt, *result;
-  int i, min_cost;
+  struct yaep_tree_node *child, *alt, *next_alt, *result = NULL;
+  int i, min_cost = INT_MAX; /* Initialize to sentinel so comparisons are well-defined */
 
   assert (node != NULL);
   switch (node->type)
@@ -6129,25 +6212,26 @@ prune_to_minimal (struct yaep_tree_node *node, int *cost)
 	}
       return node;
     case YAEP_ALT:
-      for (alt = node; alt != NULL; alt = next_alt)
+  for (alt = node; alt != NULL; alt = next_alt)
 	{
 	  if (parse_free != NULL)
 	    VLO_ADD_MEMORY (tnodes_vlo, &alt, sizeof (alt));
 	  next_alt = alt->val.alt.next;
 	  alt->val.alt.node = prune_to_minimal (alt->val.alt.node, cost);
-	  if (alt == node || min_cost > *cost)
+    if (alt == node || min_cost > *cost)
 	    {
 	      min_cost = *cost;
 	      alt->val.alt.next = NULL;
 	      result = alt;
 	    }
-	  else if (min_cost == *cost && !grammar->one_parse_p)
+    else if (min_cost == *cost && !grammar->one_parse_p)
 	    {
 	      alt->val.alt.next = result;
 	      result = alt;
 	    }
 	}
-      *cost = min_cost;
+      *cost = (min_cost == INT_MAX ? 0 : min_cost);
+      assert (result != NULL); /* result must be set because at least one alt exists */
       return (result->val.alt.next == NULL ? result->val.alt.node : result);
     default:
       assert (FALSE);
@@ -6161,7 +6245,7 @@ prune_to_minimal (struct yaep_tree_node *node, int *cost)
 static void
 traverse_pruned_translation (struct yaep_tree_node *node)
 {
-  struct yaep_tree_node *child, *alt;
+  struct yaep_tree_node *child;
   hash_table_entry_t *entry;
   int i;
 
@@ -6172,7 +6256,7 @@ traverse_pruned_translation (struct yaep_tree_node *node)
 	   find_hash_table_entry (reserv_mem_tab, node, TRUE)) == NULL)
    /* Insert owned mutable node pointer into the table; cast through
      void* to satisfy the public const-qualified entry type. */
-   *entry = (hash_table_entry_t) (void *) node;
+   *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, node));
   switch (node->type)
     {
     case YAEP_NIL:
@@ -6181,12 +6265,19 @@ traverse_pruned_translation (struct yaep_tree_node *node)
       break;
     case YAEP_ANODE:
       if (parse_free != NULL
-	  && *(entry = find_hash_table_entry (reserv_mem_tab,
-					      node->val.anode.name,
-					      TRUE)) == NULL)
-  /* Store the owned name pointer in the table; document the
-     deliberate cast through void* as above. */
-    	*entry = (hash_table_entry_t) (void *) node->val.anode.name;
+  && *(entry = find_hash_table_entry_c (reserv_mem_tab,
+               node->val.anode.name,
+               TRUE)) == NULL)
+  /* Record the owned name pointer in the reservation table so that
+     later cleanup does NOT free it. Previous logic erroneously used
+     '!= NULL', skipping insertion and leading to premature free and
+     corrupted abstract node names (seen in tests 45/47).
+     Use union to avoid cast-qual warning when storing const char*. */
+	{
+	  union { const char *cc; void *v; } u;
+	  u.cc = node->val.anode.name;
+	  *entry = YAEP_STATIC_CAST(hash_table_entry_t, u.v);
+	}
       for (i = 0; (child = node->val.anode.children[i]) != NULL; i++)
 	traverse_pruned_translation (child);
       assert (node->val.anode.cost < 0);
@@ -6214,30 +6305,34 @@ find_minimal_translation (struct yaep_tree_node *root)
     {
 #ifndef __cplusplus
       reserv_mem_tab =
-	create_hash_table (grammar->alloc, toks_len * 4, reserv_mem_hash,
+	create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 4, reserv_mem_hash,
 			   reserv_mem_eq);
 #else
       reserv_mem_tab =
-	new hash_table (grammar->alloc, toks_len * 4, reserv_mem_hash,
+	new hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 4, reserv_mem_hash,
 			reserv_mem_eq);
 #endif
-      VLO_CREATE (tnodes_vlo, grammar->alloc, toks_len * 4 * sizeof (void *));
+      VLO_CREATE (tnodes_vlo, grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 4 * sizeof (void *));
     }
   root = prune_to_minimal (root, &cost);
   traverse_pruned_translation (root);
   if (parse_free != NULL)
     {
-      for (node_ptr = (struct yaep_tree_node **) VLO_BEGIN (tnodes_vlo);
-	   node_ptr < (struct yaep_tree_node **) VLO_BOUND (tnodes_vlo);
+      for (node_ptr = YAEP_STATIC_CAST(struct yaep_tree_node **, VLO_BEGIN (tnodes_vlo));
+	   node_ptr < YAEP_STATIC_CAST(struct yaep_tree_node **, VLO_BOUND (tnodes_vlo));
 	   node_ptr++)
-	if (*find_hash_table_entry (reserv_mem_tab, *node_ptr, TRUE) == NULL)
+  if (*find_hash_table_entry_c (reserv_mem_tab, *node_ptr, TRUE) == NULL)
 	   {
 	     if ((*node_ptr)->type == YAEP_ANODE
-		 && *find_hash_table_entry (reserv_mem_tab,
-					       (*node_ptr)->val.anode.name,
-					       TRUE) == NULL)
+       && *find_hash_table_entry_c (reserv_mem_tab,
+                  (*node_ptr)->val.anode.name,
+                  TRUE) == NULL)
 	       {
-		(*parse_free) ((void *) (*node_ptr)->val.anode.name);
+		 /* Use union to avoid cast-qual warning when freeing const char*
+		    allocated by user's parse_alloc. The user owns the memory. */
+		 union { const char *cc; void *v; } u;
+		 u.cc = (*node_ptr)->val.anode.name;
+		 (*parse_free) (u.v);
 	       }
 	     (*parse_free) (*node_ptr);
 	   }
@@ -6273,11 +6368,11 @@ make_parse (int *ambiguous_p)
   struct yaep_tree_node *parent_anode, *anode, root_anode;
   int parent_disp;
   int saved_one_parse_p;
-  struct yaep_tree_node **term_node_array;
+  struct yaep_tree_node **term_node_array = NULL; /* Initialize to ensure safe free guard */
 #ifndef __cplusplus
   vlo_t stack, orig_states;
 #else
-  vlo_t *stack, *orig_states;
+  vlo_t *stack, *orig_states = NULL; /* Initialize to silence maybe-uninitialized in C++ inlining context */
 #endif
 
   n_parse_term_nodes = n_parse_abstract_nodes = n_parse_alt_nodes = 0;
@@ -6312,8 +6407,8 @@ make_parse (int *ambiguous_p)
          generation of several parses. */
       mem =
 	yaep_malloc (grammar->alloc,
-		     sizeof (struct yaep_tree_node *) * toks_len);
-      term_node_array = (struct yaep_tree_node **) mem;
+		     YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node *)) * YAEP_STATIC_CAST(size_t, toks_len));
+      term_node_array = YAEP_STATIC_CAST(struct yaep_tree_node **, mem);
       for (i = 0; i < toks_len; i++)
 	term_node_array[i] = NULL;
       /* The following is used to check necessity to create current
@@ -6323,7 +6418,7 @@ make_parse (int *ambiguous_p)
   VLO_CREATE (stack, grammar->alloc, 10000);
   VLO_EXPAND (stack, sizeof (struct parse_state *));
   state = parse_state_alloc ();
-  ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+  (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
   rule = state->rule = sit->rule;
   state->pos = sit->pos;
   state->orig = 0;
@@ -6335,26 +6430,32 @@ make_parse (int *ambiguous_p)
   state->parent_disp = 0;
   state->anode = NULL;
   /* Create empty and error node: */
-  empty_node = ((struct yaep_tree_node *)
-		(*parse_alloc) (sizeof (struct yaep_tree_node)));
+  empty_node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+		(*parse_alloc) (sizeof (struct yaep_tree_node))));
   empty_node->type = YAEP_NIL;
   empty_node->val.nil.used = 0;
-  error_node = ((struct yaep_tree_node *)
-		(*parse_alloc) (sizeof (struct yaep_tree_node)));
+  error_node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+		(*parse_alloc) (sizeof (struct yaep_tree_node))));
   error_node->type = YAEP_ERROR;
   error_node->val.error.used = 0;
   while (VLO_LENGTH (stack) != 0)
     {
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
       if ((grammar->debug_level > 2 && state->pos == state->rule->rhs_len)
-	  || grammar->debug_level > 3)
-	{
-	  fprintf (stderr, "Processing top %ld, set place = %d, sit = ",
-		   (long) VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1,
-		   state->pl_ind);
-	  rule_dot_print (stderr, state->rule, state->pos);
-	  fprintf (stderr, ", %d\n", state->orig);
-	}
+          || grammar->debug_level > 3)
+    {
+      /* Compute top index from VLO_LENGTH into a size_t temporary, then
+         convert to long with defined behavior for empty stack (use -1).
+         This avoids converting an unsigned size_t directly to long in the
+         fprintf call which can trigger compiler warnings. */
+      size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+      long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+      fprintf (stderr, "Processing top %ld, set place = %d, sit = ",
+           _top_index,
+           state->pl_ind);
+      rule_dot_print (stderr, state->rule, state->pos);
+      fprintf (stderr, ", %d\n", state->orig);
+    }
 #endif
       pos = --state->pos;
       rule = state->rule;
@@ -6369,20 +6470,24 @@ make_parse (int *ambiguous_p)
 	{
 	  /* We've processed all rhs of the rule. */
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-	  if ((grammar->debug_level > 2 && state->pos == state->rule->rhs_len)
-	      || grammar->debug_level > 3)
-	    {
-	      fprintf (stderr, "Poping top %ld, set place = %d, sit = ",
-		       (long) VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1,
-		       state->pl_ind);
-	      rule_dot_print (stderr, state->rule, 0);
-	      fprintf (stderr, ", %d\n", state->orig);
-	    }
+      if ((grammar->debug_level > 2 && state->pos == state->rule->rhs_len)
+          || grammar->debug_level > 3)
+    {
+      /* See comment above: compute top index safely to avoid unsigned ->
+         signed narrowing in the call. */
+      size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+      long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+      fprintf (stderr, "Poping top %ld, set place = %d, sit = ",
+               _top_index,
+               state->pl_ind);
+      rule_dot_print (stderr, state->rule, 0);
+      fprintf (stderr, ", %d\n", state->orig);
+    }
 #endif
 	  parse_state_free (state);
 	  VLO_SHORTEN (stack, sizeof (struct parse_state *));
 	  if (VLO_LENGTH (stack) != 0)
-	    state = ((struct parse_state **) VLO_BOUND (stack))[-1];
+	    state = (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1];
 	  if (parent_anode != NULL && rule->trans_len == 0 && anode == NULL)
 	    {
 	      /* We do produce nothing but we should.  So write empty
@@ -6431,8 +6536,8 @@ make_parse (int *ambiguous_p)
 	      else
 		{
 		  n_parse_term_nodes++;
-		  node = ((struct yaep_tree_node *)
-			  (*parse_alloc) (sizeof (struct yaep_tree_node)));
+		  node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+			  (*parse_alloc) (sizeof (struct yaep_tree_node))));
 		  node->type = YAEP_TERM;
 		  node->val.term.code = symb->u.term.code;
 		  node->val.term.attr = toks[pl_ind].attr;
@@ -6545,19 +6650,23 @@ make_parse (int *ambiguous_p)
 		  if (n_candidates == 1)
 		    {
 		      VLO_EXPAND (orig_states, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (orig_states))[-1]
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (orig_states)))[-1]
 			= orig_state;
 		    }
-		  for (j = (VLO_LENGTH (orig_states)
-			    / sizeof (struct parse_state *) - 1); j >= 0; j--)
-		    if (((struct parse_state **)
-			 VLO_BEGIN (orig_states))[j]->pl_ind == sit_orig)
-		      break;
+      {
+        size_t _tmp_orig_states_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (orig_states)
+                  / sizeof (struct parse_state *));
+        int _start_j = (_tmp_orig_states_n == 0 ? -1 : YAEP_STATIC_CAST(int, _tmp_orig_states_n - 1));
+        for (j = _start_j; j >= 0; j--)
+          if ((YAEP_STATIC_CAST(struct parse_state **,
+       VLO_BEGIN (orig_states)))[j]->pl_ind == sit_orig)
+      break;
+      }
 		  if (j >= 0)
 		    {
 		      /* [A -> x., n] & [A -> y., n] */
-		      curr_state = ((struct parse_state **)
-				    VLO_BEGIN (orig_states))[j];
+		      curr_state = (YAEP_STATIC_CAST(struct parse_state **,
+				    VLO_BEGIN (orig_states)))[j];
 		      anode = curr_state->anode;
 		    }
 		  else
@@ -6567,7 +6676,7 @@ make_parse (int *ambiguous_p)
 		         it to process. */
 		      state = parse_state_alloc ();
 		      VLO_EXPAND (stack, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
 		      *state = *orig_state;
 		      state->pl_ind = sit_orig;
 		      if (anode != NULL)
@@ -6575,19 +6684,22 @@ make_parse (int *ambiguous_p)
 			  = copy_anode (parent_anode->val.anode.children
 					+ parent_disp, anode, rule, disp);
 		      VLO_EXPAND (orig_states, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (orig_states))[-1]
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (orig_states)))[-1]
 			= state;
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-		      if (grammar->debug_level > 3)
-			{
-			  fprintf (stderr,
-				   "  Adding top %ld, set place = %d, modified sit = ",
-				   (long) VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1,
-				   sit_orig);
-			  rule_dot_print (stderr, state->rule, state->pos);
-			  fprintf (stderr, ", %d\n", state->orig);
-			}
+        if (grammar->debug_level > 3)
+            {
+        /* Compute top index safely to avoid unsigned->signed narrowing
+        in the fprintf call. */
+        size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+        long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+        fprintf (stderr,
+          "  Adding top %ld, set place = %d, modified sit = ",
+          _top_index,
+          sit_orig);
+        rule_dot_print (stderr, state->rule, state->pos);
+        fprintf (stderr, ", %d\n", state->orig);
+      }
 #endif
 		      curr_state = state;
 		      anode = state->anode;
@@ -6609,10 +6721,10 @@ make_parse (int *ambiguous_p)
 		      /* We need new abtract node. */
 		      n_parse_abstract_nodes++;
 		      node
-			= ((struct yaep_tree_node *)
-			   (*parse_alloc) (sizeof (struct yaep_tree_node)
-					   + sizeof (struct yaep_tree_node *)
-					   * (sit_rule->trans_len + 1)));
+			= (YAEP_STATIC_CAST(struct yaep_tree_node *,
+			   (*parse_alloc) (YAEP_STATIC_CAST(int, (YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node))
+					   + YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node *))
+					   * YAEP_STATIC_CAST(size_t, (sit_rule->trans_len + 1)))))));
 		      state->anode = node;
 		      if (table_state != NULL)
 			table_state->anode = node;
@@ -6620,19 +6732,19 @@ make_parse (int *ambiguous_p)
 		      if (sit_rule->caller_anode == NULL)
 			{
 			  sit_rule->caller_anode
-			    = ((char *)
-			       (*parse_alloc) (strlen (sit_rule->anode) + 1));
+			    = (YAEP_STATIC_CAST(char *,
+			       (*parse_alloc) (YAEP_STATIC_CAST(int, (YAEP_STATIC_CAST(size_t, (strlen (sit_rule->anode) + 1)))))));
 			  strcpy (sit_rule->caller_anode, sit_rule->anode);
 			}
 		      node->val.anode.name = sit_rule->caller_anode;
 		      node->val.anode.cost = sit_rule->anode_cost;
 		      node->val.anode.children
-			= ((struct yaep_tree_node **)
-			   ((char *) node + sizeof (struct yaep_tree_node)));
+			= (YAEP_REINTERPRET_CAST(struct yaep_tree_node **,
+			   (YAEP_REINTERPRET_CAST(char *, node) + sizeof (struct yaep_tree_node))));
 		      for (k = 0; k <= sit_rule->trans_len; k++)
 			node->val.anode.children[k] = NULL;
 		      VLO_EXPAND (stack, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
 		      if (anode == NULL)
 			{
 			  state->parent_anode_state
@@ -6645,15 +6757,16 @@ make_parse (int *ambiguous_p)
 			  state->parent_disp = disp;
 			}
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-		      if (grammar->debug_level > 3)
-			{
-			  fprintf (stderr,
-				   "  Adding top %ld, set place = %d, sit = ",
-				   (long) VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1, pl_ind);
-			  sit_print (stderr, sit, grammar->debug_level > 5);
-			  fprintf (stderr, ", %d\n", sit_orig);
-			}
+        if (grammar->debug_level > 3)
+            {
+        size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+        long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+        fprintf (stderr,
+          "  Adding top %ld, set place = %d, sit = ",
+          _top_index, pl_ind);
+        sit_print (stderr, sit, grammar->debug_level > 5);
+        fprintf (stderr, ", %d\n", sit_orig);
+      }
 #endif
 		    }
 		  else
@@ -6661,7 +6774,7 @@ make_parse (int *ambiguous_p)
 		      /* We allready have the translation. */
 		      assert (!grammar->one_parse_p);
 		      parse_state_free (state);
-		      state = ((struct parse_state **) VLO_BOUND (stack))[-1];
+		      state = (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1];
 		      node = table_state->anode;
 		      assert (node != NULL);
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
@@ -6687,7 +6800,7 @@ make_parse (int *ambiguous_p)
 		     nonterminal.  Add state to get a translation. */
 		  state = parse_state_alloc ();
 		  VLO_EXPAND (stack, sizeof (struct parse_state *));
-		  ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+		  (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
 		  state->rule = sit_rule;
 		  state->pos = sit->pos;
 		  state->orig = sit_orig;
@@ -6699,15 +6812,16 @@ make_parse (int *ambiguous_p)
 		  state->parent_disp = anode == NULL ? parent_disp : disp;
 		  state->anode = NULL;
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-		  if (grammar->debug_level > 3)
-		    {
-		      fprintf (stderr,
-			       "  Adding top %ld, set place = %d, sit = ",
-			       (long) VLO_LENGTH (stack) /
-			       sizeof (struct parse_state *) - 1, pl_ind);
-		      sit_print (stderr, sit, grammar->debug_level > 5);
-		      fprintf (stderr, ", %d\n", sit_orig);
-		    }
+          if (grammar->debug_level > 3)
+            {
+              size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+              long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+              fprintf (stderr,
+                   "  Adding top %ld, set place = %d, sit = ",
+                   _top_index, pl_ind);
+              sit_print (stderr, sit, grammar->debug_level > 5);
+              fprintf (stderr, ", %d\n", sit_orig);
+            }
 #endif
 		}
 	      else
@@ -6732,7 +6846,8 @@ make_parse (int *ambiguous_p)
   if (!grammar->one_parse_p)
     {
       VLO_DELETE (orig_states);
-      yaep_free (grammar->alloc, term_node_array);
+      if (term_node_array != NULL)
+        yaep_free (grammar->alloc, term_node_array);
     }
   parse_state_fin ();
   grammar->one_parse_p = saved_one_parse_p;
@@ -6787,7 +6902,7 @@ parse_alloc_default (int nmemb)
 
   assert (nmemb > 0);
 
-  result = malloc (nmemb);
+  result = malloc (YAEP_STATIC_CAST(size_t, nmemb));
   if (result == NULL)
     {
       exit (1);
@@ -6884,7 +6999,7 @@ yaep_parse (struct grammar *g,
 static int
 yaep_parse_internal (void *user)
 {
-  struct yaep_parse_context *ctx = (struct yaep_parse_context *) user;
+  struct yaep_parse_context *ctx = YAEP_STATIC_CAST(struct yaep_parse_context *, user);
   int tab_collisions, tab_searches;
   int code;
 
@@ -6941,16 +7056,16 @@ yaep_parse_internal (void *user)
 #ifndef NO_YAEP_DEBUG_PRINT
   if (grammar->debug_level > 0)
     {
-      fprintf (stderr, "%sGrammar: #terms = %d, #nonterms = %d, ",
-	       *ctx->ambiguous_p ? "AMBIGUOUS " : "",
-	       symbs_ptr->n_terms, symbs_ptr->n_nonterms);
+  fprintf (stderr, "%sGrammar: #terms = %zu, #nonterms = %zu, ",
+        *ctx->ambiguous_p ? "AMBIGUOUS " : "",
+        symbs_ptr->n_terms, symbs_ptr->n_nonterms);
       fprintf (stderr, "#rules = %d, rules size = %d\n",
 	       rules_ptr->n_rules,
 	       rules_ptr->n_rhs_lens + rules_ptr->n_rules);
       fprintf (stderr, "Input: #tokens = %d, #unique situations = %d\n",
 	       toks_len, n_all_sits);
-      fprintf (stderr, "       #terminal sets = %d, their size = %d\n",
-	       term_sets_ptr->n_term_sets, term_sets_ptr->n_term_sets_size);
+  fprintf (stderr, "       #terminal sets = %zu, their size = %zu\n",
+        term_sets_ptr->n_term_sets, term_sets_ptr->n_term_sets_size);
       fprintf (stderr,
 	       "       #unique set cores = %d, #their start situations = %d\n",
 	       n_set_cores, n_set_core_start_sits);
@@ -7002,6 +7117,8 @@ yaep_parse_internal (void *user)
   ctx->parse_init_p = FALSE;
   tok_fin ();
   ctx->tok_init_p = FALSE;
+  /* Free parser list memory allocated in pl_create() to avoid leak (Valgrind baseline). */
+  pl_fin ();
   return 0;
 }
 
@@ -7038,7 +7155,7 @@ free_tree_reduce (struct yaep_tree_node *node)
   assert ((node->type & _yaep_VISITED) == 0);
 
   type = node->type;
-  node->type = (enum yaep_tree_node_type) (node->type | _yaep_VISITED);
+  node->type = YAEP_STATIC_CAST(enum yaep_tree_node_type, (node->type | _yaep_VISITED));
 
   switch (type)
     {
@@ -7114,8 +7231,8 @@ free_tree_reduce (struct yaep_tree_node *node)
 }
 
 static void
-free_tree_sweep (struct yaep_tree_node *node, void (*parse_free) (void *),
-		 void (*termcb) (struct yaep_term *))
+free_tree_sweep (struct yaep_tree_node *node, void (*free_fn) (void *),
+     void (*termcb) (struct yaep_term *))
 {
   enum yaep_tree_node_type type;
   struct yaep_tree_node *next;
@@ -7127,7 +7244,7 @@ free_tree_sweep (struct yaep_tree_node *node, void (*parse_free) (void *),
     }
 
   assert (node->type & _yaep_VISITED);
-  type = (enum yaep_tree_node_type) (node->type & ~_yaep_VISITED);
+  type = YAEP_STATIC_CAST(enum yaep_tree_node_type, (YAEP_STATIC_CAST(unsigned, node->type) & 0x7Fu));
 
   switch (type)
     {
@@ -7143,49 +7260,49 @@ free_tree_sweep (struct yaep_tree_node *node, void (*parse_free) (void *),
       break;
 
     case YAEP_ANODE:
-      parse_free (node->val._anode_name.name);
+  free_fn (node->val._anode_name.name);
       for (childp = node->val.anode.children; *childp != NULL; ++childp)
-	{
-	  free_tree_sweep (*childp, parse_free, termcb);
-	}
+  {
+    free_tree_sweep (*childp, free_fn, termcb);
+  }
       break;
 
     case YAEP_ALT:
-      free_tree_sweep (node->val.alt.node, parse_free, termcb);
+  free_tree_sweep (node->val.alt.node, free_fn, termcb);
       next = node->val.alt.next;
-      parse_free (node);
-      free_tree_sweep (next, parse_free, termcb);
+  free_fn (node);
+  free_tree_sweep (next, free_fn, termcb);
       return;			/* Tail recursion */
 
     default:
       assert ("This should not happen" == NULL);
     }
 
-  parse_free (node);
+  free_fn (node);
 }
 
 #ifdef __cplusplus
 static
 #endif
 void
-yaep_free_tree (struct yaep_tree_node *root, void (*parse_free) (void *),
-		void (*termcb) (struct yaep_term *))
+yaep_free_tree (struct yaep_tree_node *root, void (*free_fn) (void *),
+    void (*termcb) (struct yaep_term *))
 {
   if (root == NULL)
     {
       return;
     }
-  if (parse_free == NULL)
-    {
-      parse_free = parse_free_default;
-    }
+  if (free_fn == NULL)
+  {
+    free_fn = parse_free_default;
+  }
 
   /* Since the parse tree is actually a DAG, we must carefully avoid
    * double free errors. Therefore, we walk the parse tree twice.
    * On the first walk, we reduce the DAG to an actual tree.
    * On the second walk, we recursively free the tree nodes. */
   free_tree_reduce (root);
-  free_tree_sweep (root, parse_free, termcb);
+  free_tree_sweep (root, free_fn, termcb);
 }
 
 /* This page contains a test code for Earley's algorithm.  To use it,
@@ -7205,11 +7322,16 @@ test_parse_alloc (int size)
 {
   void *result;
 
-  OS_TOP_EXPAND (mem_os, size);
+  OS_TOP_EXPAND (mem_os, YAEP_STATIC_CAST(size_t, size));
   result = OS_TOP_BEGIN (mem_os);
   OS_TOP_FINISH (mem_os);
   return result;
 }
+
+/* Forward declarations for YAEP API callback functions */
+const char *read_terminal (int *code);
+const char *read_rule (const char ***rhs, const char **anode, 
+                       int *out_anode_cost, int **transl);
 
 /* The following variable is the current number of next input grammar
    terminal. */
@@ -7250,7 +7372,7 @@ static int nrule;
 /* The following function imported by Earley's algorithm (see comments
    in the interface file). */
 const char *
-read_rule (const char ***rhs, const char **anode, int *anode_cost,
+read_rule (const char ***rhs, const char **anode, int *out_anode_cost,
 	   int **transl)
 {
   static const char *rhs_1[] = { "T", NULL };
@@ -7272,7 +7394,7 @@ read_rule (const char ***rhs, const char **anode, int *anode_cost,
     case 1:
       *rhs = rhs_1;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_1;
       return "E";
     case 2:
@@ -7283,7 +7405,7 @@ read_rule (const char ***rhs, const char **anode, int *anode_cost,
     case 3:
       *rhs = rhs_3;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_3;
       return "T";
     case 4:
@@ -7294,13 +7416,13 @@ read_rule (const char ***rhs, const char **anode, int *anode_cost,
     case 5:
       *rhs = rhs_5;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_5;
       return "F";
     case 6:
       *rhs = rhs_6;
       *anode = NULL;
-      *anode_cost = 0;
+      *out_anode_cost = 0;
       *transl = tr_6;
       return "F";
     default:
@@ -7321,7 +7443,7 @@ test_read_token (void **attr)
 
   ntok++;
   *attr = NULL;
-  if (ntok < sizeof (input))
+  if (ntok < YAEP_STATIC_CAST(int, sizeof (input)))
     return input[ntok - 1];
   else
     return -1;
@@ -7334,6 +7456,10 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_recovered_tok_num,
 		   void *start_recovered_tok_attr)
 {
+  (void) err_tok_attr; /* Unused */
+  (void) start_ignored_tok_attr; /* Unused */
+  (void) start_recovered_tok_attr; /* Unused */
+  
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
   else

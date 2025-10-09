@@ -59,7 +59,7 @@ vlo::tailor (void)
   vlo_length = length ();
   if (vlo_length == 0)
     vlo_length = 1;
-  new_vlo_start = (char *) yaep_realloc (vlo_alloc, vlo_start, vlo_length);
+  new_vlo_start = static_cast<char *>(yaep_realloc (vlo_alloc, vlo_start, vlo_length));
   if (new_vlo_start != vlo_start)
     {
       vlo_free += new_vlo_start - vlo_start;
@@ -103,7 +103,7 @@ vlo::_VLO_expand_memory (size_t additional_length)
   assert (vlo_start);
   vlo_length = length () + additional_length;
   vlo_length += vlo_length / 2 + 1;
-  new_vlo_start = (char *) yaep_realloc (vlo_alloc, vlo_start, vlo_length);
+  new_vlo_start = static_cast<char *>(yaep_realloc (vlo_alloc, vlo_start, vlo_length));
   if (new_vlo_start != vlo_start)
     {
       vlo_free += new_vlo_start - vlo_start;

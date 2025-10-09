@@ -71,14 +71,24 @@ static void initiate_typedefs( YaepAllocator * alloc ) {
 
 /* Now we ignore level */
 static
-void add_typedef (const char *id, int level)
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
+void add_typedef (const char *id, int scope_level)
 {
   hash_table_entry_t *entry_ptr;
 
-  assert (level == 0);
-  entry_ptr = find_hash_table_entry (table, id, 1);
+  (void) scope_level; /* Unused - included for API compatibility */
+  
+  /* Use const-aware probe helper to avoid discarding qualifiers at call sites. */
+  entry_ptr = find_hash_table_entry_c (table, id, 1);
   if (*entry_ptr == NULL)
-    *entry_ptr = (hash_table_entry_t) id;
+    {
+      /* Use union to avoid cast-qual warning when storing const char* */
+      union { const char *cc; hash_table_entry_t v; } u;
+      u.cc = id;
+      *entry_ptr = u.v;
+    }
   else
     assert (strcmp (id, *entry_ptr) == 0);
 #ifdef DEBUG
@@ -90,11 +100,13 @@ void add_typedef (const char *id, int level)
 inline
 #endif
 static
-int find_typedef (const char *id, int level)
+int find_typedef (const char *id, int scope_level)
 {
   hash_table_entry_t *entry_ptr;
 
-  entry_ptr = find_hash_table_entry (table, id, 0);
+  (void) scope_level; /* Unused - included for API compatibility */
+  
+  entry_ptr = find_hash_table_entry_c (table, id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)
     fprintf (stderr, "found typedef %s\n", id);

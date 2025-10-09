@@ -1,0 +1,15 @@
+==1750686== Memcheck, a memory error detector
+==1750686== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==1750686== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==1750686== Command: ./build/bench/yaep_bench
+==1750686== 
+{"schema_version":1,"mode":"ad-hoc","iterations":5,"tokens":2000,"best_ns":15402000,"avg_ns":20041600,"avg_ns_per_token":10020.80}
+==1750686== 
+==1750686== HEAP SUMMARY:
+==1750686==     in use at exit: 0 bytes in 0 blocks
+==1750686==   total heap usage: 2,401 allocs, 2,401 frees, 5,848,188 bytes allocated
+==1750686== 
+==1750686== All heap blocks were freed -- no leaks are possible
+==1750686== 
+==1750686== For lists of detected and suppressed errors, rerun with: -s
+==1750686== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)

@@ -344,7 +344,7 @@ public:
 						     int **transl));
 
   /* See comments for function yaep_parse_grammar. */
-  int parse_grammar (int strict_p, const char *description);
+  int parse_grammar (int strict_p, const char *grammar_description);
 
   /* See comments for corresponding C functions. */
   int set_lookahead_level (int level);
@@ -355,15 +355,15 @@ public:
   int set_recovery_match (int n_toks);
 
   /* See comments for function yaep_parse. */
-  int parse (int (*read_token) (void **attr),
-	     void (*syntax_error) (int err_tok_num,
+  int parse (int (*read_token_fn) (void **attr),
+	     void (*syntax_error_fn) (int err_tok_num,
 				   void *err_tok_attr,
 				   int start_ignored_tok_num,
 				   void *start_ignored_tok_attr,
 				   int start_recovered_tok_num,
 				   void *start_recovered_tok_attr),
-	     void *(*parse_alloc) (int nmemb),
-	     void (*parse_free) (void *mem),
+	     void *(*parse_alloc_fn) (int nmemb),
+	     void (*parse_free_fn) (void *mem),
 	     struct yaep_tree_node **root,
 	     int *ambiguous_p);
 
@@ -371,7 +371,7 @@ public:
      This is a static member function because the lifetime of the
      parse tree exceeds the lifetime of the yaep instance it
      came from. */
-  static void free_tree( struct yaep_tree_node * root, void ( *parse_free )( void * ), void ( *termcb )( struct yaep_term * term ) );
+  static void free_tree( struct yaep_tree_node * root, void ( *parse_free_fn )( void * ), void ( *termcb )( struct yaep_term * term ) );
 };
 
 #endif /* #ifndef __cplusplus */

@@ -85,23 +85,24 @@ higher_prime_number (unsigned long number)
    given source length.  Created hash table is initiated as empty (all
    the hash table entries are EMPTY_ENTRY). */
 
-hash_table::hash_table (YaepAllocator * allocator, size_t size, unsigned int (*hash_function) (hash_table_entry_t el_ptr), int (*eq_function) (hash_table_entry_t el1_ptr, hash_table_entry_t el2_ptr)):alloc
-  (allocator)
+hash_table::hash_table (YaepAllocator * allocator, size_t initial_size,
+                        unsigned int (*hash_func) (hash_table_entry_t el_ptr),
+                        int (*eq_func) (hash_table_entry_t el1_ptr, hash_table_entry_t el2_ptr))
+  : alloc (allocator)
 {
   hash_table_entry_t * entry_ptr;
 
-  // Avoid shadowing: rename parameters to hash_func and eq_func
-  // (see header for member names)
-  size = higher_prime_number (size);
-  entries = reinterpret_cast<hash_table_entry_t *>(yaep_malloc(alloc, size * sizeof(hash_table_entry_t))); // Use C++ cast to avoid old-style-cast warning
-  this->_size = size;
-  this->hash_function = hash_function;
-  this->eq_function = eq_function;
+  // Normalize size to nearest prime and assign members (avoid shadowing member names)
+  initial_size = higher_prime_number (initial_size);
+  entries = reinterpret_cast<hash_table_entry_t *>(yaep_malloc(alloc, initial_size * sizeof(hash_table_entry_t)));
+  this->_size = initial_size;
+  this->hash_function = hash_func;
+  this->eq_function = eq_func;
   number_of_elements = 0;
   number_of_deleted_elements = 0;
   collisions = 0;
   searches = 0;
-  for (entry_ptr = entries; entry_ptr < entries + size; entry_ptr++)
+  for (entry_ptr = entries; entry_ptr < entries + initial_size; entry_ptr++)
     *entry_ptr = EMPTY_ENTRY;
 }
 
@@ -215,7 +216,7 @@ hash_table::find_entry (hash_table_entry_t element, int reserve)
 	first_deleted_entry_ptr = entry_ptr;
       hash_value += secondary_hash_value;
       if (hash_value >= _size)
-	hash_value -= _size;
+	hash_value -= static_cast<unsigned>(_size);
     }
   return entry_ptr;
 }

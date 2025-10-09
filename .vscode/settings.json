@@ -1,5 +1,10 @@
 {
     "files.associations": {
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "array": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "system_error": "cpp",
+        "random": "cpp"
     }
 }

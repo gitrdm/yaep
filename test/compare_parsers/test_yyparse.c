@@ -38,6 +38,9 @@ static const char *typedef_flag = NULL;
 static int after_struct_flag = 0;
 static int level = 0;
 
+/* Forward declaration for lexer function */
+int get_lex (void);
+
 #include "test_common.c"
 
 #define yylex get_lex
@@ -86,9 +89,9 @@ static void store_lexs( YaepAllocator * alloc ) {
       }
     else
       lex.id = NULL;
-    lex.code = code;
+    lex.code = (short)code;
     lex.line = line;
-    lex.column = column;
+    lex.column = (short)column;
     lex.next = NULL;
     OS_TOP_ADD_MEMORY (lexs, &lex, sizeof (lex));
     if (prev == NULL)
@@ -100,7 +103,8 @@ static void store_lexs( YaepAllocator * alloc ) {
   }
 }
 
-main()
+int
+main(void)
 {
   ticker_t t;
   int code;

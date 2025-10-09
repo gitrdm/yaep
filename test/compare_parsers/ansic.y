@@ -26,6 +26,9 @@
 
 %{
 #define YYSTYPE string_t
+
+/* Forward declaration for parser error function */
+void yyerror (const char *s);
 %}
 
 %token IDENTIFIER CONSTANT STRING_LITERAL SIZEOF
@@ -39,6 +42,9 @@
 %token STRUCT UNION ENUM ELIPSIS
 
 %token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
+
+/* Expect 1 shift/reduce conflict (the classic "dangling else" ambiguity in if-else statements) */
+%expect 1
 
 %start file
 %%
@@ -293,7 +299,7 @@ declarator
 
 declarator2
 	: identifier                  {if (typedef_flag != NULL)
-                                         add_typedef ((char *) $1, level);}
+                                         add_typedef ((const char *) $1, level);}
 	| '(' declarator ')'
 	| declarator2 '[' ']'
 	| declarator2 '[' constant_expr ']'
@@ -475,5 +481,6 @@ extern int line;
 	strict-prototype warnings from older K&R-style function definitions. */
 void yyerror (const char *s)
 {
+	(void)s;  /* Parameter required by interface but unused */
 	fprintf (stderr, "syntax error line - %d, column - %d\n", line, column + 1);
 }

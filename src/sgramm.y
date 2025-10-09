@@ -66,9 +66,9 @@
 /* The following structure describes syntax grammar terminal. */
 struct sterm
 {
-  char *repr; /* terminal representation. */
+  const char *repr; /* terminal representation. */
   int code;   /* terminal code. */
-  int num;    /* order number. */
+  size_t num;    /* order number. */
 };
 
 /* The following structure describes syntax grammar rule. */
@@ -76,7 +76,7 @@ struct srule
 {
   /* The following members are left hand side nonterminal
      representation and abstract node name (if any) for the rule. */
-  char *lhs, *anode;
+  const char *lhs, *anode;
   /* The following is the cost of given anode if it is defined.
      Otherwise, the value is zero. */
   int anode_cost;
@@ -84,7 +84,7 @@ struct srule
   int rhs_len;
   /* Terminal/nonterminal representations in RHS of the rule.  The
      array end marker is NULL. */
-  char **rhs;
+  const char **rhs;
   /* The translations numbers. */
   int *trans;
 };
@@ -110,7 +110,7 @@ static os_t *srhs, *strans;
 static int anode_cost;
 
 /* This variable is used in yacc action to process alternatives. */
-static char *slhs;
+static const char *slhs;
 
 /* Forward declarations. */
 extern int yyerror (const char *str);
@@ -150,9 +150,9 @@ terms : terms IDENT number
         {
 	  struct sterm term;
 	  
-	  term.repr = (char *) $2;
+	  term.repr = (const char *) $2;
 	  term.code = $3;
-          term.num = VLO_LENGTH (sterms) / sizeof (term);
+          term.num = YAEP_STATIC_CAST(size_t, VLO_LENGTH (sterms) / sizeof (term));
 	  VLO_ADD_MEMORY (sterms, &term, sizeof (term));
 	}
       | TERM
@@ -162,7 +162,7 @@ number :            {$$ = -1;}
        | '=' NUMBER {$$ = $2;}
        ;
 
-rule : SEM_IDENT {slhs = (char *) $1;} rhs opt_sem
+rule : SEM_IDENT {slhs = (const char *) $1;} rhs opt_sem
      ;
 
 rhs : rhs '|' alt
@@ -175,13 +175,16 @@ alt : seq trans
 	int end_marker = -1;
 
 	OS_TOP_ADD_MEMORY (strans, &end_marker, sizeof (int));
-	rule.lhs = slhs;
-	rule.anode = (char *) $2;
+	rule.lhs = (const char *) slhs;
+	rule.anode = (const char *) $2;
 	rule.anode_cost = (rule.anode == NULL ? 0 : anode_cost);
-	rule.rhs_len = OS_TOP_LENGTH (srhs) / sizeof (char *);
-	OS_TOP_EXPAND (srhs, sizeof (char *));
-	rule.rhs = (char **) OS_TOP_BEGIN (srhs);
-	rule.rhs [rule.rhs_len] = NULL;
+{
+  size_t _tmp_rhs_len = OS_TOP_LENGTH (srhs) / sizeof (char *);
+  rule.rhs_len = YAEP_STATIC_CAST(int, _tmp_rhs_len);
+  OS_TOP_EXPAND (srhs, sizeof (char *));
+  rule.rhs = (const char **) OS_TOP_BEGIN (srhs);
+  rule.rhs [YAEP_STATIC_CAST(int, _tmp_rhs_len)] = NULL;
+}
 	OS_TOP_FINISH (srhs);
 	rule.trans = (int *) OS_TOP_BEGIN (strans);
 	OS_TOP_FINISH (strans);
@@ -199,9 +202,9 @@ seq : seq IDENT
        {
 	  struct sterm term;
 	  
-	  term.repr = (char *) $2;
+	  term.repr = (const char *) $2;
 	  term.code = term.repr [1];
-          term.num = VLO_LENGTH (sterms) / sizeof (term);
+          term.num = YAEP_STATIC_CAST(size_t, VLO_LENGTH (sterms) / sizeof (term));
 	  VLO_ADD_MEMORY (sterms, &term, sizeof (term));
 	  OS_TOP_ADD_MEMORY (srhs, &term.repr, sizeof (term.repr));
        }
@@ -268,8 +271,8 @@ static os_t *stoks;
 #endif
 
 /* The following is number of syntax terminal and syntax rules being
-   read. */
-static int nsterm, nsrule;
+  read. */
+static size_t nsterm, nsrule;
 
 /* The following implements lexical analyzer for yacc code. */
 int
@@ -298,7 +301,7 @@ yylex (void)
 	case ' ':
 	  break;
 	case '/':
-    /* check for start of comment '/*' without advancing past NUL */
+  /* check for start of comment (slash-star) without advancing past NUL */
     if (*curr_ch != '*')
       {
         if (n_errs == 0)
@@ -489,7 +492,7 @@ yyerror (const char *str)
 static int
 sterm_name_cmp (const void *t1, const void *t2)
 {
-  return strcmp (((struct sterm *) t1)->repr, ((struct sterm *) t2)->repr);
+  return strcmp (((const struct sterm *) t1)->repr, ((const struct sterm *) t2)->repr);
 }
 
 /* The following function is used to sort array of syntax terminals by
@@ -497,7 +500,13 @@ sterm_name_cmp (const void *t1, const void *t2)
 static int
 sterm_num_cmp (const void *t1, const void *t2)
 {
-  return ((struct sterm *) t1)->num - ((struct sterm *) t2)->num;
+  const struct sterm *a = (const struct sterm *) t1;
+  const struct sterm *b = (const struct sterm *) t2;
+  if (a->num < b->num)
+    return -1;
+  if (a->num > b->num)
+    return 1;
+  return 0;
 }
 
 static void free_sgrammar (void);
@@ -562,7 +571,7 @@ set_sgrammar_internal (void *user)
 {
   struct set_sgrammar_context *ctx = (struct set_sgrammar_context *) user;
   struct grammar *g = ctx->grammar;
-  int i, j, num;
+  size_t i, j, num;
   struct sterm *term, *prev, *arr;
   int code = 256;
   int parse_result;
@@ -603,9 +612,9 @@ set_sgrammar_internal (void *user)
     }
   
   /* sort array of syntax terminals by names. */
-  num = VLO_LENGTH (sterms) / sizeof (struct sterm);
+  num = YAEP_STATIC_CAST(size_t, VLO_LENGTH (sterms) / sizeof (struct sterm));
   arr = (struct sterm *) VLO_BEGIN (sterms);
-  qsort (arr, num, sizeof (struct sterm), sterm_name_cmp);
+  qsort (arr, YAEP_STATIC_CAST(size_t, num), sizeof (struct sterm), sterm_name_cmp);
   /* Check different codes for the same syntax terminal and remove
      duplicates. */
   for (i = j = 0, prev = NULL; i < num; i++)
@@ -691,7 +700,11 @@ sread_rule (const char ***rhs, const char **abs_node, int *anode_cost_out,
   if ((char *) rule >= (char *) VLO_BOUND (srules))
     return NULL;
   lhs = rule->lhs;
-  *rhs = (const char **) rule->rhs;
+  /* Assign via temporary to avoid intermediate pointer qualification warnings */
+  {
+    const char **tmp_rhs = rule->rhs;
+    *rhs = tmp_rhs;
+  }
   *abs_node = rule->anode;
   *anode_cost_out = rule->anode_cost;
   *transl = rule->trans;

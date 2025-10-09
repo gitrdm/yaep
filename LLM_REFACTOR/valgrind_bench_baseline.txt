@@ -1,0 +1,1 @@
+{"schema_version":1,"mode":"baseline","iterations":2,"tokens":1000,"best_ns":4106000,"avg_ns":11884000,"avg_ns_per_token":11884.00}

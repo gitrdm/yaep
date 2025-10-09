@@ -1,0 +1,1 @@
+{"schema_version":1,"captured":"2025-10-08T00:00:00Z","benchmark":"expr_micro","iterations":5,"tokens":5000,"best_ns":2056000,"avg_ns":2176400,"avg_ns_per_token":435.28,"notes":"Captured automatically by bench/yaep_bench --baseline. Gate P0 artifact."}

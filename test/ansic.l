@@ -24,6 +24,14 @@
 
 */
 
+%top{
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <unistd.h>
+/* Explicitly declare fileno to avoid implicit declaration warnings in generated code */
+int fileno(FILE *stream);
+}
+
 D			[0-9]
 L			[a-zA-Z_]
 H			[a-fA-F0-9]
@@ -45,10 +53,11 @@ IS			(u|U|l|L)*
 static int yyinput();
 #define input yyinput
 #endif
-int yywrap ();
+int yywrap (void);
 void comment (void);
 void count (void);
 int check_type (void);
+char *get_yytext (void);
 
 %}
 
@@ -175,7 +184,7 @@ yywrap()
 void
 comment(void)
 {
-	char c, c1;
+	int c, c1;
 
 loop:
 	while ((c = input()) != '*' && c != 0)
@@ -188,7 +197,7 @@ loop:
 	}
 
 	if (c != 0)
-		/*putchar(c1)*/;
+		{ /*putchar(c1)*/; }
 }
 
 void

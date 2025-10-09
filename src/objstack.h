@@ -213,7 +213,7 @@ typedef struct
 #define OS_TOP_LENGTH(os)\
   ((os).os_top_object_start != NULL\
    ? (size_t)((os).os_top_object_free - (os).os_top_object_start) /* Cast to size_t to avoid sign/width conversion warnings */\
-   : (abort (), 0))
+   : (abort (), (size_t)0))
 #else
 #define OS_TOP_LENGTH(os)  ((size_t)((os).os_top_object_free - (os).os_top_object_start)) /* Cast to size_t to avoid sign/width conversion warnings */
 #endif
@@ -300,7 +300,7 @@ typedef struct
     assert (_temp_os->os_top_object_start != NULL);\
     if (_temp_os->os_top_object_free >= _temp_os->os_boundary)\
       _OS_expand_memory (_temp_os, 1);\
-    *_temp_os->os_top_object_free++ = (b);\
+    *_temp_os->os_top_object_free++ = (char)(b);\
   }\
   while (0)
 

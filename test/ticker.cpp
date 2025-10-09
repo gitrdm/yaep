@@ -95,10 +95,10 @@ double
 ticker::active_time (void)
 {
   if (incremented_off_time != 0)
-    return (((double) (incremented_off_time - 1 - modified_creation_time))
+    return ((static_cast<double>(incremented_off_time - 1 - modified_creation_time))
             / CLOCKS_PER_SECOND);
   else
-    return ((double) (clock () - modified_creation_time)) / CLOCKS_PER_SECOND;
+    return (static_cast<double>(clock () - modified_creation_time)) / CLOCKS_PER_SECOND;
 }
 
 /* The following function returns string representation of active time

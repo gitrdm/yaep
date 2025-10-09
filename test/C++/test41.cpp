@@ -62,7 +62,7 @@ hash (hash_table_entry_t el)
   unsigned result, i;
 
   for (result = i = 0;*id++ != '\0'; i++)
-    result += ((unsigned char) *id << (i % CHAR_BIT));
+    result += (static_cast<unsigned char>(*id) << (i % CHAR_BIT));
   return result;
 }
 
@@ -80,16 +80,22 @@ static void initiate_typedefs( YaepAllocator * alloc ) {
 
 /* Now we ignore level */
 static
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
 void add_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
-  assert (level == 0);
+  (void) level; /* Unused - included for API compatibility */
+  
   entry_ptr = table->find_entry (id, 1);
   if (*entry_ptr == NULL)
-    /* implicit conversion from `const char *` to `const void *` is
-       allowed; avoid casting-away-const and keep intent clear */
-    *entry_ptr = id;
+    {
+      /* Store the identifier pointer.  The hash table stores mutable void* but
+         never mutates through it; cast away const exactly once here. */
+      *entry_ptr = const_cast<char*>(id);
+    }
   else
     assert (strcmp (id, (char *) *entry_ptr) == 0);
 #ifdef DEBUG
@@ -105,6 +111,8 @@ int find_typedef (const char *id, int level)
 {
   hash_table_entry_t *entry_ptr;
 
+  (void) level; /* Unused - included for API compatibility */
+  
   entry_ptr = table->find_entry (id, 0);
 #ifdef DEBUG
   if (*entry_ptr != NULL)
@@ -191,6 +199,9 @@ test_syntax_error (int err_tok_num, void *err_tok_attr,
 		   int start_ignored_tok_num, void *start_ignored_tok_attr,
 		   int start_recovered_tok_num, void *start_recovered_tok_attr)
 {
+  (void) start_ignored_tok_attr; /* Unused */
+  (void) start_recovered_tok_attr; /* Unused */
+  
   // Use static_cast for pointer-to-int conversion, document intent.
   if (start_ignored_tok_num < 0)
     fprintf (stderr, "Syntax error on token %d\n", err_tok_num);
@@ -839,7 +850,7 @@ int
 main (int argc, char **argv)
 {
   ticker_t *t;
-  int code, ambiguous_p;
+  int ambiguous_p;
   struct yaep_tree_node *root;
   yaep *e;
 
