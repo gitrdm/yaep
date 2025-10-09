@@ -58,6 +58,7 @@
 #include "yaep.h"
 #include "yaep_cleanup.h"
 #include "yaep_error.h"
+#include "leo_opt.h"
 #include "yaep_macros.h"
 #include <execinfo.h>
 
@@ -510,6 +511,16 @@ struct grammar
    * Client provides this at yaep_create_grammar() time.
    */
   YaepAllocator *alloc;
+  
+  /* ==========================================================================
+   * OPTIMIZATION MODULES (Phase P4+)
+   * ========================================================================== */
+  
+  /** Leo optimization context (Phase P4)
+   * Right-recursion optimization: O(n³) → O(n²) for right-recursive grammars
+   * Initialized in yaep_create_grammar(), cleared per parse, freed with grammar
+   */
+  struct leo_context leo_ctx;
 };
 
 /* The following variable value is the reference for the current
@@ -2935,6 +2946,10 @@ set_init (int n_toks)
   n_sets = n_sets_start_sits = 0;
   n_set_term_lookaheads = 0;
   sit_dist_set_init ();
+  
+  /* Clear Leo optimization state for new parse (Phase P4) */
+  leo_clear(&grammar->leo_ctx);
+  
 #ifdef TRANSITIVE_TRANSITION
   curr_sit_check = 0;
   VLO_CREATE (core_symbol_check_vlo, grammar->alloc, 0);
@@ -4387,6 +4402,11 @@ yaep_create_grammar (void)
   symbs_ptr = symbs;
   term_sets_ptr = term_sets;
   rules_ptr = rules;
+
+  /* Initialize Leo optimization module (Phase P4)
+   * Must be done after allocator is set up but before parsing */
+  memset(&g->leo_ctx, 0, sizeof(g->leo_ctx));
+  leo_init(&g->leo_ctx, allocator);
 
   /*
    * Grammar successfully initialized.
@@ -8457,6 +8477,10 @@ yaep_free_grammar (struct grammar *g)
   if (g != NULL)
     {
       allocator = g->alloc;
+      
+      /* Cleanup Leo optimization (Phase P4) */
+      leo_finish(&g->leo_ctx);
+      
       pl_fin ();
       rule_fin (g->rules_ptr);
       term_set_fin (g->term_sets_ptr);

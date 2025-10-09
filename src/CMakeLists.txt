@@ -58,6 +58,7 @@ set( YAEP_LIB_SOURCES
 	allocate.c
 	earley_engine.c
 	hashtab.c
+	leo_opt.c
 	mem_pool.c
 	objstack.c
 	vlobject.c
@@ -83,6 +84,7 @@ set( YAEPXX_LIB_SOURCES
 	allocate.c
 	earley_engine.c
 	hashtab.cpp
+	leo_opt.cpp
 	mem_pool.c
 	objstack.cpp
 	vlobject.cpp
