@@ -2996,7 +2996,7 @@ vect_els_hash (const struct vect *v)
   int i;
 
   for (i = 0; i < v->len; i++)
-    result = result * hash_shift + (unsigned)v->els[i];
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned, v->els[i]);
   return result;
 }
 
@@ -3020,7 +3020,7 @@ vect_els_eq (const struct vect *v1, const struct vect *v2)
 static unsigned
 transition_els_hash (hash_table_entry_t t)
 {
-  const struct core_symb_vect *cv = (const struct core_symb_vect *) t;
+  const struct core_symb_vect *cv = YAEP_STATIC_CAST(const struct core_symb_vect *, t);
   return vect_els_hash (&cv->transitions);
 }
 
@@ -3028,8 +3028,8 @@ transition_els_hash (hash_table_entry_t t)
 static int
 transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  const struct core_symb_vect *cv1 = (const struct core_symb_vect *) t1;
-  const struct core_symb_vect *cv2 = (const struct core_symb_vect *) t2;
+  const struct core_symb_vect *cv1 = YAEP_STATIC_CAST(const struct core_symb_vect *, t1);
+  const struct core_symb_vect *cv2 = YAEP_STATIC_CAST(const struct core_symb_vect *, t2);
   return vect_els_eq (&cv1->transitions, &cv2->transitions);
 }
 
@@ -3038,7 +3038,7 @@ transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 static unsigned
 transitive_transition_els_hash (hash_table_entry_t t)
 {
-  return vect_els_hash (&((struct core_symb_vect *) t)->
+  return vect_els_hash (&YAEP_STATIC_CAST(struct core_symb_vect *, t)->
 			transitive_transitions);
 }
 
@@ -3046,8 +3046,8 @@ transitive_transition_els_hash (hash_table_entry_t t)
 static int
 transitive_transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  return vect_els_eq (&((struct core_symb_vect *) t1)->transitive_transitions,
-		      &((struct core_symb_vect *) t2)->
+  return vect_els_eq (&YAEP_STATIC_CAST(struct core_symb_vect *, t1)->transitive_transitions,
+		      &YAEP_STATIC_CAST(struct core_symb_vect *, t2)->
 		      transitive_transitions);
 }
 #endif
@@ -3056,15 +3056,15 @@ transitive_transition_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 static unsigned
 reduce_els_hash (hash_table_entry_t t)
 {
-  return vect_els_hash (&((struct core_symb_vect *) t)->reduces);
+  return vect_els_hash (&YAEP_STATIC_CAST(struct core_symb_vect *, t)->reduces);
 }
 
 /* Equality of reduce vector elements. */
 static int
 reduce_els_eq (hash_table_entry_t t1, hash_table_entry_t t2)
 {
-  return vect_els_eq (&((struct core_symb_vect *) t1)->reduces,
-		      &((struct core_symb_vect *) t2)->reduces);
+  return vect_els_eq (&YAEP_STATIC_CAST(struct core_symb_vect *, t1)->reduces,
+		      &YAEP_STATIC_CAST(struct core_symb_vect *, t2)->reduces);
 }
 
 /* Initialize work with the triples (set core, symbol, vector). */
@@ -3095,11 +3095,11 @@ core_symb_vect_init (void)
 #ifndef __cplusplus
   VLO_CREATE (core_symb_table_vlo, grammar->alloc, 4096);
   core_symb_table
-    = (struct core_symb_vect ***) VLO_BEGIN (core_symb_table_vlo);
+    = YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BEGIN (core_symb_table_vlo));
   OS_CREATE (core_symb_tab_rows, grammar->alloc, 8192);
 #else
   core_symb_table_vlo = new vlo (grammar->alloc, 4096);
-  core_symb_table = (struct core_symb_vect ***) core_symb_table_vlo->begin ();
+  core_symb_table = YAEP_STATIC_CAST(struct core_symb_vect ***, core_symb_table_vlo->begin ());
   core_symb_tab_rows = new os (grammar->alloc, 8192);
 #endif
 #endif
@@ -3176,51 +3176,51 @@ core_symb_vect_addr_get (struct set_core *set_core, struct symb *symb)
 
   core_symb_vect_ptr = core_symb_table + set_core->num;
 #ifndef __cplusplus
-  if ((char *) core_symb_vect_ptr >= (char *) VLO_BOUND (core_symb_table_vlo))
+  if (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr) >= YAEP_REINTERPRET_CAST(char *, VLO_BOUND (core_symb_table_vlo)))
 #else
-  if ((char *) core_symb_vect_ptr >= (char *) core_symb_table_vlo->bound ())
+  if (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr) >= YAEP_REINTERPRET_CAST(char *, core_symb_table_vlo->bound ()))
 #endif
     {
       struct core_symb_vect ***ptr, ***bound;
       int diff, i;
 
 #ifndef __cplusplus
-      diff = (int)((char *) core_symb_vect_ptr
-	      - (char *) VLO_BOUND (core_symb_table_vlo));
+      diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr)
+	      - YAEP_REINTERPRET_CAST(char *, VLO_BOUND (core_symb_table_vlo))));
 #else
-      diff = (int)((char *) core_symb_vect_ptr
-	      - (char *) core_symb_table_vlo->bound ());
+      diff = YAEP_STATIC_CAST(int, (YAEP_REINTERPRET_CAST(char *, core_symb_vect_ptr)
+	      - YAEP_REINTERPRET_CAST(char *, core_symb_table_vlo->bound ())));
 #endif
-      diff += (int)sizeof (struct core_symb_vect **);
-      if (diff == (int)sizeof (struct core_symb_vect **))
+      diff += YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **));
+      if (diff == YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **)))
 	diff *= 10;
 #ifndef __cplusplus
       VLO_EXPAND (core_symb_table_vlo, diff);
       core_symb_table
-	= (struct core_symb_vect ***) VLO_BEGIN (core_symb_table_vlo);
+	= YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BEGIN (core_symb_table_vlo));
       core_symb_vect_ptr = core_symb_table + set_core->num;
-      bound = (struct core_symb_vect ***) VLO_BOUND (core_symb_table_vlo);
+      bound = YAEP_STATIC_CAST(struct core_symb_vect ***, VLO_BOUND (core_symb_table_vlo));
 #else
-      core_symb_table_vlo->expand ((size_t)diff);
+      core_symb_table_vlo->expand (YAEP_STATIC_CAST(size_t, diff));
       core_symb_table
-	= (struct core_symb_vect ***) core_symb_table_vlo->begin ();
+	= YAEP_STATIC_CAST(struct core_symb_vect ***, core_symb_table_vlo->begin ());
       core_symb_vect_ptr = core_symb_table + set_core->num;
-      bound = (struct core_symb_vect ***) core_symb_table_vlo->bound ();
+      bound = YAEP_STATIC_CAST(struct core_symb_vect ***, core_symb_table_vlo->bound ());
 #endif
-      ptr = bound - diff / (int)sizeof (struct core_symb_vect **);
+      ptr = bound - diff / YAEP_STATIC_CAST(int, sizeof (struct core_symb_vect **));
       while (ptr < bound)
 	{
 #ifndef __cplusplus
 	  OS_TOP_EXPAND (core_symb_tab_rows,
-			 (size_t)(symbs_ptr->n_terms + symbs_ptr->n_nonterms)
+			 YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + symbs_ptr->n_nonterms))
 			 * sizeof (struct core_symb_vect *));
 	  *ptr = OS_TOP_BEGIN (core_symb_tab_rows);
 	  OS_TOP_FINISH (core_symb_tab_rows);
 #else
 	  core_symb_tab_rows->top_expand
-	    ((size_t)(symbs_ptr->n_terms + symbs_ptr->n_nonterms)
+	    (YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + symbs_ptr->n_nonterms))
 	     * sizeof (struct core_symb_vect *));
-	  *ptr = (struct core_symb_vect **) core_symb_tab_rows->top_begin ();
+	  *ptr = YAEP_STATIC_CAST(struct core_symb_vect **, core_symb_tab_rows->top_begin ());
 	  core_symb_tab_rows->top_finish ();
 #endif
 	  for (i = 0; i < symbs_ptr->n_terms + symbs_ptr->n_nonterms; i++)
@@ -3263,10 +3263,10 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   /* Create table element. */
 #ifndef __cplusplus
   OS_TOP_EXPAND (core_symb_vect_os, sizeof (struct core_symb_vect));
-  triple = ((struct core_symb_vect *) OS_TOP_BEGIN (core_symb_vect_os));
+  triple = (YAEP_STATIC_CAST(struct core_symb_vect *, OS_TOP_BEGIN (core_symb_vect_os)));
 #else
   core_symb_vect_os->top_expand (sizeof (struct core_symb_vect));
-  triple = ((struct core_symb_vect *) core_symb_vect_os->top_begin ());
+  triple = (YAEP_STATIC_CAST(struct core_symb_vect *, core_symb_vect_os->top_begin ()));
 #endif
   triple->set_core = set_core;
   triple->symb = symb;
@@ -3288,9 +3288,9 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   vlo_ptr = vlo_array_el (triple->transitions.intern);
   triple->transitions.len = 0;
 #ifndef __cplusplus
-  triple->transitions.els = (int *) VLO_BEGIN (*vlo_ptr);
+  triple->transitions.els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
 #else
-  triple->transitions.els = (int *) vlo_ptr->begin ();
+  triple->transitions.els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
 #endif
 
 #ifdef TRANSITIVE_TRANSITION
@@ -3298,9 +3298,9 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   vlo_ptr = vlo_array_el (triple->transitive_transitions.intern);
   triple->transitive_transitions.len = 0;
 #ifndef __cplusplus
-  triple->transitive_transitions.els = (int *) VLO_BEGIN (*vlo_ptr);
+  triple->transitive_transitions.els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
 #else
-  triple->transitive_transitions.els = (int *) vlo_ptr->begin ();
+  triple->transitive_transitions.els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
 #endif
 #endif
 
@@ -3308,11 +3308,11 @@ core_symb_vect_new (struct set_core *set_core, struct symb *symb)
   vlo_ptr = vlo_array_el (triple->reduces.intern);
   triple->reduces.len = 0;
 #ifndef __cplusplus
-  triple->reduces.els = (int *) VLO_BEGIN (*vlo_ptr);
+  triple->reduces.els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
   VLO_ADD_MEMORY (new_core_symb_vect_vlo, &triple,
 		  sizeof (struct core_symb_vect *));
 #else
-  triple->reduces.els = (int *) vlo_ptr->begin ();
+  triple->reduces.els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
   new_core_symb_vect_vlo->add_memory (&triple,
 				      sizeof (struct core_symb_vect *));
 #endif
@@ -3330,10 +3330,10 @@ vect_new_add_el (struct vect *vec, int el)
   vlo_ptr = vlo_array_el (vec->intern);
 #ifndef __cplusplus
   VLO_ADD_MEMORY (*vlo_ptr, &el, sizeof (int));
-  vec->els = (int *) VLO_BEGIN (*vlo_ptr);
+  vec->els = YAEP_STATIC_CAST(int *, VLO_BEGIN (*vlo_ptr));
 #else
   vlo_ptr->add_memory (&el, sizeof (int));
-  vec->els = (int *) vlo_ptr->begin ();
+  vec->els = YAEP_STATIC_CAST(int *, vlo_ptr->begin ());
 #endif
   n_core_symb_vect_len++;
 }
@@ -3392,25 +3392,25 @@ process_core_symb_vect_el (struct core_symb_vect *core_symb_vect,
          const-qualified view to avoid removing const qualifiers. */
       vec->els
         = (&core_symb_vect->transitions == vec
-           ? ((const struct core_symb_vect *) *entry)->transitions.els
+           ? (YAEP_STATIC_CAST(const struct core_symb_vect *, *entry))->transitions.els
 #ifdef TRANSITIVE_TRANSITION
            : &core_symb_vect->transitive_transitions == vec
-           ? ((const struct core_symb_vect *) *entry)->transitive_transitions.els
+           ? (YAEP_STATIC_CAST(const struct core_symb_vect *, *entry))->transitive_transitions.els
 #endif
-           : ((const struct core_symb_vect *) *entry)->reduces.els);
+           : (YAEP_STATIC_CAST(const struct core_symb_vect *, *entry))->reduces.els);
     }
   else
     {
     /* core_symb_vect is allocated/owned here; cast through void*
        to satisfy the const-qualified hash_table_entry_t type. */
-    *entry = (hash_table_entry_t) (void *) core_symb_vect;
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, core_symb_vect));
 #ifndef __cplusplus
-	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, (size_t)vec->len * sizeof (int));
+	  OS_TOP_ADD_MEMORY (vect_els_os, vec->els, YAEP_STATIC_CAST(size_t, vec->len) * sizeof (int));
 	  vec->els = OS_TOP_BEGIN (vect_els_os);
 	  OS_TOP_FINISH (vect_els_os);
 #else
-	  vect_els_os->top_add_memory (vec->els, (size_t)vec->len * sizeof (int));
-	  vec->els = (int *) vect_els_os->top_begin ();
+	  vect_els_os->top_add_memory (vec->els, YAEP_STATIC_CAST(size_t, vec->len) * sizeof (int));
+	  vec->els = YAEP_STATIC_CAST(int *, vect_els_os->top_begin ());
 	  vect_els_os->top_finish ();
 #endif
 	  (*n_vects)++;
@@ -3428,12 +3428,12 @@ core_symb_vect_new_all_stop (void)
 
 #ifndef __cplusplus
   for (triple_ptr = VLO_BEGIN (new_core_symb_vect_vlo);
-       (char *) triple_ptr < (char *) VLO_BOUND (new_core_symb_vect_vlo);
+       YAEP_REINTERPRET_CAST(char *, triple_ptr) < YAEP_REINTERPRET_CAST(char *, VLO_BOUND (new_core_symb_vect_vlo));
        triple_ptr++)
 #else
   for (triple_ptr
-       = (struct core_symb_vect **) new_core_symb_vect_vlo->begin ();
-       (char *) triple_ptr < (char *) new_core_symb_vect_vlo->bound ();
+       = YAEP_STATIC_CAST(struct core_symb_vect **, new_core_symb_vect_vlo->begin ());
+       YAEP_REINTERPRET_CAST(char *, triple_ptr) < YAEP_REINTERPRET_CAST(char *, new_core_symb_vect_vlo->bound ());
        triple_ptr++)
 #endif
     {
