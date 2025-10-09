@@ -1153,7 +1153,7 @@ term_set_create (void)
   /* Make it 64 bit multiple to have the same statistics for 64 bit
      machines. */
   size = YAEP_STATIC_CAST(size_t, (symbs_ptr->n_terms + CHAR_BIT * 8 - 1) / (CHAR_BIT * 8)) * 8u;
-  OS_TOP_EXPAND (term_sets_ptr->term_set_os, size);
+  OS_TOP_EXPAND (term_sets_ptr->term_set_os, YAEP_STATIC_CAST(size_t, size));
   result = YAEP_STATIC_CAST(term_set_el_t *, OS_TOP_BEGIN (term_sets_ptr->term_set_os));
   OS_TOP_FINISH (term_sets_ptr->term_set_os);
   term_sets_ptr->n_term_sets++;
@@ -1276,7 +1276,7 @@ term_set_insert (term_set_el_t * set)
   else
     {
       OS_TOP_EXPAND (term_sets_ptr->term_set_os,
-		     sizeof (struct tab_term_set));
+        YAEP_STATIC_CAST(size_t, sizeof (struct tab_term_set)));
       tab_term_set_ptr =
 	YAEP_STATIC_CAST(struct tab_term_set *, OS_TOP_BEGIN (term_sets_ptr->term_set_os));
       OS_TOP_FINISH (term_sets_ptr->term_set_os);
@@ -4553,7 +4553,7 @@ form_transitive_transition_vectors (void)
       core_symbol_check++;
       VLO_NULLIFY (core_symbol_queue_vlo);
       /* Put the symbol into the queue.  */
-      VLO_ADD_MEMORY (core_symbol_queue_vlo, &symb, sizeof (symb));
+  VLO_ADD_MEMORY (core_symbol_queue_vlo, &symb, sizeof (symb));
   for (j = 0;
    j < VLO_NELS (core_symbol_queue_vlo, struct symb *);
    j++)
@@ -4562,17 +4562,21 @@ form_transitive_transition_vectors (void)
 	  symb_core_symb_vect = core_symb_vect_find (new_core, symb);
 	  if (symb_core_symb_vect == NULL)
 	    continue;
-	  for (k = 0; k < symb_core_symb_vect->transitions.len; k++)
+      for (k = 0; k < symb_core_symb_vect->transitions.len; k++)
 	    {
-	      sit_ind = symb_core_symb_vect->transitions.els[k];
-	      core_symb_vect_new_add_transitive_transition_el (core_symb_vect,
-							       sit_ind);
+ 	      sit_ind = symb_core_symb_vect->transitions.els[k];
+ 	      /* sit_ind comes from a vector of ints but may originate from
+ 	         size_t indices; ensure any upstream size_t->int conversions
+ 	         were checked.  Pass through as-is (sit_ind is already int). */
+ 	      core_symb_vect_new_add_transitive_transition_el (core_symb_vect,
+ 			       sit_ind);
 	      if (sit_ind < new_core->n_all_dists)
 		/* This situation is originated from other sets --
 		   stop.  */
 		continue;
-	      sit = new_sits[sit_ind];
-	      sit = sit_create (sit->rule, sit->pos + 1, sit->context);
+    sit = new_sits[sit_ind];
+    /* sit_ind is an int here; sit_create expects int parameters. */
+    sit = sit_create (sit->rule, sit->pos + 1, sit->context);
 	      if (sit->empty_tail_p)
 		{
 		  new_symb = sit->rule->lhs;

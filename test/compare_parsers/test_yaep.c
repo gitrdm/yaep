@@ -171,7 +171,7 @@ test_parse_alloc (int size)
 {
   void *result;
 
-  OS_TOP_EXPAND (mem_os, size);
+  OS_TOP_EXPAND (mem_os, (size_t) size);
   OS_TOP_EXPAND (mem_os, (size_t) size);
   result = OS_TOP_BEGIN (mem_os);
   OS_TOP_FINISH (mem_os);
