@@ -3797,7 +3797,7 @@ create_first_follow_sets (void)
 		    if (first_continue_p)
 		      changed_p |= term_set_or (symb->u.nonterm.first,
 						rhs_symb->u.nonterm.first);
-		    for (k = (int)(j + 1); k < rhs_len; k++)
+		    for (k = YAEP_STATIC_CAST(int, j + 1); k < rhs_len; k++)
 		      {
 			next_rhs_symb = rhs[k];
 			if (next_rhs_symb->term_p)
@@ -3863,12 +3863,12 @@ set_empty_access_derives (void)
 	    if (empty_p)
 	      {
 		empty_changed_p |= symb->empty_p ^ empty_p;
-		symb->empty_p = (char)empty_p;
+		symb->empty_p = YAEP_STATIC_CAST(char, empty_p);
 	      }
 	    if (derivation_p)
 	      {
 		derivation_changed_p |= symb->derivation_p ^ derivation_p;
-		symb->derivation_p = (char)derivation_p;
+		symb->derivation_p = YAEP_STATIC_CAST(char, derivation_p);
 	      }
 	  }
     }
@@ -4091,7 +4091,7 @@ yaep_read_grammar (struct grammar *g, int strict_p,
 static int
 yaep_read_grammar_internal (void *user)
 {
-  struct yaep_read_grammar_context *ctx = (struct yaep_read_grammar_context *) user;
+  struct yaep_read_grammar_context *ctx = YAEP_STATIC_CAST(struct yaep_read_grammar_context *, user);
   const char *name, *lhs, **rhs, *anode;
   struct symb *symb, *start = NULL; /* Initialize start to detect missing first rule safely */
   struct rule *rule;
@@ -5522,7 +5522,7 @@ build_pl (void)
       OS_TOP_EXPAND (set_term_lookahead_os,
 		     sizeof (struct set_term_lookahead));
       new_set_term_lookahead =
-	(struct set_term_lookahead *) OS_TOP_BEGIN (set_term_lookahead_os);
+	YAEP_STATIC_CAST(struct set_term_lookahead *, OS_TOP_BEGIN (set_term_lookahead_os));
       new_set_term_lookahead->set = set;
       new_set_term_lookahead->term = term;
       new_set_term_lookahead->lookahead = lookahead_term_num;
@@ -5554,7 +5554,7 @@ build_pl (void)
          and checks. This documents the deliberate removal of the
          const qualifier at the mutation site while keeping the
          public API (hash_table_entry_t) const. */
-      struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+      struct set_term_lookahead *tab_ent = YAEP_STATIC_CAST(struct set_term_lookahead *, YAEP_STATIC_CAST(void *, *entry));
       struct set *tab_set;
 
       OS_TOP_NULLIFY (set_term_lookahead_os);
@@ -5576,7 +5576,7 @@ build_pl (void)
        /* Cache the newly-created mutable lookahead struct in the
          table. Deliberately cast through (void*) to document that
          this is owned mutable data stored in a const-typed slot. */
-       *entry = (hash_table_entry_t) (void *) new_set_term_lookahead;
+       *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set_term_lookahead));
 	  n_set_term_lookaheads++;
 	}
 
@@ -5613,7 +5613,7 @@ build_pl (void)
       /* Mutate the stored table entry — obtain local mutable pointer
          via documented void* cast as above. */
       {
-        struct set_term_lookahead *tab_ent = (struct set_term_lookahead *) (void *) *entry;
+        struct set_term_lookahead *tab_ent = YAEP_STATIC_CAST(struct set_term_lookahead *, YAEP_STATIC_CAST(void *, *entry));
         i = tab_ent->curr;
         tab_ent->result[i] = new_set;
         tab_ent->place[i] = pl_curr;
@@ -5685,13 +5685,13 @@ parse_state_hash (hash_table_entry_t s)
   /* Treat the incoming entry as const because the hash function only
      reads fields; this avoids casting away const at call sites and
      documents that we won't mutate the stored object here. */
-  const struct parse_state *state = ((const struct parse_state *) s);
+  const struct parse_state *state = (YAEP_STATIC_CAST(const struct parse_state *, s));
 
   /* The table contains only states with dot at the end of rule. */
   assert (state->pos == state->rule->rhs_len);
   return (((jauquet_prime_mod32 * hash_shift +
-      (unsigned) (size_t) state->rule) * hash_shift +
-     (unsigned)state->orig) * hash_shift + (unsigned)state->pl_ind);
+      YAEP_STATIC_CAST(unsigned, YAEP_REINTERPRET_CAST(size_t, state->rule))) * hash_shift +
+     YAEP_STATIC_CAST(unsigned, state->orig)) * hash_shift + YAEP_STATIC_CAST(unsigned, state->pl_ind));
 }
 
 /* Equality of parse states. */
@@ -5700,8 +5700,8 @@ parse_state_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
   /* Equality comparison only reads the structures; keep pointers const
      to avoid casting away qualifiers and to make intent explicit. */
-  const struct parse_state *state1 = ((const struct parse_state *) s1);
-  const struct parse_state *state2 = ((const struct parse_state *) s2);
+  const struct parse_state *state1 = (YAEP_STATIC_CAST(const struct parse_state *, s1));
+  const struct parse_state *state2 = (YAEP_STATIC_CAST(const struct parse_state *, s2));
 
   /* The table contains only states with dot at the end of rule. */
   assert (state1->pos == state1->rule->rhs_len
@@ -5719,11 +5719,11 @@ parse_state_init (void)
   if (!grammar->one_parse_p)
 #ifndef __cplusplus
     parse_state_tab =
-      create_hash_table (grammar->alloc, (size_t)toks_len * 2, parse_state_hash,
+      create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, parse_state_hash,
 			 parse_state_eq);
 #else
     parse_state_tab =
-      new hash_table (grammar->alloc, (size_t)toks_len * 2, parse_state_hash,
+      new hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, parse_state_hash,
 		      parse_state_eq);
 #endif
 }
@@ -5740,13 +5740,13 @@ parse_state_alloc (void)
   if (free_parse_state == NULL)
     {
       OS_TOP_EXPAND (parse_state_os, sizeof (struct parse_state));
-      result = (struct parse_state *) OS_TOP_BEGIN (parse_state_os);
+      result = YAEP_STATIC_CAST(struct parse_state *, OS_TOP_BEGIN (parse_state_os));
       OS_TOP_FINISH (parse_state_os);
     }
   else
     {
       result = free_parse_state;
-      free_parse_state = (struct parse_state *) free_parse_state->rule;
+      free_parse_state = YAEP_REINTERPRET_CAST(struct parse_state *, free_parse_state->rule);
     }
   return result;
 }
@@ -5758,7 +5758,7 @@ INLINE
 static void
 parse_state_free (struct parse_state *state)
 {
-  state->rule = (struct rule *) free_parse_state;
+  state->rule = YAEP_REINTERPRET_CAST(struct rule *, free_parse_state);
   free_parse_state = state;
 }
 
@@ -5782,13 +5782,13 @@ parse_state_insert (struct parse_state *state, int *new_p)
 #endif
   *new_p = FALSE;
   if (*entry != NULL)
-    return (struct parse_state *) *entry;
+    return YAEP_STATIC_CAST(struct parse_state *, *entry);
   *new_p = TRUE;
   /* We make copy because pl_ind can be changed in further processing
      state. */
   *entry = parse_state_alloc ();
-  *(struct parse_state *) *entry = *state;
-  return (struct parse_state *) *entry;
+  *YAEP_STATIC_CAST(struct parse_state *, *entry) = *state;
+  return YAEP_STATIC_CAST(struct parse_state *, *entry);
 }
 
 /* The following function finalizes work with parser states. */
