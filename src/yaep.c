@@ -2464,7 +2464,7 @@ set_new_add_initial_sit (struct sit *sit)
 static void
 setup_set_dists_hash (hash_table_entry_t s)
 {
-  struct set *set = ((struct set *) s);
+  struct set *set = YAEP_STATIC_CAST(struct set *, s);
   int *dist_ptr = set->dists;
   int n_dists = set->core->n_start_sits;
   int *dist_bound;
@@ -2473,7 +2473,7 @@ setup_set_dists_hash (hash_table_entry_t s)
   dist_bound = dist_ptr + n_dists;
   result = jauquet_prime_mod32;
   while (dist_ptr < dist_bound)
-    result = result * hash_shift + (unsigned)*dist_ptr++;
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned, *dist_ptr++);
   set->dists_hash = result;
 }
 
@@ -2481,7 +2481,7 @@ setup_set_dists_hash (hash_table_entry_t s)
 static void
 setup_set_core_hash (hash_table_entry_t s)
 {
-  struct set_core *set_core = ((struct set *) s)->core;
+  struct set_core *set_core = YAEP_STATIC_CAST(struct set *, s)->core;
 
   set_core->hash = sits_hash (set_core->n_start_sits, set_core->sits);
 }
@@ -2500,10 +2500,10 @@ set_insert (void)
   int result;
 
   OS_TOP_EXPAND (sets_os, sizeof (struct set));
-  new_set = (struct set *) OS_TOP_BEGIN (sets_os);
+  new_set = YAEP_STATIC_CAST(struct set *, OS_TOP_BEGIN (sets_os));
   new_set->dists = new_dists;
   OS_TOP_EXPAND (set_cores_os, sizeof (struct set_core));
-  new_set->core = new_core = (struct set_core *) OS_TOP_BEGIN (set_cores_os);
+  new_set->core = new_core = YAEP_STATIC_CAST(struct set_core *, OS_TOP_BEGIN (set_cores_os));
   new_core->n_start_sits = new_n_start_sits;
   new_core->sits = new_sits;
   new_set_ready_p = TRUE;
@@ -2515,7 +2515,7 @@ set_insert (void)
     {
       /* Read-only access to the stored set's dists; use const to make
          it explicit we won't mutate the stored object here. */
-      new_dists = new_set->dists = ((const struct set *) *entry)->dists;
+      new_dists = new_set->dists = YAEP_STATIC_CAST(const struct set *, *entry)->dists;
       OS_TOP_NULLIFY (set_dists_os);
     }
   else
@@ -2525,7 +2525,7 @@ set_insert (void)
       deliberate cast to hash_table_entry_t (through void*). */
     /* new_set is owned and mutable; store it in the table via a
       deliberate cast to hash_table_entry_t (through void*). */
-    *entry = (hash_table_entry_t) (void *) new_set;
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set));
       n_set_dists++;
       n_set_dists_len += new_n_start_sits;
     }
@@ -2541,7 +2541,7 @@ set_insert (void)
     {
       OS_TOP_NULLIFY (set_cores_os);
     /* Reuse existing set core (hash table entry already stores mutable struct set*). */
-    new_set->core = new_core = ((struct set *) *entry)->core;
+    new_set->core = new_core = YAEP_STATIC_CAST(struct set *, *entry)->core;
       new_sits = new_core->sits;
       OS_TOP_NULLIFY (set_sits_os);
       result = FALSE;
@@ -2555,7 +2555,7 @@ set_insert (void)
       new_core->parent_indexes = NULL;
   /* See above: store owned mutable set in hash table. */
   /* See above: store owned mutable set in hash table. */
-  *entry = (hash_table_entry_t) (void *) new_set;
+  *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set));
       n_set_core_start_sits += new_n_start_sits;
       result = TRUE;
     }
@@ -2564,14 +2564,14 @@ set_insert (void)
   entry = find_hash_table_entry (set_tab, new_set, TRUE);
   if (*entry == NULL)
     {
-  *entry = (hash_table_entry_t) (void *) new_set;
+  *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, new_set));
       n_sets++;
       n_sets_start_sits += new_n_start_sits;
       OS_TOP_FINISH (sets_os);
     }
   else
     {
-  new_set = (struct set *) *entry;
+  new_set = YAEP_STATIC_CAST(struct set *, *entry);
       OS_TOP_NULLIFY (sets_os);
     }
 #else
@@ -2701,8 +2701,8 @@ pl_create (void)
 
   /* Because of error recovery we may have sets 2 times more than tokens. */
   mem =
-    yaep_malloc (grammar->alloc, sizeof (struct set *) * (size_t)(toks_len + 1) * 2);
-  pl = (struct set **) mem;
+    yaep_malloc (grammar->alloc, sizeof (struct set *) * YAEP_STATIC_CAST(size_t, toks_len + 1) * 2);
+  pl = YAEP_STATIC_CAST(struct set **, mem);
   pl_curr = -1;
 }
 
@@ -2823,15 +2823,15 @@ vlo_array_fin (void)
 #ifndef __cplusplus
   vlo_t *vlo_ptr;
 
-  for (vlo_ptr = VLO_BEGIN (vlo_array);
-       (char *) vlo_ptr < (char *) VLO_BOUND (vlo_array); vlo_ptr++)
+  for (vlo_ptr = YAEP_STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array));
+       YAEP_REINTERPRET_CAST(char *, vlo_ptr) < YAEP_REINTERPRET_CAST(char *, VLO_BOUND (vlo_array)); vlo_ptr++)
     VLO_DELETE (*vlo_ptr);
   VLO_DELETE (vlo_array);
 #else
   vlo_t **vlo_ptr;
 
-  for (vlo_ptr = (vlo_t **) vlo_array->begin ();
-       (char *) vlo_ptr < (char *) vlo_array->bound (); vlo_ptr++)
+  for (vlo_ptr = YAEP_REINTERPRET_CAST(vlo_t **, vlo_array->begin ());
+       YAEP_REINTERPRET_CAST(char *, vlo_ptr) < YAEP_REINTERPRET_CAST(char *, vlo_array->bound ()); vlo_ptr++)
     delete *vlo_ptr;
   delete vlo_array;
 #endif
