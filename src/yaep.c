@@ -4305,8 +4305,87 @@ create_first_follow_sets (void)
   while (changed_p);
 }
 
-/* The following function sets up flags empty_p, access_p and
-   derivation_p for all grammar symbols. */
+/**
+ * set_empty_access_derives - Compute nullable, accessibility, and derivation properties
+ *
+ * PURPOSE:
+ * Performs fixed-point iteration to compute three critical grammar properties:
+ * 1. empty_p (NULLABLE): Nonterminal can derive empty string (ε)
+ * 2. access_p (ACCESSIBLE): Symbol is reachable from axiom
+ * 3. derivation_p (PRODUCTIVE): Symbol can derive terminal string
+ *
+ * ALGORITHM - Nullable Computation (empty_p):
+ * This implements the classic nullable set algorithm via fixed-point iteration.
+ * A nonterminal A is nullable if there exists a rule A → α where all symbols
+ * in α are nullable (or α is empty).
+ *
+ * Initialize: empty_p = false for all nonterminals, true for ε-rules
+ * Repeat until no changes:
+ *   For each rule A → X1 X2 ... Xn:
+ *     If ALL Xi are nullable (empty_p == 1):
+ *       Mark A as nullable
+ *
+ * ALGORITHM - Accessibility Computation (access_p):
+ * Marks symbols reachable from the axiom (start symbol).
+ * Initialize: axiom.access_p = true, all others false
+ * Repeat until no changes:
+ *   For each accessible nonterminal A:
+ *     For each rule A → α:
+ *       Mark all symbols in α as accessible
+ *
+ * ALGORITHM - Productivity Computation (derivation_p):
+ * Marks symbols that can derive terminal strings.
+ * Initialize: derivation_p = true for terminals, false for nonterminals
+ * Repeat until no changes:
+ *   For each rule A → X1 X2 ... Xn:
+ *     If ALL Xi are productive:
+ *       Mark A as productive
+ *
+ * COMPLEXITY:
+ * - Time: O(R × S × I) where:
+ *   * R = number of rules
+ *   * S = max symbols per rule
+ *   * I = iterations until fixpoint (typically small, O(depth of derivation))
+ * - Space: O(1) - in-place updates to symbol flags
+ * - Typical: O(R × S) as I is usually small (< 10 for most grammars)
+ *
+ * RATIONALE:
+ * These properties are essential for:
+ * 1. Nullable: FIRST/FOLLOW set computation, lookahead calculation
+ * 2. Accessible: Grammar validation (warn about unreachable rules)
+ * 3. Productive: Grammar validation (detect useless symbols)
+ *
+ * Precomputing them once during grammar build avoids repeated checks during
+ * parsing. The nullable property is especially critical as it's checked
+ * frequently in expand_new_start_set() for epsilon transitions.
+ *
+ * GLOBAL STATE (Modified):
+ * - symb->empty_p: Set to 1 if symbol is nullable, 0 otherwise
+ * - symb->access_p: Set to 1 if symbol is accessible from axiom
+ * - symb->derivation_p: Set to 1 if symbol can derive terminal string
+ *
+ * SIDE EFFECTS:
+ * - Modifies all symbols in grammar->symbs_ptr
+ * - Results cached in struct symb for O(1) lookup during parsing
+ *
+ * TESTING:
+ * - Implicit in all parse tests (tests with nullable rules)
+ * - Grammars with ε-rules: test03, test05 (expression grammars with optional elements)
+ * - Validated by correct parse results for grammars with nullable nonterminals
+ *
+ * REFERENCES:
+ * - Aho, Sethi, Ullman (1986) "Compilers: Principles, Techniques, and Tools"
+ *   Section 4.4: Construction of FIRST and FOLLOW sets
+ * - Dragon Book Algorithm 4.31: Computing nullable nonterminals
+ *
+ * OPTIMIZATION (P3):
+ * This function is already optimized and called once during grammar setup.
+ * No further optimization needed - cost is negligible compared to parsing.
+ * The results (especially empty_p) are used extensively during parsing:
+ * - expand_new_start_set(): Skip over nullable symbols (line 4968)
+ * - build_new_set(): Check for nullable symbols in distance computation (line 5244)
+ * - FIRST/FOLLOW computation: Nullable symbols affect follow set propagation
+ */
 static void
 set_empty_access_derives (void)
 {
