@@ -1666,7 +1666,7 @@ tok_add (int code, void *attr)
   tok.symb = symb;
 
   VLO_ADD_MEMORY (toks_vlo, &tok, sizeof (struct tok));
-  toks = (struct tok *) VLO_BEGIN (toks_vlo);
+  toks = YAEP_STATIC_CAST(struct tok *, VLO_BEGIN (toks_vlo));
   toks_len++;
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
@@ -1791,7 +1791,7 @@ sit_init (void)
   n_all_sits = 0;
   OS_CREATE (sits_os, grammar->alloc, 0);
   VLO_CREATE (sit_table_vlo, grammar->alloc, 4096);
-  sit_table = (struct sit ***) VLO_BEGIN (sit_table_vlo);
+  sit_table = YAEP_STATIC_CAST(struct sit ***, VLO_BEGIN (sit_table_vlo));
 }
 
 /* The following function sets up lookahead of situation SIT.  The
@@ -5144,7 +5144,7 @@ pop_recovery_state (void)
 {
   struct recovery_state *state;
 
-  state = &((struct recovery_state *) VLO_BOUND (recovery_state_stack))[-1];
+  state = &(YAEP_STATIC_CAST(struct recovery_state *, VLO_BOUND (recovery_state_stack)))[-1];
   VLO_SHORTEN (recovery_state_stack, sizeof (struct recovery_state));
 #ifndef NO_YAEP_DEBUG_PRINT
   if (grammar->debug_level > 2)
@@ -6284,8 +6284,8 @@ find_minimal_translation (struct yaep_tree_node *root)
   traverse_pruned_translation (root);
   if (parse_free != NULL)
     {
-      for (node_ptr = (struct yaep_tree_node **) VLO_BEGIN (tnodes_vlo);
-	   node_ptr < (struct yaep_tree_node **) VLO_BOUND (tnodes_vlo);
+      for (node_ptr = YAEP_STATIC_CAST(struct yaep_tree_node **, VLO_BEGIN (tnodes_vlo));
+	   node_ptr < YAEP_STATIC_CAST(struct yaep_tree_node **, VLO_BOUND (tnodes_vlo));
 	   node_ptr++)
   if (*find_hash_table_entry_c (reserv_mem_tab, *node_ptr, TRUE) == NULL)
 	   {
