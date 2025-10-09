@@ -245,7 +245,7 @@ maybe_write_backtrace_for_symb_push (const char *label, struct symb *ptr)
   char **symbols = backtrace_symbols (frames, nframes);
 
   fprintf (stderr, "YAEP_WRITEBACKTRACE %s: pushing symb=%p into symbs_vlo\n",
-           label, (void *) ptr);
+           label, YAEP_STATIC_CAST(void *, ptr));
   if (symbols != NULL)
     {
       for (int i = 0; i < nframes; ++i)
@@ -254,7 +254,7 @@ maybe_write_backtrace_for_symb_push (const char *label, struct symb *ptr)
     }
 
   /* Print symbs_ptr so we can later inspect the VLO from a debug run. */
-  fprintf (stderr, "  symbs_ptr=%p\n", (void *) symbs_ptr);
+  fprintf (stderr, "  symbs_ptr=%p\n", YAEP_STATIC_CAST(void *, symbs_ptr));
   fflush (stderr);
 }
 
@@ -292,12 +292,12 @@ expand_int_vlo (vlo_t * vlo, int n_els)
   size_t i, prev_n_els = VLO_NELS (*vlo, int);
 
   /* Cast prev_n_els to int to avoid sign/width conversion warning. */
-  if ((int) prev_n_els >= n_els)
+  if (YAEP_STATIC_CAST(int, prev_n_els) >= n_els)
     return FALSE;
   /* Cast the entire size expression to size_t to avoid sign/width conversion warning. */
-  VLO_EXPAND (*vlo, (size_t)(n_els - (int) prev_n_els) * sizeof (int));
+  VLO_EXPAND (*vlo, YAEP_STATIC_CAST(size_t, n_els - YAEP_STATIC_CAST(int, prev_n_els)) * sizeof (int));
   /* Cast n_els to size_t to avoid sign/width conversion warning. */
-  for (i = prev_n_els; i < (size_t) n_els; i++)
+  for (i = prev_n_els; i < YAEP_STATIC_CAST(size_t, n_els); i++)
     STATIC_CAST(int *, VLO_BEGIN (*vlo))[i] = 0;
   return TRUE;
 #else
@@ -431,11 +431,11 @@ symb_repr_hash (hash_table_entry_t s)
   /* Read-only access to symbol repr; use const pointer to make
      intent explicit and avoid casting away const elsewhere. */
   unsigned result = jauquet_prime_mod32;
-  const char *str = ((const struct symb *) s)->repr;
+  const char *str = YAEP_STATIC_CAST(const struct symb *, s)->repr;
   int i;
 
   for (i = 0; str[i] != '\0'; i++)
-    result = result * hash_shift + (unsigned) str[i];
+    result = result * hash_shift + YAEP_STATIC_CAST(unsigned int, str[i]);
   return result;
 }
 
@@ -443,8 +443,8 @@ symb_repr_hash (hash_table_entry_t s)
 static int
 symb_repr_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct symb *a = ((const struct symb *) s1);
-  const struct symb *b = ((const struct symb *) s2);
+  const struct symb *a = YAEP_STATIC_CAST(const struct symb *, s1);
+  const struct symb *b = YAEP_STATIC_CAST(const struct symb *, s2);
   return strcmp (a->repr, b->repr) == 0;
 }
 
@@ -453,18 +453,18 @@ static unsigned
 symb_code_hash (hash_table_entry_t s)
 {
   /* Only reads the symbol structure to obtain its code. */
-  const struct symb *symb = ((const struct symb *) s);
+  const struct symb *symb = YAEP_STATIC_CAST(const struct symb *, s);
 
   assert (symb->term_p);
-  return (unsigned)symb->u.term.code;
+  return YAEP_STATIC_CAST(unsigned int, symb->u.term.code);
 }
 
 /* Equality of terminal codes. */
 static int
 symb_code_eq (hash_table_entry_t s1, hash_table_entry_t s2)
 {
-  const struct symb *symb1 = ((const struct symb *) s1);
-  const struct symb *symb2 = ((const struct symb *) s2);
+  const struct symb *symb1 = YAEP_STATIC_CAST(const struct symb *, s1);
+  const struct symb *symb2 = YAEP_STATIC_CAST(const struct symb *, s2);
 
   assert (symb1->term_p && symb2->term_p);
   return symb1->u.term.code == symb2->u.term.code;
@@ -485,7 +485,7 @@ symb_init (struct grammar *g, struct symbs **out_symbs)
 
   assert (g != NULL);
 
-  result = (struct symbs *) yaep_malloc (g->alloc, sizeof (struct symbs));
+  result = YAEP_STATIC_CAST(struct symbs *, yaep_malloc (g->alloc, sizeof (struct symbs)));
   if (result == NULL)
     {
       yaep_set_error (g, YAEP_NO_MEMORY, "failed to allocate symbol table");
@@ -662,7 +662,7 @@ symb_find_by_repr (const char *repr)
     The lookup key is on stack; returned entry already has correct (struct symb *) type.
     Use intermediate pointer without discarding const. */
   hash_table_entry_t *entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, FALSE);
-  return entry ? (struct symb *) *entry : NULL;
+  return entry ? YAEP_STATIC_CAST(struct symb *, *entry) : NULL;
 }
 
 /* Return symbol (or NULL if it does not exist) which is terminal with
@@ -698,7 +698,7 @@ symb_find_by_code (int code)
             {
               fprintf (stderr, "YAEP_DEBUG_SYMB_VEC_LOOKUP code=%d idx=%d res=%p\n",
                        code, code - symbs_ptr->symb_code_trans_vect_start,
-                       (void *) res);
+                       YAEP_STATIC_CAST(void *, res));
               fflush (stderr);
             }
           return res;
@@ -710,11 +710,11 @@ symb_find_by_code (int code)
   {
   hash_table_entry_t *e = find_hash_table_entry (symbs_ptr->code_to_symb_tab,
                            &symb, FALSE);
-  struct symb *res = e ? (struct symb *) *e : NULL;
+  struct symb *res = e ? YAEP_STATIC_CAST(struct symb *, *e) : NULL;
     if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
       {
         fprintf (stderr, "YAEP_DEBUG_SYMB_FIND_BY_CODE code=%d entry=%p res=%p\n",
-                 code, (void *) e, (void *) res);
+                 code, YAEP_STATIC_CAST(void *, e), YAEP_STATIC_CAST(void *, res));
         fflush (stderr);
       }
     return res;
@@ -758,8 +758,8 @@ symb_add_term (const char *name, int code)
     parser owns; perform a deliberate cast through (void*) with a
     comment so future maintainers understand we are not discarding
     const accidentally but intentionally storing owned mutable data. */
-  *repr_entry = (hash_table_entry_t) (void *) result;
-  *code_entry = (hash_table_entry_t) (void *) result;
+  *repr_entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, result));
+  *code_entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, result));
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   maybe_write_backtrace_for_symb_push ("symb_add_term-pre-terms", result);
@@ -767,7 +767,7 @@ symb_add_term (const char *name, int code)
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
   fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_TERM repr='%s' code=%d result=%p symbs_ptr=%p\n",
-       name, code, (void *) result, (void *) symbs_ptr);
+       name, code, YAEP_STATIC_CAST(void *, result), YAEP_STATIC_CAST(void *, symbs_ptr));
       fflush (stderr);
     }
   return result;
@@ -791,10 +791,10 @@ symb_add_nonterm (const char *name)
   entry = find_hash_table_entry (symbs_ptr->repr_to_symb_tab, &symb, TRUE);
   assert (*entry == NULL);
   OS_TOP_ADD_STRING (symbs_ptr->symbs_os, name);
-  symb.repr = (char *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  symb.repr = YAEP_STATIC_CAST(char *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   OS_TOP_ADD_MEMORY (symbs_ptr->symbs_os, &symb, sizeof (struct symb));
-  result = (struct symb *) OS_TOP_BEGIN (symbs_ptr->symbs_os);
+  result = YAEP_STATIC_CAST(struct symb *, OS_TOP_BEGIN (symbs_ptr->symbs_os));
   OS_TOP_FINISH (symbs_ptr->symbs_os);
   /* See note above about deliberate cast-through-void: we store an
     owned, mutable struct symb pointer in the table (table's public
@@ -802,7 +802,7 @@ symb_add_nonterm (const char *name)
   /* See note above about deliberate cast-through-void: we store an
     owned, mutable struct symb pointer in the table (table's public
     typedef is const-qualified). */
-  *entry = (hash_table_entry_t) (void *) result;
+  *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, result));
   maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-symbs", result);
   VLO_ADD_MEMORY (symbs_ptr->symbs_vlo, &result, sizeof (struct symb *));
   maybe_write_backtrace_for_symb_push ("symb_add_nonterm-pre-nonterms", result);
@@ -810,7 +810,7 @@ symb_add_nonterm (const char *name)
   if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
     {
   fprintf (stderr, "YAEP_DEBUG_SYMB_ADD_NONTERM repr='%s' result=%p symbs_ptr=%p\n",
-       name, (void *) result, (void *) symbs_ptr);
+       name, YAEP_STATIC_CAST(void *, result), YAEP_STATIC_CAST(void *, symbs_ptr));
       fflush (stderr);
     }
   return result;
@@ -899,13 +899,13 @@ symb_finish_adding_terms (void)
       symbs_ptr->symb_code_trans_vect_start = min_code;
       symbs_ptr->symb_code_trans_vect_end = max_code + 1;
       mem = yaep_malloc (grammar->alloc,
-          sizeof (struct symb*) * (size_t)(max_code - min_code + 1));
-    symbs_ptr->symb_code_trans_vect = (struct symb **) mem;
+          sizeof (struct symb*) * YAEP_STATIC_CAST(size_t, max_code - min_code + 1));
+    symbs_ptr->symb_code_trans_vect = YAEP_STATIC_CAST(struct symb **, mem);
     /* Zero-initialize the vector so codes without corresponding
      terminals map to NULL instead of containing uninitialized
      memory (which can lead to ASan/Valgrind-reported invalid
      reads). */
-    memset (mem, 0, sizeof (struct symb*) * (size_t)(max_code - min_code + 1));
+    memset (mem, 0, sizeof (struct symb*) * YAEP_STATIC_CAST(size_t, max_code - min_code + 1));
       for (i = 0; (symb = term_get (i)) != NULL; i++)
 	symbs_ptr->symb_code_trans_vect[symb->u.term.code - min_code] = symb;
     }
