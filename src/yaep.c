@@ -4757,6 +4757,84 @@ build_start_set (void)
    given in CORE_SYMB_VECT with given lookahead terminal number.  If
    the number is negative, we ignore lookahead at all. */
 static void
+/**
+ * Build new Earley set - SCAN and COMPLETE operations
+ *
+ * This function constructs a new Earley set by performing the SCAN and COMPLETE
+ * operations of the Earley algorithm. It is the core workhorse of the parser,
+ * handling both operations in an interleaved fashion for efficiency.
+ *
+ * ALGORITHM OVERVIEW:
+ * 1. SCAN: Advance items via transition vector (move dot past terminal)
+ *    - For each item in transitions vector, create new item with dot advanced
+ *    - Add to new set with appropriate distance tracking
+ *
+ * 2. COMPLETE: When items complete, advance waiting items
+ *    - For each complete item (empty tail), find items waiting for its LHS
+ *    - Create new items by advancing the waiting items' dots
+ *    - This is the "reduce" operation analogous to LR parsing
+ *
+ * 3. PREDICT: Expand nonterminals (done in expand_new_start_set())
+ *    - Called at end after SCAN and COMPLETE
+ *
+ * WHY SCAN AND COMPLETE ARE INTERLEAVED:
+ * The two operations share similar structure (advancing items via transitions)
+ * and benefit from being processed together:
+ * - Reuse of sit_dist_insert() for deduplication
+ * - Single pass over new_sits[] for completion check
+ * - Better cache locality
+ *
+ * TRANSITION VECTORS:
+ * The core_symb_vect represents all items that can transition via a symbol.
+ * For a terminal (SCAN), this is items with that terminal after the dot.
+ * For a nonterminal (COMPLETE), this is items with that nonterminal after dot.
+ *
+ * DISTANCE TRACKING:
+ * Each Earley item has an associated "distance" representing how far back
+ * in the input it originated. This is used to:
+ * - Build parse trees (links items to their origins)
+ * - Handle ambiguity (multiple derivations with different origins)
+ * - Implement lookahead (track prediction context)
+ *
+ * Two distance schemes:
+ * - ABSOLUTE_DISTANCES: Distance = token position (0, 1, 2, ...)
+ * - RELATIVE_DISTANCES: Distance = tokens consumed (0, 1, 2, ...)
+ *
+ * COMPLEXITY:
+ * Time: O(transitions) for scanning + O(completions * transitions) for completing
+ *       In worst case: O(n²) for highly ambiguous grammars
+ * Space: O(items) for new set storage
+ *
+ * OPTIMIZATIONS:
+ * - sit_dist_insert() deduplicates items (same rule, position, origin)
+ * - Transitive transitions (USE_TRANSITIVE_TRANSITION) for faster completion
+ * - Lookahead filtering to prune incompatible items early
+ * - sit_check marker to avoid reprocessing (TRANSITIVE_TRANSITION)
+ *
+ * @param set The current Earley set (set before scanning terminal)
+ * @param core_symb_vect Transition vector for the terminal being scanned
+ * @param lookahead_term_num Lookahead terminal for disambiguation (-1 if none)
+ *
+ * @return Implicitly returns via global variable new_set
+ *         new_set contains the constructed Earley set after SCAN+COMPLETE
+ *
+ * GLOBAL STATE MODIFIED:
+ * - new_set - Set being constructed (output)
+ * - new_sits[] - Items in new set
+ * - new_dists[] - Distances for items
+ * - new_n_start_sits - Count of items
+ * - new_core - Core of new set
+ * - curr_sit_check - Marker for avoiding reprocessing (TRANSITIVE_TRANSITION)
+ *
+ * GLOBAL STATE USED:
+ * - pl[] - Parse list (to look up origin sets during completion)
+ * - pl_curr - Current position in parse list
+ * - grammar - Grammar structure (lookahead level, axiom, error symbol)
+ *
+ * REFERENCE: Earley (1970) Section 3 (Recognizer), Aycock & Horspool (2002)
+ *
+ * TESTING: See test/test*.tst - all parsing tests exercise this function
+ */
 build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 	       int lookahead_term_num)
 {
@@ -4768,26 +4846,65 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
   int i, place;
   struct vect *transitions;
 
+  /* Determine if lookahead should be used for this set construction
+   * lookahead_term_num < 0 means no lookahead (end of input or disabled) */
   local_lookahead_level = (lookahead_term_num < 0
 			   ? 0 : grammar->lookahead_level);
   set_core = set->core;
+  
+  /* Initialize new set construction */
   set_new_start ();
+  
 #ifdef TRANSITIVE_TRANSITION
+  /* Use transitive transitions for faster completion
+   * curr_sit_check is incremented to mark items processed in this iteration */
   curr_sit_check++;
   transitions = &core_symb_vect->transitive_transitions;
 #else
   transitions = &core_symb_vect->transitions;
 #endif
+  
+  /* Clear distance set for deduplication tracking */
   empty_sit_dist_set ();
+  
+  /* ========================================================================
+   * PHASE 1: SCANNING
+   * 
+   * Process all transitions from current set via the terminal symbol.
+   * Each transition represents an item with the terminal after the dot:
+   *   A → α . terminal β
+   * 
+   * We advance the dot to create:
+   *   A → α terminal . β
+   * 
+   * and add it to the new set with appropriate distance tracking.
+   * ======================================================================== */
   for (i = 0; i < transitions->len; i++)
     {
       sit_ind = transitions->els[i];
       sit = set_core->sits[sit_ind];
+      
+      /* Create new item with dot advanced past terminal */
+      /* Create new item with dot advanced past terminal */
       new_sit = sit_create (sit->rule, sit->pos + 1, sit->context);
+      
+      /* LOOKAHEAD FILTERING: Skip items incompatible with lookahead
+       * 
+       * If lookahead is enabled, check if this item is compatible with
+       * the next terminal. Items with incompatible lookahead sets are
+       * pruned early to reduce wasted computation.
+       * 
+       * Exception: Items with error symbol in lookahead are kept for
+       * error recovery purposes. */
       if (local_lookahead_level != 0
 	  && !term_set_test (new_sit->lookahead, lookahead_term_num)
 	  && !term_set_test (new_sit->lookahead, grammar->term_error_num))
 	continue;
+      
+      /* DISTANCE CALCULATION: Track how far back this item originated
+       * 
+       * Distance represents the token position where this derivation began.
+       * Used for building parse trees and handling ambiguity. */
 #ifndef ABSOLUTE_DISTANCES
       dist = 0;
 #else
@@ -4795,48 +4912,94 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 #endif
       if (sit_ind >= set_core->n_all_dists)
 #ifdef TRANSITIVE_TRANSITION
+	/* Mark this item as processed in current iteration */
 	new_sit->sit_check = curr_sit_check;
 #else
 	;
 #endif
       else if (sit_ind < set_core->n_start_sits)
+	/* This is a start situation - use its recorded distance */
 	dist = set->dists[sit_ind];
       else
+	/* This is a derived situation - use parent's distance */
 	dist = set->dists[set_core->parent_indexes[sit_ind]];
 #ifndef ABSOLUTE_DISTANCES
+      /* In relative distance mode, increment distance for each token consumed */
       dist++;
 #endif
+      
+      /* DEDUPLICATION: Insert item into distance set
+       * 
+       * sit_dist_insert() checks if we've already seen an equivalent item
+       * (same rule, position, context) with a different distance. If this
+       * is a new item or new distance for existing item, returns TRUE. */
       if (sit_dist_insert (new_sit, dist))
 	set_new_add_start_sit (new_sit, dist);
     }
+  
+  /* ========================================================================
+   * PHASE 2: COMPLETION
+   * 
+   * For each newly created item that is COMPLETE (dot at end of rule),
+   * we need to advance all items that were waiting for this nonterminal.
+   * 
+   * Given a complete item:
+   *   B → β .   (originated at position j)
+   * 
+   * Find all items at position j waiting for B:
+   *   A → α . B γ
+   * 
+   * And create new items:
+   *   A → α B . γ
+   * 
+   * This is the "reduce" operation, analogous to LR parsing.
+   * ======================================================================== */
   for (i = 0; i < new_n_start_sits; i++)
     {
       new_sit = new_sits[i];
+      
+      /* Check if this item is complete (empty tail = dot at end of rule) */
       if (new_sit->empty_tail_p
 #ifdef TRANSITIVE_TRANSITION
+	  /* Skip if already processed via transitive transitions */
 	  && new_sit->sit_check != curr_sit_check
 #endif
 	)
 	{
 	  int *curr_el, *bound;
 
-	  /* All tail in new sitiation may derivate empty string so
-	     make reduce and add new situations. */
+	  /* COMPLETION: Find origin set and advance waiting items
+	   * 
+	   * This item B → β . completed, meaning it fully derived a nonterminal B.
+	   * We need to find the set where B's derivation started (the "origin")
+	   * and advance all items in that set that were waiting for B. */
 	  new_dist = new_dists[i];
 #ifndef ABSOLUTE_DISTANCES
+	  /* Calculate origin position from relative distance */
 	  place = pl_curr + 1 - new_dist;
 #else
+	  /* In absolute mode, distance directly gives origin position */
 	  place = new_dist;
 #endif
+	  
+	  /* Get the origin set (where B's derivation started) */
 	  prev_set = pl[place];
 	  prev_set_core = prev_set->core;
+	  
+	  /* Find all items in origin set waiting for this nonterminal (B)
+	   * These are items of form: A → α . B γ */
 	  prev_core_symb_vect = core_symb_vect_find (prev_set_core,
 						     new_sit->rule->lhs);
 	  if (prev_core_symb_vect == NULL)
 	    {
+	      /* No items waiting for this nonterminal in origin set
+	       * This can only happen if we just completed the axiom (start symbol)
+	       * In that case, there's nothing to advance - we're done */
 	      assert (new_sit->rule->lhs == grammar->axiom);
 	      continue;
 	    }
+	  
+	  /* Get transition vector for waiting items (items with B after dot) */
 #ifdef TRANSITIVE_TRANSITION
 	  curr_el = prev_core_symb_vect->transitive_transitions.els;
 	  bound = curr_el + prev_core_symb_vect->transitive_transitions.len;
@@ -4846,16 +5009,31 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 #endif
 	  assert (curr_el != NULL);
 	  prev_sits = prev_set_core->sits;
+	  
+	  /* ADVANCE WAITING ITEMS: For each item waiting for B, advance its dot
+	   * 
+	   * For each item: A → α . B γ  (at origin position)
+	   * Create:        A → α B . γ  (at current position)
+	   * 
+	   * This loop is structurally identical to the SCANNING loop above,
+	   * but operates on the origin set instead of current set. */
 	  do
 	    {
 	      sit_ind = *curr_el++;
 	      sit = prev_sits[sit_ind];
+	      
+	      /* Create new item with dot advanced past the completed nonterminal */
+	      /* Create new item with dot advanced past the completed nonterminal */
 	      new_sit = sit_create (sit->rule, sit->pos + 1, sit->context);
+	      
+	      /* LOOKAHEAD FILTERING: Same as in scanning phase */
 	      if (local_lookahead_level != 0
 		  && !term_set_test (new_sit->lookahead, lookahead_term_num)
 		  && !term_set_test (new_sit->lookahead,
 				     grammar->term_error_num))
 		continue;
+	      
+	      /* DISTANCE CALCULATION: Inherit distance from origin set item */
 #ifndef ABSOLUTE_DISTANCES
 	      dist = 0;
 #else
@@ -4863,27 +5041,47 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 #endif
 	      if (sit_ind >= prev_set_core->n_all_dists)
 #ifdef TRANSITIVE_TRANSITION
+		/* Mark as processed */
 		new_sit->sit_check = curr_sit_check;
 #else
 		;
 #endif
 	      else if (sit_ind < prev_set_core->n_start_sits)
+		/* Start situation - use recorded distance */
 		dist = prev_set->dists[sit_ind];
 	      else
+		/* Derived situation - use parent's distance */
 		dist =
 		  prev_set->dists[prev_set_core->parent_indexes[sit_ind]];
 #ifndef ABSOLUTE_DISTANCES
+	      /* Combine origin distance with completion distance */
 	      dist += new_dist;
 #endif
+	      
+	      /* DEDUPLICATION: Insert completed item into new set */
 	      if (sit_dist_insert (new_sit, dist))
 		set_new_add_start_sit (new_sit, dist);
 	    }
 	  while (curr_el < bound);
 	}
     }
+  
+  /* ========================================================================
+   * PHASE 3: FINALIZE AND PREDICT
+   * 
+   * After SCAN and COMPLETE operations:
+   * 1. Insert new set into global set hash table (deduplication at set level)
+   * 2. Call expand_new_start_set() to perform PREDICTION
+   *    - For each item with nonterminal N after dot, add rules with LHS = N
+   * 3. Record the terminal symbol that triggered this set construction
+   * ======================================================================== */
   if (set_insert ())
     {
+      /* PREDICTION: Expand nonterminals in new set
+       * This adds items of form: N → . α  for each nonterminal N after a dot */
       expand_new_start_set ();
+      
+      /* Record which terminal symbol this set was reached via */
       new_core->term = core_symb_vect->symb;
     }
 }
