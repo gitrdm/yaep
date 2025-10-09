@@ -474,12 +474,12 @@ All P1 tasks completed. Ready for Phase 2.
     - Add comprehensive documentation header
     - COMMIT: "[P2-ENG] Add earley_engine.h header" (a2a129f)
 
-[ ] P2-001-B: Create earley_engine.c skeleton
+[x] P2-001-B: Create earley_engine.c skeleton
     - Implement empty structure
     - Implement stub lifecycle functions (return NULL/error for now)
     - Add file header with module purpose documentation
     - BUILD & TEST (should still pass with stubs)
-    - COMMIT: "[P2-ENG] Add earley_engine.c skeleton"
+    - COMMIT: "[P2-ENG] Add earley_engine.c skeleton" (d9fda4e)
 
 [ ] P2-001-C: Extract prediction logic
     - Move predictor() function from yaep.c to earley_engine.c
