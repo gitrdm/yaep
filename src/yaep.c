@@ -4508,12 +4508,12 @@ add_derived_nonstart_sits (struct sit *sit, int parent)
 static void
 collect_core_symbols (void)
 {
-  int i;
+  size_t i;
   int *core_symbol_check_vec = YAEP_STATIC_CAST(int *, VLO_BEGIN (core_symbol_check_vlo));
   struct symb *symb;
   struct sit *sit;
 
-  for (i = 0; i < new_core->n_sits; i++)
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
       if (sit->pos >= sit->rule->rhs_len)
@@ -4609,13 +4609,18 @@ expand_new_start_set (void)
   struct symb *symb;
   struct core_symb_vect *core_symb_vect;
   struct rule *rule;
-  int i;
+  size_t i;
+  size_t _tmp_i;
 
   /* Add non start situations with nonzero distances. */
-  for (i = 0; i < new_n_start_sits; i++)
-    add_derived_nonstart_sits (new_sits[i], i);
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_n_start_sits); i++)
+    {
+      _tmp_i = i;
+      assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+      add_derived_nonstart_sits (new_sits[i], YAEP_STATIC_CAST(int, _tmp_i));
+    }
   /* Add non start situations and form transitions vectors. */
-  for (i = 0; i < new_core->n_sits; i++)
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
       if (sit->pos < sit->rule->rhs_len)
@@ -4631,13 +4636,15 @@ expand_new_start_set (void)
 		     rule != NULL; rule = rule->lhs_next)
 		  set_new_add_initial_sit (sit_create (rule, 0, 0));
 	    }
-	  core_symb_vect_new_add_transition_el (core_symb_vect, i);
-	  if (symb->empty_p && i >= new_core->n_all_dists)
-	    set_new_add_initial_sit (sit_create (sit->rule, sit->pos + 1, 0));
+  _tmp_i = i;
+  assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+  core_symb_vect_new_add_transition_el (core_symb_vect, YAEP_STATIC_CAST(int, _tmp_i));
+      if (symb->empty_p && i >= YAEP_STATIC_CAST(size_t, new_core->n_all_dists))
+        set_new_add_initial_sit (sit_create (sit->rule, sit->pos + 1, 0));
 	}
     }
   /* Now forming reduce vectors. */
-  for (i = 0; i < new_core->n_sits; i++)
+  for (i = 0; i < YAEP_STATIC_CAST(size_t, new_core->n_sits); i++)
     {
       sit = new_sits[i];
       if (sit->pos == sit->rule->rhs_len)
@@ -4646,7 +4653,9 @@ expand_new_start_set (void)
 	  core_symb_vect = core_symb_vect_find (new_core, symb);
 	  if (core_symb_vect == NULL)
 	    core_symb_vect = core_symb_vect_new (new_core, symb);
-	  core_symb_vect_new_add_reduce_el (core_symb_vect, i);
+      _tmp_i = i;
+      assert (_tmp_i <= YAEP_STATIC_CAST(size_t, INT_MAX));
+      core_symb_vect_new_add_reduce_el (core_symb_vect, YAEP_STATIC_CAST(int, _tmp_i));
 	}
     }
 #ifdef TRANSITIVE_TRANSITION
@@ -4664,7 +4673,9 @@ expand_new_start_set (void)
       do
 	{
 	  changed_p = FALSE;
-	  for (i = new_core->n_all_dists; i < new_core->n_sits; i++)
+  for (i = YAEP_STATIC_CAST(size_t, new_core->n_all_dists);
+       i < YAEP_STATIC_CAST(size_t, new_core->n_sits);
+       i++)
 	    {
 	      term_set_clear (context_set);
 	      new_sit = new_sits[i];
