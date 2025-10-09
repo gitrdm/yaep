@@ -5509,6 +5509,63 @@ static int n_goto_successes;
 /* The following function is major function forming parsing list in
    Earley's algorithm. */
 static void
+/**
+ * Build parse list - Main Earley parsing loop
+ *
+ * This is the top-level function for the Earley parsing algorithm. It processes
+ * input tokens sequentially, building Earley sets that represent all possible
+ * parse states at each token position.
+ *
+ * ALGORITHM OVERVIEW:
+ * For each input token:
+ *   1. Look up transition from current set via the terminal symbol
+ *   2. If transition exists, build new set (SCAN + COMPLETE operations)
+ *   3. If no transition, perform error recovery or report syntax error
+ *   4. Add new set to parse list
+ *
+ * The algorithm maintains the parse list (pl[]) as an array of Earley sets,
+ * where pl[i] represents all parse states after consuming i tokens.
+ *
+ * EARLEY OPERATIONS:
+ * - PREDICTION: Handled in expand_new_start_set() called from build_new_set()
+ * - SCANNING: Handled in build_new_set() via transition vectors
+ * - COMPLETION: Handled in build_new_set() after scanning
+ *
+ * COMPLEXITY:
+ * Time: O(n) iterations over tokens, O(transitions) per token for lookup
+ *       O(n³) worst case when considering all Earley operations
+ * Space: O(n) sets in parse list, O(items) per set
+ *
+ * OPTIMIZATIONS:
+ * - Transition caching via set_term_lookahead hash table (when USE_SET_HASH_TABLE)
+ * - Core-symbol vector for fast transition lookup
+ * - Lookahead integration for disambiguation
+ *
+ * GLOBAL STATE USED:
+ * - toks[] - Input token array
+ * - toks_len - Number of input tokens
+ * - tok_curr - Current token index
+ * - pl[] - Parse list (array of Earley sets)
+ * - pl_curr - Current parse list index
+ * - new_set - Newly constructed set (set by build_new_set())
+ * - grammar - Grammar structure with rules and symbols
+ *
+ * ERROR HANDLING:
+ * If no transition exists for current terminal:
+ * - If error_recovery_p enabled: Attempt error recovery, insert error node
+ * - Otherwise: Report syntax error and abort parsing
+ *
+ * @return Implicitly returns via global state (pl[] and pl_curr)
+ *         Success indicated by pl_curr reaching end without error
+ *
+ * @note This function does NOT return a value. Parse success is determined
+ *       by checking if accept states exist in final set.
+ *
+ * REFERENCE: Earley (1970) "An Efficient Context-Free Parsing Algorithm"
+ *
+ * TESTING: All integration tests in test/ exercise this function
+ *          See test01.tst through test25.tst for various grammar types
+ */
 build_pl (void)
 {
   int i;
@@ -5521,12 +5578,30 @@ build_pl (void)
   struct set_term_lookahead *new_set_term_lookahead;
 #endif
 
+  /* Initialize error recovery subsystem if enabled */
   error_recovery_init ();
+  
+  /* Build initial Earley set (set 0) with start symbol predictions */
+  /* Build initial Earley set (set 0) with start symbol predictions */
   build_start_set ();
+  
   lookahead_term_num = -1;
+  
+  /* MAIN PARSING LOOP: Process each input token sequentially
+   * 
+   * For each token position i:
+   *   - pl_curr starts at 0 (initial set)
+   *   - Look up transition from pl[pl_curr] via current terminal
+   *   - Build new set pl[pl_curr + 1] with SCAN and COMPLETE operations
+   *   - Increment pl_curr to move to next position
+   * 
+   * Loop invariant: After processing token i, pl[i+1] contains all
+   * Earley items representing parse states after consuming i+1 tokens.
+   */
   for (tok_curr = pl_curr = 0; tok_curr < toks_len; tok_curr++)
     {
       term = toks[tok_curr].symb;
+      
       /* Early debug snapshot to help fuzz triage. Guarded by
          YAEP_FUZZ_DEBUG to avoid noisy output in normal runs. */
       if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
@@ -5537,6 +5612,10 @@ build_pl (void)
                    YAEP_STATIC_CAST(void *, term));
           fflush (stderr);
         }
+      
+      /* Lookahead handling: For grammars with lookahead enabled, peek at
+       * next terminal to help with disambiguation during prediction/completion.
+       * lookahead_term_num = -1 indicates no lookahead or end of input. */
       if (grammar->lookahead_level != 0)
 	lookahead_term_num = (tok_curr < toks_len - 1
 			      ? toks[tok_curr +
@@ -5550,9 +5629,22 @@ build_pl (void)
 	  fprintf (stderr, ", Current set=%d\n", pl_curr);
 	}
 #endif
+      
+      /* Get current Earley set from parse list */
       set = pl[pl_curr];
       new_set = NULL;
+      
 #ifdef USE_SET_HASH_TABLE
+      /* OPTIMIZATION: Transition caching
+       * 
+       * Cache the mapping (set, term, lookahead) -> new_set to avoid
+       * recomputing transitions we've seen before. This is especially
+       * effective for grammars with many identical local configurations.
+       * 
+       * The cache uses a hash table (set_term_lookahead_tab) where each
+       * entry stores up to MAX_CACHED_GOTO_RESULTS recent transitions
+       * from a given (set, term, lookahead) triple.
+       */
       OS_TOP_EXPAND (set_term_lookahead_os,
 		     sizeof (struct set_term_lookahead));
       new_set_term_lookahead =
@@ -5580,14 +5672,16 @@ build_pl (void)
           /* fflush to ensure log reaches fuzzer output */
           fflush (stderr);
         }
+      
+      /* Check if we have a cached transition for this (set, term, lookahead) */
       if (*entry != NULL)
     {
-      /* The entry stores a mutable set_term_lookahead owned by the
-         hash table. We intentionally cast through (void*) once here
-         to obtain a mutable local pointer for subsequent mutations
-         and checks. This documents the deliberate removal of the
-         const qualifier at the mutation site while keeping the
-         public API (hash_table_entry_t) const. */
+      /* Cache hit: Validate cached results and reuse if still valid
+       * 
+       * The cache stores multiple recent results (circular buffer) because
+       * the same (set, term, lookahead) can lead to different new_sets
+       * depending on parse context. We check each cached result to see
+       * if it's still valid for the current parse state. */
       struct set_term_lookahead *tab_ent = YAEP_STATIC_CAST(struct set_term_lookahead *, YAEP_STATIC_CAST(void *, *entry));
       struct set *tab_set;
 
@@ -5606,6 +5700,8 @@ build_pl (void)
     }
       else
 	{
+	  /* Cache miss: Create new cache entry for this (set, term, lookahead) */
+	  /* Cache miss: Create new cache entry for this (set, term, lookahead) */
 	  OS_TOP_FINISH (set_term_lookahead_os);
        /* Cache the newly-created mutable lookahead struct in the
          table. Deliberately cast through (void*) to document that
@@ -5615,11 +5711,33 @@ build_pl (void)
 	}
 
 #endif
+      
+      /* If no cached transition found, compute it from scratch */
       if (new_set == NULL)
 	{
+	  /* TRANSITION LOOKUP: Find transition vector for current terminal
+	   * 
+	   * The core-symbol vector (core_symb_vect) represents a transition
+	   * from the current set's core via the terminal symbol. This is
+	   * analogous to the GOTO operation in LR parsing.
+	   * 
+	   * If core_symb_vect is NULL, no transition exists - this means
+	   * the current terminal is not expected in any parse state in
+	   * the current set. This is a syntax error. */
 	  core_symb_vect = core_symb_vect_find (set->core, term);
 	  if (core_symb_vect == NULL)
 	    {
+	      /* ERROR HANDLING: No transition exists for current terminal
+	       * 
+	       * This is a syntax error - the input contains a terminal that
+	       * is not valid in any current parse state. We have two options:
+	       * 
+	       * 1. Error recovery enabled: Attempt to skip/insert tokens to
+	       *    find a valid continuation point. Insert error node in parse
+	       *    tree and continue parsing.
+	       * 
+	       * 2. Error recovery disabled: Report syntax error and abort.
+	       */
 	      int saved_tok_curr, start, stop;
 
 	      /* Error recovery.  We do not check transition vector
@@ -5641,9 +5759,24 @@ build_pl (void)
 		  break;
 		}
 	    }
+	  
+	  /* BUILD NEW SET: Perform SCAN and COMPLETE operations
+	   * 
+	   * build_new_set() constructs the next Earley set by:
+	   * 1. SCANNING: Advancing items via the transition vector (moving dot past terminal)
+	   * 2. COMPLETING: When items complete, advancing items that were waiting
+	   * 3. PREDICTING: Adding new items for nonterminals after the dot
+	   *    (done in expand_new_start_set() called from build_new_set())
+	   * 
+	   * The new set is stored in global variable new_set. */
 	  build_new_set (set, core_symb_vect, lookahead_term_num);
+	  
 #ifdef USE_SET_HASH_TABLE
-	  /* Save (set, term, lookahead) -> new_set in the table.  */
+	  /* Save computed transition in cache for future reuse
+	   * 
+	   * Store the mapping (set, term, lookahead) -> new_set in the
+	   * hash table. Uses circular buffer to keep multiple recent results
+	   * since the same key can map to different sets in different contexts. */
       /* Mutate the stored table entry — obtain local mutable pointer
          via documented void* cast as above. */
       {
@@ -5656,7 +5789,17 @@ build_pl (void)
       }
 #endif
 	}
+      
+      /* Add new set to parse list and advance to next position
+       * 
+       * After processing token tok_curr:
+       * - pl[pl_curr] was the set before this token
+       * - new_set is the set after this token
+       * - We store new_set at pl[pl_curr + 1] and increment pl_curr
+       * 
+       * Loop invariant maintained: pl[i] contains Earley set after i tokens. */
       pl[++pl_curr] = new_set;
+      
 #ifndef NO_YAEP_DEBUG_PRINT
       if (grammar->debug_level > 2)
 	{
@@ -5666,7 +5809,9 @@ build_pl (void)
 		       grammar->debug_level > 5);
 	}
 #endif
-    }
+    } /* End of main token processing loop */
+  
+  /* Cleanup error recovery subsystem */
   error_recovery_fin ();
 }
 
