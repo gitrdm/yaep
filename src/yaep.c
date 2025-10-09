@@ -44,6 +44,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 #include <string.h>
 #ifdef __cplusplus
 #include <new>
@@ -1230,7 +1231,7 @@ term_set_up (term_set_el_t * set, int num)
   int ind, changed_p;
   term_set_el_t bit;
 
-  assert (num < symbs_ptr->n_terms);
+  assert (YAEP_STATIC_CAST(size_t, num) < symbs_ptr->n_terms);
   ind = num / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t));
   bit = YAEP_STATIC_CAST(term_set_el_t, 1) << (num % YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   changed_p = (set[ind] & bit ? 0 : 1);
@@ -1248,7 +1249,7 @@ term_set_test (term_set_el_t * set, int num)
   int ind;
   term_set_el_t bit;
 
-  assert (num >= 0 && num < symbs_ptr->n_terms);
+  assert (num >= 0 && YAEP_STATIC_CAST(size_t, num) < symbs_ptr->n_terms);
   ind = num / YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t));
   bit = YAEP_STATIC_CAST(term_set_el_t, 1) << (num % YAEP_STATIC_CAST(int, CHAR_BIT * sizeof (term_set_el_t)));
   return (set[ind] & bit) != 0;
@@ -1285,8 +1286,12 @@ term_set_insert (term_set_el_t * set)
       (void*) to make the intention explicit and avoid warnings. */
     *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, tab_term_set_ptr));
       tab_term_set_ptr->set = set;
-  tab_term_set_ptr->num = YAEP_STATIC_CAST(int, YAEP_STATIC_CAST(size_t, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-       / sizeof (struct tab_term_set *)));
+  {
+    size_t _tmp_tab_term_set_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+       / sizeof (struct tab_term_set *));
+    assert (_tmp_tab_term_set_n <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    tab_term_set_ptr->num = YAEP_STATIC_CAST(int, _tmp_tab_term_set_n);
+  }
       VLO_ADD_MEMORY (term_sets_ptr->tab_term_set_vlo, &tab_term_set_ptr,
 		      sizeof (struct tab_term_set *));
   /* See comment above: use a const-qualified view for reads. */
@@ -1302,8 +1307,8 @@ INLINE
 static term_set_el_t *
 term_set_from_table (int num)
 {
-  assert (num < YAEP_STATIC_CAST(int, (VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
-	  / sizeof (struct tab_term_set *))));
+  assert (YAEP_STATIC_CAST(size_t, num) < YAEP_STATIC_CAST(size_t, VLO_LENGTH (term_sets_ptr->tab_term_set_vlo)
+      / sizeof (struct tab_term_set *)));
   return (YAEP_STATIC_CAST(struct tab_term_set **,
 	  VLO_BEGIN (term_sets_ptr->tab_term_set_vlo)))[num]->set;
 }
@@ -2253,7 +2258,11 @@ sit_dist_insert (struct sit *sit, int dist)
 
   sit_number = sit->sit_number;
   /* Expand the set to accommodate possibly a new situation.  */
-  len = YAEP_STATIC_CAST(int, VLO_NELS (sit_dist_vec_vlo, vlo_t));
+  {
+    size_t _tmp_len = VLO_NELS (sit_dist_vec_vlo, vlo_t);
+    assert (_tmp_len <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    len = YAEP_STATIC_CAST(int, _tmp_len);
+  }
   if (len <= sit_number)
     {
       VLO_EXPAND (sit_dist_vec_vlo, YAEP_STATIC_CAST(size_t, sit_number + 1 - len) * sizeof (vlo_t));
@@ -2268,7 +2277,11 @@ sit_dist_insert (struct sit *sit, int dist)
     }
 #ifndef __cplusplus
   check_dist_vlo = &STATIC_CAST(vlo_t *, VLO_BEGIN (sit_dist_vec_vlo))[sit_number];
-  len = YAEP_STATIC_CAST(int, VLO_NELS (*check_dist_vlo, int));
+  {
+    size_t _tmp_len = VLO_NELS (*check_dist_vlo, int);
+    assert (_tmp_len <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    len = YAEP_STATIC_CAST(int, _tmp_len);
+  }
   if (len <= dist)
     {
       /* Expand VLO to accommodate new distance, avoid conversion warnings. */
@@ -2760,7 +2773,7 @@ vlo_array_expand (void)
 #ifndef __cplusplus
   vlo_t *vlo_ptr;
 
-  if ((unsigned) vlo_array_len >= VLO_NELS (vlo_array, vlo_t))
+  if (YAEP_STATIC_CAST(size_t, vlo_array_len) >= VLO_NELS (vlo_array, vlo_t))
     {
       VLO_EXPAND (vlo_array, sizeof (vlo_t));
       vlo_ptr = &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[vlo_array_len];
@@ -4944,7 +4957,11 @@ save_original_sets (void)
   int length, curr_pl;
 
   assert (pl_curr >= 0 && original_last_pl_el <= start_pl_curr);
-  length = (int)VLO_NELS (original_pl_tail_stack, struct set *);
+  {
+    size_t _tmp_length = VLO_NELS (original_pl_tail_stack, struct set *);
+    assert (_tmp_length <= YAEP_STATIC_CAST(size_t, INT_MAX));
+    length = YAEP_STATIC_CAST(int, _tmp_length);
+  }
   for (curr_pl = start_pl_curr - length; curr_pl >= pl_curr; curr_pl--)
     {
       VLO_ADD_MEMORY (original_pl_tail_stack, &pl[curr_pl],
@@ -6410,14 +6427,20 @@ make_parse (int *ambiguous_p)
     {
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
       if ((grammar->debug_level > 2 && state->pos == state->rule->rhs_len)
-	  || grammar->debug_level > 3)
-	{
-	  fprintf (stderr, "Processing top %ld, set place = %d, sit = ",
-		   YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1)),
-		   state->pl_ind);
-	  rule_dot_print (stderr, state->rule, state->pos);
-	  fprintf (stderr, ", %d\n", state->orig);
-	}
+          || grammar->debug_level > 3)
+    {
+      /* Compute top index from VLO_LENGTH into a size_t temporary, then
+         convert to long with defined behavior for empty stack (use -1).
+         This avoids converting an unsigned size_t directly to long in the
+         fprintf call which can trigger compiler warnings. */
+      size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+      long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+      fprintf (stderr, "Processing top %ld, set place = %d, sit = ",
+           _top_index,
+           state->pl_ind);
+      rule_dot_print (stderr, state->rule, state->pos);
+      fprintf (stderr, ", %d\n", state->orig);
+    }
 #endif
       pos = --state->pos;
       rule = state->rule;
@@ -6432,15 +6455,19 @@ make_parse (int *ambiguous_p)
 	{
 	  /* We've processed all rhs of the rule. */
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-	  if ((grammar->debug_level > 2 && state->pos == state->rule->rhs_len)
-	      || grammar->debug_level > 3)
-	    {
-	      fprintf (stderr, "Poping top %ld, set place = %d, sit = ",
-		       YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1)),
-		       state->pl_ind);
-	      rule_dot_print (stderr, state->rule, 0);
-	      fprintf (stderr, ", %d\n", state->orig);
-	    }
+      if ((grammar->debug_level > 2 && state->pos == state->rule->rhs_len)
+          || grammar->debug_level > 3)
+    {
+      /* See comment above: compute top index safely to avoid unsigned ->
+         signed narrowing in the call. */
+      size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+      long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+      fprintf (stderr, "Poping top %ld, set place = %d, sit = ",
+               _top_index,
+               state->pl_ind);
+      rule_dot_print (stderr, state->rule, 0);
+      fprintf (stderr, ", %d\n", state->orig);
+    }
 #endif
 	  parse_state_free (state);
 	  VLO_SHORTEN (stack, sizeof (struct parse_state *));
@@ -6611,11 +6638,15 @@ make_parse (int *ambiguous_p)
 		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (orig_states)))[-1]
 			= orig_state;
 		    }
-		  for (j = YAEP_STATIC_CAST(int, (VLO_LENGTH (orig_states)
-			    / sizeof (struct parse_state *) - 1)); j >= 0; j--)
-		    if ((YAEP_STATIC_CAST(struct parse_state **,
-			 VLO_BEGIN (orig_states)))[j]->pl_ind == sit_orig)
-		      break;
+      {
+        size_t _tmp_orig_states_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (orig_states)
+                  / sizeof (struct parse_state *));
+        int _start_j = (_tmp_orig_states_n == 0 ? -1 : YAEP_STATIC_CAST(int, _tmp_orig_states_n - 1));
+        for (j = _start_j; j >= 0; j--)
+          if ((YAEP_STATIC_CAST(struct parse_state **,
+       VLO_BEGIN (orig_states)))[j]->pl_ind == sit_orig)
+      break;
+      }
 		  if (j >= 0)
 		    {
 		      /* [A -> x., n] & [A -> y., n] */
@@ -6641,16 +6672,19 @@ make_parse (int *ambiguous_p)
 		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (orig_states)))[-1]
 			= state;
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-		      if (grammar->debug_level > 3)
-			{
-			  fprintf (stderr,
-				   "  Adding top %ld, set place = %d, modified sit = ",
-				   YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1)),
-				   sit_orig);
-			  rule_dot_print (stderr, state->rule, state->pos);
-			  fprintf (stderr, ", %d\n", state->orig);
-			}
+        if (grammar->debug_level > 3)
+            {
+        /* Compute top index safely to avoid unsigned->signed narrowing
+        in the fprintf call. */
+        size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+        long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+        fprintf (stderr,
+          "  Adding top %ld, set place = %d, modified sit = ",
+          _top_index,
+          sit_orig);
+        rule_dot_print (stderr, state->rule, state->pos);
+        fprintf (stderr, ", %d\n", state->orig);
+      }
 #endif
 		      curr_state = state;
 		      anode = state->anode;
@@ -6708,15 +6742,16 @@ make_parse (int *ambiguous_p)
 			  state->parent_disp = disp;
 			}
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-		      if (grammar->debug_level > 3)
-			{
-			  fprintf (stderr,
-				   "  Adding top %ld, set place = %d, sit = ",
-				   YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1)), pl_ind);
-			  sit_print (stderr, sit, grammar->debug_level > 5);
-			  fprintf (stderr, ", %d\n", sit_orig);
-			}
+        if (grammar->debug_level > 3)
+            {
+        size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+        long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+        fprintf (stderr,
+          "  Adding top %ld, set place = %d, sit = ",
+          _top_index, pl_ind);
+        sit_print (stderr, sit, grammar->debug_level > 5);
+        fprintf (stderr, ", %d\n", sit_orig);
+      }
 #endif
 		    }
 		  else
@@ -6762,15 +6797,16 @@ make_parse (int *ambiguous_p)
 		  state->parent_disp = anode == NULL ? parent_disp : disp;
 		  state->anode = NULL;
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
-		  if (grammar->debug_level > 3)
-		    {
-		      fprintf (stderr,
-			       "  Adding top %ld, set place = %d, sit = ",
-			       YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) /
-			       sizeof (struct parse_state *) - 1)), pl_ind);
-		      sit_print (stderr, sit, grammar->debug_level > 5);
-		      fprintf (stderr, ", %d\n", sit_orig);
-		    }
+          if (grammar->debug_level > 3)
+            {
+              size_t _vlo_stack_n = YAEP_STATIC_CAST(size_t, VLO_LENGTH (stack) / sizeof (struct parse_state *));
+              long _top_index = _vlo_stack_n == 0 ? -1 : YAEP_STATIC_CAST(long, _vlo_stack_n - 1);
+              fprintf (stderr,
+                   "  Adding top %ld, set place = %d, sit = ",
+                   _top_index, pl_ind);
+              sit_print (stderr, sit, grammar->debug_level > 5);
+              fprintf (stderr, ", %d\n", sit_orig);
+            }
 #endif
 		}
 	      else

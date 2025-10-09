@@ -612,9 +612,9 @@ set_sgrammar_internal (void *user)
     }
   
   /* sort array of syntax terminals by names. */
-  num = VLO_LENGTH (sterms) / sizeof (struct sterm);
+  num = YAEP_STATIC_CAST(size_t, VLO_LENGTH (sterms) / sizeof (struct sterm));
   arr = (struct sterm *) VLO_BEGIN (sterms);
-  qsort (arr, num, sizeof (struct sterm), sterm_name_cmp);
+  qsort (arr, YAEP_STATIC_CAST(size_t, num), sizeof (struct sterm), sterm_name_cmp);
   /* Check different codes for the same syntax terminal and remove
      duplicates. */
   for (i = j = 0, prev = NULL; i < num; i++)
