@@ -2349,13 +2349,13 @@ set_init (int n_toks)
   set_core_tab =
     create_hash_table (grammar->alloc, 2000, set_core_hash, set_core_eq);
   set_dists_tab =
-    create_hash_table (grammar->alloc, (size_t)(n < 20000 ? 20000 : n), dists_hash,
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, (n < 20000 ? 20000 : n)), dists_hash,
 		       dists_eq);
   set_tab =
-    create_hash_table (grammar->alloc, (size_t)(n < 20000 ? 20000 : n),
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, (n < 20000 ? 20000 : n)),
 		       set_core_dists_hash, set_core_dists_eq);
   set_term_lookahead_tab =
-    create_hash_table (grammar->alloc, (size_t)(n < 30000 ? 30000 : n),
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, (n < 30000 ? 30000 : n)),
 		       set_term_lookahead_hash, set_term_lookahead_eq);
   n_set_cores = n_set_core_start_sits = 0;
   n_set_dists = n_set_dists_len = n_parent_indexes = 0;
@@ -2773,15 +2773,15 @@ vlo_array_expand (void)
 #else
   vlo_t **vlo_ptr;
 
-  if ((unsigned) vlo_array_len >= vlo_array->length () / sizeof (vlo_t *))
+  if (YAEP_STATIC_CAST(unsigned, vlo_array_len) >= vlo_array->length () / sizeof (vlo_t *))
     {
       vlo_array->expand (sizeof (vlo_t *));
-      vlo_ptr = &((vlo_t **) vlo_array->begin ())[vlo_array_len];
+      vlo_ptr = &(YAEP_STATIC_CAST(vlo_t **, vlo_array->begin ()))[vlo_array_len];
       *vlo_ptr = new vlo (grammar->alloc, 64);
     }
   else
     {
-      vlo_ptr = &((vlo_t **) vlo_array->begin ())[vlo_array_len];
+      vlo_ptr = &(YAEP_STATIC_CAST(vlo_t **, vlo_array->begin ()))[vlo_array_len];
       (*vlo_ptr)->nullify ();
     }
 #endif
@@ -2809,7 +2809,7 @@ vlo_array_el (int index)
 #ifndef __cplusplus
   return &STATIC_CAST(vlo_t *, VLO_BEGIN (vlo_array))[index];
 #else
-  return ((vlo_t **) vlo_array->begin ())[index];
+  return (YAEP_STATIC_CAST(vlo_t **, vlo_array->begin ()))[index];
 #endif
 }
 
@@ -3566,7 +3566,7 @@ yaep_initialize_error_handling (void)
 static void
 error_func_for_allocate_safe (void *userptr)
 {
-  struct grammar *g = (struct grammar *) userptr;
+  struct grammar *g = YAEP_STATIC_CAST(struct grammar *, userptr);
 
   yaep_set_error (g, YAEP_NO_MEMORY, "no memory");
 }
@@ -3590,7 +3590,7 @@ vlo_create_safe (vlo_t *vlo, YaepAllocator *alloc, size_t initial_length)
   assert (vlo != NULL);
 
   length = (initial_length != 0 ? initial_length : VLO_DEFAULT_LENGTH);
-  start = (char *) yaep_malloc (alloc, length);
+  start = YAEP_STATIC_CAST(char *, yaep_malloc (alloc, length));
   if (start == NULL)
     return -1;
 
@@ -3631,7 +3631,7 @@ yaep_create_grammar (void)
   previous_userptr = yaep_alloc_getuserptr (allocator);
   yaep_alloc_seterr (allocator, error_func_for_allocate_safe, NULL);
 
-  g = (struct grammar *) yaep_malloc (allocator, sizeof (*g));
+  g = YAEP_STATIC_CAST(struct grammar *, yaep_malloc (allocator, sizeof (*g)));
   if (g == NULL)
     {
       yaep_alloc_seterr (allocator, previous_error_handler,
