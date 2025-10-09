@@ -56,6 +56,7 @@ else()
 endif()
 set( YAEP_LIB_SOURCES
 	allocate.c
+	earley_engine.c
 	hashtab.c
 	objstack.c
 	vlobject.c
@@ -79,6 +80,7 @@ else()
 endif()
 set( YAEPXX_LIB_SOURCES
 	allocate.c
+	earley_engine.c
 	hashtab.cpp
 	objstack.cpp
 	vlobject.cpp

@@ -63,6 +63,8 @@ extern "C" {
 struct grammar;
 struct set;
 struct core_symb_vect;
+struct symb;
+struct sit;
 
 /**
  * Opaque handle to the Earley parsing engine

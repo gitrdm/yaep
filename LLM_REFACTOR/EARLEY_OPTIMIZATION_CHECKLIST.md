@@ -467,12 +467,12 @@ All P1 tasks completed. Ready for Phase 2.
 
 **Tasks:**
 ```
-[ ] P2-001-A: Create earley_engine.h header
+[x] P2-001-A: Create earley_engine.h header
     - Define opaque engine handle: typedef struct earley_engine earley_engine_t;
     - Declare engine lifecycle functions: create, destroy, reset
     - Declare core parsing functions: predict, scan, complete
     - Add comprehensive documentation header
-    - COMMIT: "[P2-ENG] Add earley_engine.h header"
+    - COMMIT: "[P2-ENG] Add earley_engine.h header" (a2a129f)
 
 [ ] P2-001-B: Create earley_engine.c skeleton
     - Implement empty structure
