@@ -431,7 +431,7 @@ public:
     assert (vlo_start != NULL);
     if (vlo_free >= vlo_boundary)
       _VLO_expand_memory (1);
-    *vlo_free++ = b;
+    *vlo_free++ = static_cast<char>(b);
   }
 
 
