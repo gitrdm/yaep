@@ -7191,7 +7191,7 @@ free_tree_sweep (struct yaep_tree_node *node, void (*free_fn) (void *),
     }
 
   assert (node->type & _yaep_VISITED);
-  type = YAEP_STATIC_CAST(enum yaep_tree_node_type, (node->type & 0x7Fu));
+  type = YAEP_STATIC_CAST(enum yaep_tree_node_type, (YAEP_STATIC_CAST(unsigned, node->type) & 0x7Fu));
 
   switch (type)
     {
