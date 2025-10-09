@@ -1924,7 +1924,7 @@ sits_hash (int n_sits, struct sit **sits)
   for (i = 0; i < n_sits; i++)
     {
       n = sits[i]->sit_number;
-      result = result * hash_shift + (unsigned)n;
+      result = result * hash_shift + YAEP_STATIC_CAST(unsigned, n);
     }
   return result;
 }
@@ -5498,9 +5498,9 @@ build_pl (void)
       if (getenv ("YAEP_FUZZ_DEBUG") != NULL)
         {
           fprintf (stderr, "YAEP_DEBUG_LOOP tok=%d toks_len=%d toks=%p toks[idx]=%p term=%p\n",
-                   tok_curr, toks_len, (void *) toks,
-                   (void *) (tok_curr < toks_len ? &toks[tok_curr] : NULL),
-                   (void *) term);
+                   tok_curr, toks_len, YAEP_STATIC_CAST(void *, toks),
+                   YAEP_STATIC_CAST(void *, (tok_curr < toks_len ? &toks[tok_curr] : NULL)),
+                   YAEP_STATIC_CAST(void *, term));
           fflush (stderr);
         }
       if (grammar->lookahead_level != 0)
@@ -5541,8 +5541,8 @@ build_pl (void)
         {
           const char *trepr = (term && term->repr) ? term->repr : "(null)";
           fprintf (stderr, "YAEP_DEBUG tok=%d pl=%d term=%p repr='%s' set=%p entry=%p *entry=%p\n",
-                   tok_curr, pl_curr, (void *) term, trepr, (void *) set,
-                   (void *) entry, (void *) (entry ? *entry : NULL));
+                   tok_curr, pl_curr, YAEP_STATIC_CAST(void *, term), trepr, YAEP_STATIC_CAST(void *, set),
+                   YAEP_STATIC_CAST(void *, entry), YAEP_STATIC_CAST(void *, (entry ? *entry : NULL)));
           /* fflush to ensure log reaches fuzzer output */
           fflush (stderr);
         }
@@ -5841,16 +5841,16 @@ trans_visit_node_hash (hash_table_entry_t n)
 {
   /* The hash only needs to read the node pointer; use a const view to
      avoid casting away qualifiers and to make intent explicit. */
-  const struct trans_visit_node *tn = ((const struct trans_visit_node *) n);
-  return (unsigned)(size_t) tn->node;
+  const struct trans_visit_node *tn = (YAEP_STATIC_CAST(const struct trans_visit_node *, n));
+  return YAEP_STATIC_CAST(unsigned, YAEP_REINTERPRET_CAST(size_t, tn->node));
 }
 
 /* Equality of translation visit nodes. */
 static int
 trans_visit_node_eq (hash_table_entry_t n1, hash_table_entry_t n2)
 {
-  const struct trans_visit_node *tn1 = ((const struct trans_visit_node *) n1);
-  const struct trans_visit_node *tn2 = ((const struct trans_visit_node *) n2);
+  const struct trans_visit_node *tn1 = (YAEP_STATIC_CAST(const struct trans_visit_node *, n1));
+  const struct trans_visit_node *tn2 = (YAEP_STATIC_CAST(const struct trans_visit_node *, n2));
   return (tn1->node == tn2->node);
 }
 
@@ -5880,10 +5880,10 @@ visit_node (struct yaep_tree_node *node)
 			 &trans_visit_node, sizeof (trans_visit_node));
     /* Store newly-created trans_visit_node (owned/mutable) in the
       global table; cast via void* to make the intent explicit. */
-    *entry = (hash_table_entry_t) (void *) OS_TOP_BEGIN (trans_visit_nodes_os);
+    *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, OS_TOP_BEGIN (trans_visit_nodes_os)));
       OS_TOP_FINISH (trans_visit_nodes_os);
     }
-  return (struct trans_visit_node *) *entry;
+  return YAEP_STATIC_CAST(struct trans_visit_node *, *entry);
 }
 
 /* The following function returns the positive order number of node
@@ -6029,11 +6029,11 @@ print_parse (FILE * f, struct yaep_tree_node *root)
 {
 #ifndef __cplusplus
   trans_visit_nodes_tab =
-    create_hash_table (grammar->alloc, (size_t)toks_len * 2, trans_visit_node_hash,
+    create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, trans_visit_node_hash,
 		       trans_visit_node_eq);
 #else
   trans_visit_nodes_tab =
-    new hash_table (grammar->alloc, (size_t)toks_len * 2, trans_visit_node_hash,
+    new hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 2, trans_visit_node_hash,
 		    trans_visit_node_eq);
 #endif
   n_trans_visit_nodes = 0;
@@ -6073,8 +6073,8 @@ place_translation (struct yaep_tree_node **place, struct yaep_tree_node *node)
 #ifndef NO_YAEP_DEBUG_PRINT
   n_parse_alt_nodes++;
 #endif
-  alt = (struct yaep_tree_node *) (*parse_alloc) (sizeof
-						  (struct yaep_tree_node));
+  alt = YAEP_STATIC_CAST(struct yaep_tree_node *, (*parse_alloc) (sizeof
+						  (struct yaep_tree_node)));
   alt->type = YAEP_ALT;
   alt->val.alt.node = node;
   if ((*place)->type == YAEP_ALT)
@@ -6085,8 +6085,8 @@ place_translation (struct yaep_tree_node **place, struct yaep_tree_node *node)
          alternative too. */
       n_parse_alt_nodes++;
       next_alt = alt->val.alt.next
-	= ((struct yaep_tree_node *)
-	   (*parse_alloc) (sizeof (struct yaep_tree_node)));
+	= (YAEP_STATIC_CAST(struct yaep_tree_node *,
+	   (*parse_alloc) (sizeof (struct yaep_tree_node))));
       next_alt->type = YAEP_ALT;
       next_alt->val.alt.node = *place;
       next_alt->val.alt.next = NULL;
@@ -6101,14 +6101,14 @@ copy_anode (struct yaep_tree_node **place, struct yaep_tree_node *anode,
   struct yaep_tree_node *node;
   int i;
 
-  node = ((struct yaep_tree_node *)
-	  (*parse_alloc) ((int)((size_t)sizeof (struct yaep_tree_node)
-			  + (size_t)sizeof (struct yaep_tree_node *)
-			  * (size_t)(rule->trans_len + 1))));
+  node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+	  (*parse_alloc) (YAEP_STATIC_CAST(int, (YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node))
+			  + YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node *))
+			  * YAEP_STATIC_CAST(size_t, (rule->trans_len + 1)))))));
   *node = *anode;
   node->val.anode.children
-    = ((struct yaep_tree_node **)
-       ((char *) node + sizeof (struct yaep_tree_node)));
+    = (YAEP_REINTERPRET_CAST(struct yaep_tree_node **,
+       (YAEP_REINTERPRET_CAST(char *, node) + sizeof (struct yaep_tree_node))));
   for (i = 0; i <= rule->trans_len; i++)
     node->val.anode.children[i] = anode->val.anode.children[i];
   node->val.anode.children[disp] = NULL;
@@ -6124,7 +6124,7 @@ static hash_table_t reserv_mem_tab;
 static unsigned
 reserv_mem_hash (hash_table_entry_t m)
 {
-  return (unsigned)(size_t) m;
+  return YAEP_STATIC_CAST(unsigned, YAEP_REINTERPRET_CAST(size_t, m));
 }
 
 /* The equity of the memory reference. */
@@ -6222,7 +6222,7 @@ traverse_pruned_translation (struct yaep_tree_node *node)
 	   find_hash_table_entry (reserv_mem_tab, node, TRUE)) == NULL)
    /* Insert owned mutable node pointer into the table; cast through
      void* to satisfy the public const-qualified entry type. */
-   *entry = (hash_table_entry_t) (void *) node;
+   *entry = YAEP_STATIC_CAST(hash_table_entry_t, YAEP_STATIC_CAST(void *, node));
   switch (node->type)
     {
     case YAEP_NIL:
@@ -6242,7 +6242,7 @@ traverse_pruned_translation (struct yaep_tree_node *node)
 	{
 	  union { const char *cc; void *v; } u;
 	  u.cc = node->val.anode.name;
-	  *entry = (hash_table_entry_t) u.v;
+	  *entry = YAEP_STATIC_CAST(hash_table_entry_t, u.v);
 	}
       for (i = 0; (child = node->val.anode.children[i]) != NULL; i++)
 	traverse_pruned_translation (child);
@@ -6271,14 +6271,14 @@ find_minimal_translation (struct yaep_tree_node *root)
     {
 #ifndef __cplusplus
       reserv_mem_tab =
-	create_hash_table (grammar->alloc, (size_t)toks_len * 4, reserv_mem_hash,
+	create_hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 4, reserv_mem_hash,
 			   reserv_mem_eq);
 #else
       reserv_mem_tab =
-	new hash_table (grammar->alloc, (size_t)toks_len * 4, reserv_mem_hash,
+	new hash_table (grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 4, reserv_mem_hash,
 			reserv_mem_eq);
 #endif
-      VLO_CREATE (tnodes_vlo, grammar->alloc, (size_t)toks_len * 4 * sizeof (void *));
+      VLO_CREATE (tnodes_vlo, grammar->alloc, YAEP_STATIC_CAST(size_t, toks_len) * 4 * sizeof (void *));
     }
   root = prune_to_minimal (root, &cost);
   traverse_pruned_translation (root);
@@ -6373,8 +6373,8 @@ make_parse (int *ambiguous_p)
          generation of several parses. */
       mem =
 	yaep_malloc (grammar->alloc,
-		     (size_t)sizeof (struct yaep_tree_node *) * (size_t)toks_len);
-      term_node_array = (struct yaep_tree_node **) mem;
+		     YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node *)) * YAEP_STATIC_CAST(size_t, toks_len));
+      term_node_array = YAEP_STATIC_CAST(struct yaep_tree_node **, mem);
       for (i = 0; i < toks_len; i++)
 	term_node_array[i] = NULL;
       /* The following is used to check necessity to create current
@@ -6384,7 +6384,7 @@ make_parse (int *ambiguous_p)
   VLO_CREATE (stack, grammar->alloc, 10000);
   VLO_EXPAND (stack, sizeof (struct parse_state *));
   state = parse_state_alloc ();
-  ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+  (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
   rule = state->rule = sit->rule;
   state->pos = sit->pos;
   state->orig = 0;
@@ -6396,12 +6396,12 @@ make_parse (int *ambiguous_p)
   state->parent_disp = 0;
   state->anode = NULL;
   /* Create empty and error node: */
-  empty_node = ((struct yaep_tree_node *)
-		(*parse_alloc) (sizeof (struct yaep_tree_node)));
+  empty_node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+		(*parse_alloc) (sizeof (struct yaep_tree_node))));
   empty_node->type = YAEP_NIL;
   empty_node->val.nil.used = 0;
-  error_node = ((struct yaep_tree_node *)
-		(*parse_alloc) (sizeof (struct yaep_tree_node)));
+  error_node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+		(*parse_alloc) (sizeof (struct yaep_tree_node))));
   error_node->type = YAEP_ERROR;
   error_node->val.error.used = 0;
   while (VLO_LENGTH (stack) != 0)
@@ -6411,7 +6411,7 @@ make_parse (int *ambiguous_p)
 	  || grammar->debug_level > 3)
 	{
 	  fprintf (stderr, "Processing top %ld, set place = %d, sit = ",
-		   (long) (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1),
+		   YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1)),
 		   state->pl_ind);
 	  rule_dot_print (stderr, state->rule, state->pos);
 	  fprintf (stderr, ", %d\n", state->orig);
@@ -6434,7 +6434,7 @@ make_parse (int *ambiguous_p)
 	      || grammar->debug_level > 3)
 	    {
 	      fprintf (stderr, "Poping top %ld, set place = %d, sit = ",
-		       (long) (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1),
+		       YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) / sizeof (struct parse_state *) - 1)),
 		       state->pl_ind);
 	      rule_dot_print (stderr, state->rule, 0);
 	      fprintf (stderr, ", %d\n", state->orig);
@@ -6443,7 +6443,7 @@ make_parse (int *ambiguous_p)
 	  parse_state_free (state);
 	  VLO_SHORTEN (stack, sizeof (struct parse_state *));
 	  if (VLO_LENGTH (stack) != 0)
-	    state = ((struct parse_state **) VLO_BOUND (stack))[-1];
+	    state = (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1];
 	  if (parent_anode != NULL && rule->trans_len == 0 && anode == NULL)
 	    {
 	      /* We do produce nothing but we should.  So write empty
@@ -6492,8 +6492,8 @@ make_parse (int *ambiguous_p)
 	      else
 		{
 		  n_parse_term_nodes++;
-		  node = ((struct yaep_tree_node *)
-			  (*parse_alloc) (sizeof (struct yaep_tree_node)));
+		  node = (YAEP_STATIC_CAST(struct yaep_tree_node *,
+			  (*parse_alloc) (sizeof (struct yaep_tree_node))));
 		  node->type = YAEP_TERM;
 		  node->val.term.code = symb->u.term.code;
 		  node->val.term.attr = toks[pl_ind].attr;
@@ -6606,19 +6606,19 @@ make_parse (int *ambiguous_p)
 		  if (n_candidates == 1)
 		    {
 		      VLO_EXPAND (orig_states, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (orig_states))[-1]
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (orig_states)))[-1]
 			= orig_state;
 		    }
-		  for (j = (int)(VLO_LENGTH (orig_states)
-			    / sizeof (struct parse_state *) - 1); j >= 0; j--)
-		    if (((struct parse_state **)
-			 VLO_BEGIN (orig_states))[j]->pl_ind == sit_orig)
+		  for (j = YAEP_STATIC_CAST(int, (VLO_LENGTH (orig_states)
+			    / sizeof (struct parse_state *) - 1)); j >= 0; j--)
+		    if ((YAEP_STATIC_CAST(struct parse_state **,
+			 VLO_BEGIN (orig_states)))[j]->pl_ind == sit_orig)
 		      break;
 		  if (j >= 0)
 		    {
 		      /* [A -> x., n] & [A -> y., n] */
-		      curr_state = ((struct parse_state **)
-				    VLO_BEGIN (orig_states))[j];
+		      curr_state = (YAEP_STATIC_CAST(struct parse_state **,
+				    VLO_BEGIN (orig_states)))[j];
 		      anode = curr_state->anode;
 		    }
 		  else
@@ -6628,7 +6628,7 @@ make_parse (int *ambiguous_p)
 		         it to process. */
 		      state = parse_state_alloc ();
 		      VLO_EXPAND (stack, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
 		      *state = *orig_state;
 		      state->pl_ind = sit_orig;
 		      if (anode != NULL)
@@ -6636,15 +6636,15 @@ make_parse (int *ambiguous_p)
 			  = copy_anode (parent_anode->val.anode.children
 					+ parent_disp, anode, rule, disp);
 		      VLO_EXPAND (orig_states, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (orig_states))[-1]
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (orig_states)))[-1]
 			= state;
 #if !defined (NDEBUG) && !defined (NO_YAEP_DEBUG_PRINT)
 		      if (grammar->debug_level > 3)
 			{
 			  fprintf (stderr,
 				   "  Adding top %ld, set place = %d, modified sit = ",
-				   (long) (VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1),
+				   YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) /
+				   sizeof (struct parse_state *) - 1)),
 				   sit_orig);
 			  rule_dot_print (stderr, state->rule, state->pos);
 			  fprintf (stderr, ", %d\n", state->orig);
@@ -6670,10 +6670,10 @@ make_parse (int *ambiguous_p)
 		      /* We need new abtract node. */
 		      n_parse_abstract_nodes++;
 		      node
-			= ((struct yaep_tree_node *)
-			   (*parse_alloc) ((int)((size_t)sizeof (struct yaep_tree_node)
-					   + (size_t)sizeof (struct yaep_tree_node *)
-					   * (size_t)(sit_rule->trans_len + 1))));
+			= (YAEP_STATIC_CAST(struct yaep_tree_node *,
+			   (*parse_alloc) (YAEP_STATIC_CAST(int, (YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node))
+					   + YAEP_STATIC_CAST(size_t, sizeof (struct yaep_tree_node *))
+					   * YAEP_STATIC_CAST(size_t, (sit_rule->trans_len + 1)))))));
 		      state->anode = node;
 		      if (table_state != NULL)
 			table_state->anode = node;
@@ -6681,19 +6681,19 @@ make_parse (int *ambiguous_p)
 		      if (sit_rule->caller_anode == NULL)
 			{
 			  sit_rule->caller_anode
-			    = ((char *)
-			       (*parse_alloc) ((int)((size_t)(strlen (sit_rule->anode) + 1))));
+			    = (YAEP_STATIC_CAST(char *,
+			       (*parse_alloc) (YAEP_STATIC_CAST(int, (YAEP_STATIC_CAST(size_t, (strlen (sit_rule->anode) + 1)))))));
 			  strcpy (sit_rule->caller_anode, sit_rule->anode);
 			}
 		      node->val.anode.name = sit_rule->caller_anode;
 		      node->val.anode.cost = sit_rule->anode_cost;
 		      node->val.anode.children
-			= ((struct yaep_tree_node **)
-			   ((char *) node + sizeof (struct yaep_tree_node)));
+			= (YAEP_REINTERPRET_CAST(struct yaep_tree_node **,
+			   (YAEP_REINTERPRET_CAST(char *, node) + sizeof (struct yaep_tree_node))));
 		      for (k = 0; k <= sit_rule->trans_len; k++)
 			node->val.anode.children[k] = NULL;
 		      VLO_EXPAND (stack, sizeof (struct parse_state *));
-		      ((struct parse_state **) VLO_BOUND (stack))[-1] = state;
+		      (YAEP_STATIC_CAST(struct parse_state **, VLO_BOUND (stack)))[-1] = state;
 		      if (anode == NULL)
 			{
 			  state->parent_anode_state
@@ -6710,8 +6710,8 @@ make_parse (int *ambiguous_p)
 			{
 			  fprintf (stderr,
 				   "  Adding top %ld, set place = %d, sit = ",
-				   (long) (VLO_LENGTH (stack) /
-				   sizeof (struct parse_state *) - 1), pl_ind);
+				   YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) /
+				   sizeof (struct parse_state *) - 1)), pl_ind);
 			  sit_print (stderr, sit, grammar->debug_level > 5);
 			  fprintf (stderr, ", %d\n", sit_orig);
 			}
@@ -6764,8 +6764,8 @@ make_parse (int *ambiguous_p)
 		    {
 		      fprintf (stderr,
 			       "  Adding top %ld, set place = %d, sit = ",
-			       (long) (VLO_LENGTH (stack) /
-			       sizeof (struct parse_state *) - 1), pl_ind);
+			       YAEP_STATIC_CAST(long, (VLO_LENGTH (stack) /
+			       sizeof (struct parse_state *) - 1)), pl_ind);
 		      sit_print (stderr, sit, grammar->debug_level > 5);
 		      fprintf (stderr, ", %d\n", sit_orig);
 		    }
@@ -6849,7 +6849,7 @@ parse_alloc_default (int nmemb)
 
   assert (nmemb > 0);
 
-  result = malloc ((size_t)nmemb);
+  result = malloc (YAEP_STATIC_CAST(size_t, nmemb));
   if (result == NULL)
     {
       exit (1);
@@ -6946,7 +6946,7 @@ yaep_parse (struct grammar *g,
 static int
 yaep_parse_internal (void *user)
 {
-  struct yaep_parse_context *ctx = (struct yaep_parse_context *) user;
+  struct yaep_parse_context *ctx = YAEP_STATIC_CAST(struct yaep_parse_context *, user);
   int tab_collisions, tab_searches;
   int code;
 
@@ -7102,7 +7102,7 @@ free_tree_reduce (struct yaep_tree_node *node)
   assert ((node->type & _yaep_VISITED) == 0);
 
   type = node->type;
-  node->type = (enum yaep_tree_node_type) (node->type | _yaep_VISITED);
+  node->type = YAEP_STATIC_CAST(enum yaep_tree_node_type, (node->type | _yaep_VISITED));
 
   switch (type)
     {
@@ -7191,7 +7191,7 @@ free_tree_sweep (struct yaep_tree_node *node, void (*free_fn) (void *),
     }
 
   assert (node->type & _yaep_VISITED);
-  type = (enum yaep_tree_node_type) (node->type & 0x7Fu);
+  type = YAEP_STATIC_CAST(enum yaep_tree_node_type, (node->type & 0x7Fu));
 
   switch (type)
     {
@@ -7269,7 +7269,7 @@ test_parse_alloc (int size)
 {
   void *result;
 
-  OS_TOP_EXPAND (mem_os, (size_t)size);
+  OS_TOP_EXPAND (mem_os, YAEP_STATIC_CAST(size_t, size));
   result = OS_TOP_BEGIN (mem_os);
   OS_TOP_FINISH (mem_os);
   return result;
@@ -7390,7 +7390,7 @@ test_read_token (void **attr)
 
   ntok++;
   *attr = NULL;
-  if (ntok < (int)sizeof (input))
+  if (ntok < YAEP_STATIC_CAST(int, sizeof (input)))
     return input[ntok - 1];
   else
     return -1;

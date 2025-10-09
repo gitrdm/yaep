@@ -62,7 +62,7 @@ hash (hash_table_entry_t el)
   unsigned result, i;
 
   for (result = i = 0;*id++ != '\0'; i++)
-    result += ((unsigned char) *id << (i % CHAR_BIT));
+    result += (static_cast<unsigned char>(*id) << (i % CHAR_BIT));
   return result;
 }
 

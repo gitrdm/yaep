@@ -57,6 +57,7 @@
 #include <string.h>
 
 #include "allocate.h"
+#include "yaep_macros.h"
 
 #include <assert.h>
 
@@ -164,10 +165,10 @@ typedef struct
 
 #ifndef NDEBUG
 #define VLO_LENGTH(vlo) ((vlo).vlo_start != NULL\
-                         ? (size_t)((vlo).vlo_free - (vlo).vlo_start) /* Cast to size_t to avoid sign/width conversion warnings */\
-                         : (abort (), (size_t)0))
+                         ? YAEP_STATIC_CAST(size_t, ((vlo).vlo_free - (vlo).vlo_start)) /* Cast to size_t to avoid sign/width conversion warnings */\
+                         : (abort (), YAEP_STATIC_CAST(size_t, 0)))
 #else
-#define VLO_LENGTH(vlo) ((size_t)((vlo).vlo_free - (vlo).vlo_start)) /* Cast to size_t to avoid sign/width conversion warnings */
+#define VLO_LENGTH(vlo) (YAEP_STATIC_CAST(size_t, ((vlo).vlo_free - (vlo).vlo_start))) /* Cast to size_t to avoid sign/width conversion warnings */
 #endif /* #ifndef NDEBUG */
 
 

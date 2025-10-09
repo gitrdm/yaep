@@ -52,11 +52,11 @@ os::os (YaepAllocator * allocator, size_t in_initial_segment_length):os_alloc (a
   if (in_initial_segment_length == 0)
     in_initial_segment_length = OS_DEFAULT_SEGMENT_LENGTH;
   os_current_segment =
-    (_os_segment *) yaep_malloc (os_alloc,
-				 in_initial_segment_length + sizeof (_os_segment));
+    static_cast<_os_segment *>(yaep_malloc (os_alloc,
+				 in_initial_segment_length + sizeof (_os_segment)));
   os_current_segment->os_previous_segment = NULL;
   os_top_object_start
-    = (char *) _OS_ALIGNED_ADDRESS (os_current_segment->os_segment_contest);
+    = static_cast<char *>(_OS_ALIGNED_ADDRESS (os_current_segment->os_segment_contest));
   os_top_object_free = os_top_object_start;
   os_boundary = os_top_object_start + in_initial_segment_length;
   this->initial_segment_length = in_initial_segment_length;
@@ -99,7 +99,7 @@ os::empty (void)
     }
   os_current_segment = current_segment;
   os_top_object_start
-    = (char *) _OS_ALIGNED_ADDRESS (current_segment->os_segment_contest);
+    = static_cast<char *>(_OS_ALIGNED_ADDRESS (current_segment->os_segment_contest));
   os_top_object_free = os_top_object_start;
   os_boundary = os_top_object_start + initial_segment_length;
 }
@@ -147,12 +147,12 @@ os::_OS_expand_memory (size_t additional_length)
   if (segment_length < OS_DEFAULT_SEGMENT_LENGTH)
     segment_length = OS_DEFAULT_SEGMENT_LENGTH;
   new_segment =
-    (_os_segment *) yaep_malloc (os_alloc, segment_length + sizeof (_os_segment));
+    static_cast<_os_segment *>(yaep_malloc (os_alloc, segment_length + sizeof (_os_segment)));
   new_os_top_object_start =
-    (char *) _OS_ALIGNED_ADDRESS (new_segment->os_segment_contest);
+    static_cast<char *>(_OS_ALIGNED_ADDRESS (new_segment->os_segment_contest));
   memcpy (new_os_top_object_start, os_top_object_start, os_top_object_length);
   if (os_top_object_start ==
-      (char *) _OS_ALIGNED_ADDRESS (os_current_segment->os_segment_contest))
+      static_cast<char *>(_OS_ALIGNED_ADDRESS (os_current_segment->os_segment_contest)))
     {
       previous_segment = os_current_segment->os_previous_segment;
       yaep_free (os_alloc, os_current_segment);
