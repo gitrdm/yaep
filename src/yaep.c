@@ -579,6 +579,15 @@ static
 #endif
 void yaep_free_grammar (struct grammar *g);
 
+#ifndef __cplusplus
+extern
+#else
+static
+#endif
+int yaep_get_leo_stats (struct grammar *g,
+                        int *n_leo_items,
+                        int *n_leo_completions);
+
 /* The following is default number of tokens sucessfully matched to
    stop error recovery alternative (state). */
 #define DEFAULT_RECOVERY_TOKEN_MATCHES 3
@@ -5999,6 +6008,23 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 	      continue;
 	    }
 	  
+	  /* LEO OPTIMIZATION: Try Leo's right-recursion optimization
+	   * 
+	   * Before standard completion, check if this is a deterministic
+	   * completion (exactly ONE item waiting). If so, Leo optimization
+	   * may apply, which can skip creating intermediate items.
+	   * 
+	   * leo_try_completion() returns 1 if Leo optimization was applied
+	   * and we should skip standard completion, or 0 to proceed normally.
+	   */
+	  if (leo_try_completion(&grammar->leo_ctx, new_sit, prev_set, place,
+	                         pl_curr + 1, prev_core_symb_vect,
+	                         lookahead_term_num))
+	    {
+	      /* Leo optimization applied - skip standard completion for this item */
+	      continue;
+	    }
+	  
 	  /* Get transition vector for waiting items (items with B after dot) */
 #ifdef TRANSITIVE_TRANSITION
 	  curr_el = prev_core_symb_vect->transitive_transitions.els;
@@ -8489,6 +8515,22 @@ yaep_free_grammar (struct grammar *g)
       yaep_alloc_del (allocator);
     }
   grammar = NULL;
+}
+
+/* Get Leo optimization statistics */
+#ifdef __cplusplus
+static
+#endif
+int
+yaep_get_leo_stats (struct grammar *g,
+                    int *n_leo_items,
+                    int *n_leo_completions)
+{
+  if (g == NULL)
+    return -1;
+  
+  leo_get_stats(&g->leo_ctx, n_leo_items, n_leo_completions);
+  return 0;
 }
 
 static void

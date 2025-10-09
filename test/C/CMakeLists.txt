@@ -426,6 +426,12 @@ file( READ ${TEST_DATA_DIR}/test49.out TEST_OUTPUT )
 rescape( TEST_OUTPUT "${TEST_OUTPUT}" )
 set_tests_properties( yaep-test49 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}" )
 
+# Leo deterministic completion should trigger Leo optimization statistics
+add_executable( test50 test50.c )
+target_link_libraries( test50 yaep_static )
+add_test( NAME yaep-test-leo-stats COMMAND test50 )
+set_tests_properties( yaep-test-leo-stats PROPERTIES PASS_REGULAR_EXPRESSION "^Leo stats: PASS" )
+
 set( _yaep_c_test_targets
 	test06 test07 test08 test09 test10
 	test11 test12 test13 test14 test15
@@ -435,7 +441,7 @@ set( _yaep_c_test_targets
 	test31 test32 test33 test34 test35
 	test36 test37 test38 test39 test40
 	test41 test42 test43 test44 test45
-	test46 test47 test48 test49
+	test46 test47 test48 test49 test50
 )
 
 foreach( _yaep_target IN LISTS _yaep_c_test_targets )

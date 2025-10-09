@@ -151,6 +151,12 @@ yaep::parse (int (*read_token_fn) (void **attr),
 		     parse_alloc_fn, parse_free_fn, root, ambiguous_p);
 }
 
+int
+yaep::get_leo_stats (int *n_leo_items, int *n_leo_completions)
+{
+  return yaep_get_leo_stats (this->grammar, n_leo_items, n_leo_completions);
+}
+
 void
 yaep::free_tree (struct yaep_tree_node *root, void (*parse_free_fn) (void *),
 		 void (*termcb) (struct yaep_term * term))

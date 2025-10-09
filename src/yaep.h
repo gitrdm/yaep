@@ -299,6 +299,16 @@ extern int yaep_parse (struct grammar *grammar,
 /* The following function frees memory allocated for the grammar. */
 extern void yaep_free_grammar (struct grammar *grammar);
 
+/* The following function retrieves Leo optimization statistics.
+   Pass pointers to integers to receive the statistics, or NULL
+   to skip that statistic.
+   - n_leo_items: Number of Leo items created during parsing
+   - n_leo_completions: Number of deterministic completions detected
+   Returns 0 on success, non-zero if Leo optimization is not available. */
+extern int yaep_get_leo_stats (struct grammar *grammar,
+                                int *n_leo_items,
+                                int *n_leo_completions);
+
 /* The following function frees memory allocated for the parse tree.
    It must not be called until after yaep_free_grammar() has been called.
    ROOT must be the root of the parse tree as returned by yaep_parse().
@@ -366,6 +376,9 @@ public:
 	     void (*parse_free_fn) (void *mem),
 	     struct yaep_tree_node **root,
 	     int *ambiguous_p);
+
+  /* See comments for function yaep_get_leo_stats. */
+  int get_leo_stats (int *n_leo_items, int *n_leo_completions);
 
   /* See comments for function yaep_free_tree().
      This is a static member function because the lifetime of the
