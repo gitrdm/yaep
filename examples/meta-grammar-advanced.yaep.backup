@@ -1,0 +1,436 @@
+/* 
+ * YAEP Grammar for parsing EBNF meta-grammar
+ * 
+ * This grammar parses the EBNF meta-grammar format defined in meta-grammar.ebnf
+ * It converts the EBNF notation into YAEP's YACC-like syntax.
+ * 
+ * Key features:
+ * - Scannerless character-level parsing
+ * - Handles whitespace and comments explicitly
+ * - Supports Unicode identifiers and string literals
+ * - Character classes and escape sequences
+ */
+
+/* Terminal declarations */
+TERM
+
+/* ===================================================================
+ * Top-level: grammar consists of optional directives and rules
+ * =================================================================== */
+
+grammar : sp grammar_items # Grammar (1)
+        ;
+
+grammar_items : /* empty */ # GrammarItems
+              | grammar_items sp directive sp # GrammarItems (0 2)
+              | grammar_items sp rule sp # GrammarItems (0 2)
+              ;
+
+/* ===================================================================
+ * Directives: @directive_name ( arg ) ;
+ * =================================================================== */
+
+directive : '@' sp identifier sp directive_args sp ';' # Directive (2 4)
+          ;
+
+directive_args : /* empty */ # NoArgs
+               | '(' sp argument sp ')' # Args (2)
+               ;
+
+argument : identifier # ArgIdent (0)
+         | string_lit # ArgString (0)
+         | number # ArgNumber (0)
+         ;
+
+/* ===================================================================
+ * Rules: identifier [annotation] = expression ;
+ * =================================================================== */
+
+rule : identifier sp annotation_opt sp '=' sp expression sp ';' # Rule (0 2 6)
+     ;
+
+annotation_opt : /* empty */ # NoAnnotation
+               | annotation # Annotation (0)
+               ;
+
+annotation : '[' sp attributes sp ']' # Annotation (2)
+           ;
+
+attributes : attribute # Attributes (0)
+           | attributes sp ',' sp attribute # Attributes (0 4)
+           ;
+
+attribute : identifier sp attr_value_opt # Attribute (0 2)
+          ;
+
+attr_value_opt : /* empty */ # NoAttrValue
+               | '=' sp attr_value # AttrValue (2)
+               ;
+
+attr_value : identifier # AttrIdent (0)
+           | string_lit # AttrString (0)
+           | number # AttrNumber (0)
+           ;
+
+/* ===================================================================
+ * Expressions: alternation, sequence, term, factor
+ * =================================================================== */
+
+expression : sequence # Expr (0)
+           | expression sp '|' sp sequence # ExprAlt (0 4)
+           ;
+
+sequence : /* empty */ # EmptySeq
+         | sequence sp term # Sequence (0 2)
+         ;
+
+term : factor quantifier_opt annotation_opt # Term (0 1 2)
+     ;
+
+quantifier_opt : /* empty */ # NoQuant
+               | quantifier # Quant (0)
+               ;
+
+quantifier : '?' # QuantZeroOne
+           | '*' # QuantZeroMany
+           | '+' # QuantOneMany
+           | range_quant # QuantRange (0)
+           ;
+
+range_quant : '{' sp number sp range_tail sp '}' # RangeQuant (2 4)
+            ;
+
+range_tail : /* empty */ # RangeExact
+           | ',' sp # RangeMin
+           | ',' sp number # RangeMinMax (2)
+           ;
+
+factor : identifier # FactorIdent (0)
+       | string_lit # FactorString (0)
+       | char_class # FactorCharClass (0)
+       | '(' sp expression sp ')' # FactorGroup (2)
+       | '&' sp factor # FactorLookahead (2)
+       | '~' sp factor # FactorNegation (2)
+       | '.' # FactorAnyChar
+       ;
+
+/* ===================================================================
+ * Character classes: [^? items]
+ * =================================================================== */
+
+char_class : '[' sp negation_opt class_items sp ']' # CharClass (2 3)
+           ;
+
+negation_opt : /* empty */ # NotNegated
+             | '^' sp # Negated
+             ;
+
+class_items : class_item # ClassItems (0)
+            | class_items sp class_item # ClassItems (0 2)
+            ;
+
+class_item : char_range # ClassRange (0)
+           | unicode_category # ClassUnicat (0)
+           | escape_seq # ClassEscape (0)
+           | single_class_char # ClassChar (0)
+           ;
+
+char_range : single_class_char sp '-' sp single_class_char # CharRange (0 4)
+           ;
+
+single_class_char : any_char_except_bracket # SingleChar (0)
+                  | escape_seq # SingleChar (0)
+                  ;
+
+unicode_category : '\\' unicode_cat_prefix sp '{' sp identifier sp '}' # UnicodeCat (1 5)
+                 ;
+
+unicode_cat_prefix : 'p' # UnicatPositive
+                   | 'P' # UnicatNegative
+                   ;
+
+/* ===================================================================
+ * String literals and escape sequences
+ * =================================================================== */
+
+string_lit : single_quoted # StringSingle (0)
+           | double_quoted # StringDouble (0)
+           ;
+
+single_quoted : '\'' sq_chars '\'' # SingleQuoted (1)
+              ;
+
+double_quoted : '"' dq_chars '"' # DoubleQuoted (1)
+              ;
+
+sq_chars : /* empty */ # EmptyString
+         | sq_chars sq_char # StringChars (0 1)
+         ;
+
+dq_chars : /* empty */ # EmptyString
+         | dq_chars dq_char # StringChars (0 1)
+         ;
+
+sq_char : escape_seq # StrChar (0)
+        | any_char_except_squote # StrChar (0)
+        ;
+
+dq_char : escape_seq # StrChar (0)
+        | any_char_except_dquote # StrChar (0)
+        ;
+
+/* ===================================================================
+ * Escape sequences
+ * =================================================================== */
+
+escape_seq : '\\' escape_type # Escape (1)
+           ;
+
+escape_type : simple_esc # EscType (0)
+            | hex_esc # EscType (0)
+            | uni_esc # EscType (0)
+            | uni_long_esc # EscType (0)
+            | oct_esc # EscType (0)
+            | named_esc # EscType (0)
+            ;
+
+simple_esc : 'n' # EscNewline
+           | 'r' # EscCarriageReturn
+           | 't' # EscTab
+           | 'b' # EscBackspace
+           | 'f' # EscFormFeed
+           | '\\' # EscBackslash
+           | '\'' # EscSingleQuote
+           | '"' # EscDoubleQuote
+           ;
+
+hex_esc : 'x' hex_digit hex_digit # HexEscape (1 2)
+        ;
+
+uni_esc : 'u' hex_digit hex_digit hex_digit hex_digit # UnicodeEscape (1 2 3 4)
+        ;
+
+uni_long_esc : 'U' hex_digit hex_digit hex_digit hex_digit hex_digit hex_digit hex_digit hex_digit # UnicodeLongEscape (1 2 3 4 5 6 7 8)
+             ;
+
+oct_esc : oct_digit oct_digit oct_opt # OctalEscape (0 1 2)
+        ;
+
+oct_opt : /* empty */ # NoOctDigit
+        | oct_digit # OctDigit (0)
+        ;
+
+named_esc : 'N' sp '{' sp name_chars sp '}' # NamedEscape (4)
+          ;
+
+name_chars : name_char # NameChars (0)
+           | name_chars name_char # NameChars (0 1)
+           ;
+
+name_char : letter # NameChar (0)
+          | digit # NameChar (0)
+          | '_' # NameChar
+          | '-' # NameChar
+          | ' ' # NameChar
+          ;
+
+/* ===================================================================
+ * Identifiers and numbers
+ * =================================================================== */
+
+identifier : id_start id_continues # Identifier (0 1)
+           ;
+
+id_start : letter # IdStart (0)
+         | '_' # IdStart
+         ;
+
+id_continues : /* empty */ # EmptyIdCont
+             | id_continues id_continue # IdContinues (0 1)
+             ;
+
+id_continue : letter # IdContinue (0)
+            | digit # IdContinue (0)
+            | '_' # IdContinue
+            ;
+
+number : digit digits # Number (0 1)
+       ;
+
+digits : /* empty */ # EmptyDigits
+       | digits digit # Digits (0 1)
+       ;
+
+/* ===================================================================
+ * Basic character categories
+ * =================================================================== */
+
+letter : ascii_letter # Letter (0)
+       ;
+
+ascii_letter : 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j'
+             | 'k' | 'l' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't'
+             | 'u' | 'v' | 'w' | 'x' | 'y' | 'z'
+             | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
+             | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T'
+             | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
+             ;
+
+digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;
+
+hex_digit : digit
+          | 'a' | 'b' | 'c' | 'd' | 'e' | 'f'
+          | 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
+          ;
+
+oct_digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' ;
+
+/* ===================================================================
+ * Whitespace and comments (explicit in scannerless mode)
+ * =================================================================== */
+
+sp : /* empty */ # EmptySp
+   | sp ws # Sp (0 1)
+   | sp block_comment # Sp (0 1)
+   ;
+
+ws : ' ' # | '\x09' # | '\x0d' # | '\x0a' # ;
+
+line_comment : '#' line_comment_chars line_comment_end # LineComment (1)
+             ;
+
+line_comment_chars : /* empty */ # EmptyComment
+                   | line_comment_chars any_char_except_newline # CommentChars (0 1)
+                   ;
+
+line_comment_end : '\x0a' # LineCommentEnd ;
+
+block_comment : '/' '*' block_comment_chars '*' '/' # BlockComment (2)
+              ;
+
+block_comment_chars : /* empty */ # EmptyComment
+                    | block_comment_chars block_comment_char # CommentChars (0 1)
+                    ;
+
+block_comment_char : any_char_except_star # CommentChar (0)
+                   | '*' any_char_except_slash # CommentChar (1)
+                   ;
+
+/* ===================================================================
+ * Character sets for specific contexts
+ * These enumerate all printable and common characters except excluded ones
+ * =================================================================== */
+
+/* Characters allowed in character classes (everything except ] and -) */
+any_char_except_bracket : '\x00' | '\x01' | '\x02' | '\x03' | '\x04' | '\x05' | '\x06' | '\x07'
+                        | '\x08' | '\x09' | '\x0a' | '\x0b' | '\x0c' | '\x0d' | '\x0e' | '\x0f'
+                        | '\x10' | '\x11' | '\x12' | '\x13' | '\x14' | '\x15' | '\x16' | '\x17'
+                        | '\x18' | '\x19' | '\x1a' | '\x1b' | '\x1c' | '\x1d' | '\x1e' | '\x1f'
+                        | ' ' | '!' | '"' | '#' | '$' | '%' | '&' | '\''
+                        | '(' | ')' | '*' | '+' | ',' | /* skip '-' */ '.' | '/'
+                        | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7'
+                        | '8' | '9' | ':' | ';' | '<' | '=' | '>' | '?'
+                        | '@' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+                        | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O'
+                        | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
+                        | 'X' | 'Y' | 'Z' | '[' | '\\' | /* skip ']' */ '^' | '_'
+                        | '`' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+                        | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o'
+                        | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w'
+                        | 'x' | 'y' | 'z' | '{' | '|' | '}' | '~'
+                        ;
+
+/* Characters allowed in single-quoted strings (everything except ' \n \r) */
+any_char_except_squote : '\x00' | '\x01' | '\x02' | '\x03' | '\x04' | '\x05' | '\x06' | '\x07'
+                       | '\x08' | '\x09' | /* skip \n */ '\x0b' | '\x0c' | /* skip \r */ '\x0e' | '\x0f'
+                       | '\x10' | '\x11' | '\x12' | '\x13' | '\x14' | '\x15' | '\x16' | '\x17'
+                       | '\x18' | '\x19' | '\x1a' | '\x1b' | '\x1c' | '\x1d' | '\x1e' | '\x1f'
+                       | ' ' | '!' | '"' | '#' | '$' | '%' | '&' | /* skip '\'' */
+                       '(' | ')' | '*' | '+' | ',' | '-' | '.' | '/'
+                       | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7'
+                       | '8' | '9' | ':' | ';' | '<' | '=' | '>' | '?'
+                       | '@' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+                       | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O'
+                       | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
+                       | 'X' | 'Y' | 'Z' | '[' | '\\' | ']' | '^' | '_'
+                       | '`' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+                       | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o'
+                       | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w'
+                       | 'x' | 'y' | 'z' | '{' | '|' | '}' | '~'
+                       ;
+
+/* Characters allowed in double-quoted strings (everything except " \n \r) */
+any_char_except_dquote : '\x00' | '\x01' | '\x02' | '\x03' | '\x04' | '\x05' | '\x06' | '\x07'
+                       | '\x08' | '\x09' | /* skip \n */ '\x0b' | '\x0c' | /* skip \r */ '\x0e' | '\x0f'
+                       | '\x10' | '\x11' | '\x12' | '\x13' | '\x14' | '\x15' | '\x16' | '\x17'
+                       | '\x18' | '\x19' | '\x1a' | '\x1b' | '\x1c' | '\x1d' | '\x1e' | '\x1f'
+                       | ' ' | '!' | /* skip '"' */ '#' | '$' | '%' | '&' | '\''
+                       | '(' | ')' | '*' | '+' | ',' | '-' | '.' | '/'
+                       | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7'
+                       | '8' | '9' | ':' | ';' | '<' | '=' | '>' | '?'
+                       | '@' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+                       | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O'
+                       | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
+                       | 'X' | 'Y' | 'Z' | '[' | '\\' | ']' | '^' | '_'
+                       | '`' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+                       | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o'
+                       | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w'
+                       | 'x' | 'y' | 'z' | '{' | '|' | '}' | '~'
+                       ;
+
+/* Characters allowed in line comments (everything except \n) */
+any_char_except_newline : '\x00' | '\x01' | '\x02' | '\x03' | '\x04' | '\x05' | '\x06' | '\x07'
+                        | '\x08' | '\x09' | /* skip \n */ '\x0b' | '\x0c' | '\x0d' | '\x0e' | '\x0f'
+                        | '\x10' | '\x11' | '\x12' | '\x13' | '\x14' | '\x15' | '\x16' | '\x17'
+                        | '\x18' | '\x19' | '\x1a' | '\x1b' | '\x1c' | '\x1d' | '\x1e' | '\x1f'
+                        | ' ' | '!' | '"' | '#' | '$' | '%' | '&' | '\''
+                        | '(' | ')' | '*' | '+' | ',' | '-' | '.' | '/'
+                        | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7'
+                        | '8' | '9' | ':' | ';' | '<' | '=' | '>' | '?'
+                        | '@' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+                        | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O'
+                        | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
+                        | 'X' | 'Y' | 'Z' | '[' | '\\' | ']' | '^' | '_'
+                        | '`' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+                        | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o'
+                        | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w'
+                        | 'x' | 'y' | 'z' | '{' | '|' | '}' | '~'
+                        ;
+
+/* Characters in block comments (everything except *) */
+any_char_except_star : '\x00' | '\x01' | '\x02' | '\x03' | '\x04' | '\x05' | '\x06' | '\x07'
+                     | '\x08' | '\x09' | '\x0a' | '\x0b' | '\x0c' | '\x0d' | '\x0e' | '\x0f'
+                     | '\x10' | '\x11' | '\x12' | '\x13' | '\x14' | '\x15' | '\x16' | '\x17'
+                     | '\x18' | '\x19' | '\x1a' | '\x1b' | '\x1c' | '\x1d' | '\x1e' | '\x1f'
+                     | ' ' | '!' | '"' | '#' | '$' | '%' | '&' | '\''
+                     | '(' | ')' | /* skip '*' */ '+' | ',' | '-' | '.' | '/'
+                     | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7'
+                     | '8' | '9' | ':' | ';' | '<' | '=' | '>' | '?'
+                     | '@' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+                     | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O'
+                     | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
+                     | 'X' | 'Y' | 'Z' | '[' | '\\' | ']' | '^' | '_'
+                     | '`' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+                     | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o'
+                     | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w'
+                     | 'x' | 'y' | 'z' | '{' | '|' | '}' | '~'
+                     ;
+
+/* Characters after * in block comments (everything except /) */
+any_char_except_slash : '\x00' | '\x01' | '\x02' | '\x03' | '\x04' | '\x05' | '\x06' | '\x07'
+                      | '\x08' | '\x09' | '\x0a' | '\x0b' | '\x0c' | '\x0d' | '\x0e' | '\x0f'
+                      | '\x10' | '\x11' | '\x12' | '\x13' | '\x14' | '\x15' | '\x16' | '\x17'
+                      | '\x18' | '\x19' | '\x1a' | '\x1b' | '\x1c' | '\x1d' | '\x1e' | '\x1f'
+                      | ' ' | '!' | '"' | '#' | '$' | '%' | '&' | '\''
+                      | '(' | ')' | '*' | '+' | ',' | '-' | '.' | /* skip '/' */
+                      '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7'
+                      | '8' | '9' | ':' | ';' | '<' | '=' | '>' | '?'
+                      | '@' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+                      | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O'
+                      | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
+                      | 'X' | 'Y' | 'Z' | '[' | '\\' | ']' | '^' | '_'
+                      | '`' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g'
+                      | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o'
+                      | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w'
+                      | 'x' | 'y' | 'z' | '{' | '|' | '}' | '~'
+                      ;

@@ -1,0 +1,29 @@
+/* Ultra-simple YAEP grammar for testing */
+
+TERM
+
+grammar : rules # Grammar (0)
+        ;
+
+rules : rule # Rules (0)
+      | rules rule # Rules (0 1)
+      ;
+
+rule : id '=' alts ';' # Rule (0 2)
+     ;
+
+alts : id # Alts (0)
+     | alts '|' id # Alts (0 2)
+     ;
+
+id : letter # Id (0)
+   | id letter # Id (0 1)
+   | id digit # Id (0 1)
+   ;
+
+letter : 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' 
+       | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w' | 'x' | 'y' | 'z' 
+       | '\'' # 
+       ;
+
+digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;

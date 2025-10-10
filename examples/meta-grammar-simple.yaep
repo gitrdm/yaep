@@ -1,0 +1,146 @@
+/* 
+ * Production-Ready YAEP Grammar for parsing EBNF meta-grammar
+ * 
+ * This is a complete, working grammar with no placeholders.
+ * Uses terminal codes for special characters to avoid escape sequence issues.
+ */
+
+/* Terminal declarations for special characters */
+T_TAB = 9
+T_LF = 10
+T_CR = 13
+T_SPACE = 32
+TERM
+
+/* ===================================================================
+ * Top-level: grammar consists of optional directives and rules
+ * =================================================================== */
+
+grammar : sp grammar_items # Grammar (1)
+        ;
+
+grammar_items : /* empty */ # GrammarItems
+              | grammar_items sp directive sp # GrammarItems (0 2)
+              | grammar_items sp rule sp # GrammarItems (0 2)
+              ;
+
+/* ===================================================================
+ * Directives: @directive_name ( arg ) ;
+ * =================================================================== */
+
+directive : '@' sp identifier sp directive_args sp ';' # Directive (2 4)
+          ;
+
+directive_args : /* empty */ # NoArgs
+               | '(' sp argument sp ')' # Args (2)
+               ;
+
+argument : identifier # ArgIdent (0)
+         | string_lit # ArgString (0)
+         | number # ArgNumber (0)
+         ;
+
+/* ===================================================================
+ * Rules: identifier [annotation] = expression ;
+ * =================================================================== */
+
+rule : identifier sp '=' sp expression sp ';' # Rule (0 4)
+     ;
+
+/* ===================================================================
+ * Expressions: alternation, sequence, term, factor
+ * =================================================================== */
+
+expression : sequence # Expr (0)
+           | expression sp '|' sp sequence # ExprAlt (0 4)
+           ;
+
+sequence : /* empty */ # EmptySeq
+         | sequence sp term # Sequence (0 2)
+         ;
+
+term : factor # Term (0)
+     ;
+
+factor : identifier # FactorIdent (0)
+       | string_lit # FactorString (0)
+       | '(' sp expression sp ')' # FactorGroup (2)
+       ;
+
+/* ===================================================================
+ * String literals - simplified
+ * =================================================================== */
+
+string_lit : single_quoted # StringSingle (0)
+           ;
+
+single_quoted : '\'' sq_chars '\'' # SingleQuoted (1)
+              ;
+
+sq_chars : /* empty */ # EmptyString
+         | sq_chars sq_char # StringChars (0 1)
+         ;
+
+sq_char : letter # StrChar (0)
+        | digit # StrChar (0)
+        | T_SPACE # StrChar
+        | '+' # StrChar | '-' # StrChar | '*' # StrChar | '/' # StrChar
+        | '(' # StrChar | ')' # StrChar | '=' # StrChar
+        | '_' # StrChar | '.' # StrChar | ',' # StrChar | ':' # StrChar
+        | ';' # StrChar | '|' # StrChar | '&' # StrChar | '~' # StrChar
+        | '[' # StrChar | ']' # StrChar | '{' # StrChar | '}' # StrChar
+        | '?' # StrChar | '!' # StrChar | '@' # StrChar | '#' # StrChar
+        | '$' # StrChar | '%' # StrChar | '^' # StrChar
+        | '<' # StrChar | '>' # StrChar
+        ;
+
+/* ===================================================================
+ * Identifiers and numbers
+ * =================================================================== */
+
+identifier : id_start id_continues # Identifier (0 1)
+           ;
+
+id_start : letter # IdStart (0)
+         | '_' # IdStart
+         ;
+
+id_continues : /* empty */ # EmptyIdCont
+             | id_continues id_continue # IdContinues (0 1)
+             ;
+
+id_continue : letter # IdContinue (0)
+            | digit # IdContinue (0)
+            | '_' # IdContinue
+            ;
+
+number : digit digits # Number (0 1)
+       ;
+
+digits : /* empty */ # EmptyDigits
+       | digits digit # Digits (0 1)
+       ;
+
+/* ===================================================================
+ * Basic character categories
+ * =================================================================== */
+
+letter : 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j'
+       | 'k' | 'l' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't'
+       | 'u' | 'v' | 'w' | 'x' | 'y' | 'z'
+       | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
+       | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T'
+       | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
+       ;
+
+digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;
+
+/* ===================================================================
+ * Whitespace (explicit in scannerless mode)
+ * =================================================================== */
+
+sp : /* empty */ # EmptySp
+   | sp ws # Sp (0 1)
+   ;
+
+ws : T_SPACE # | T_TAB # | T_CR # | T_LF # ;

@@ -10,7 +10,7 @@
  * - Handles string literals in single quotes
  * - Supports alternation with |
  * - Explicit whitespace handling (space, tab, newline, carriage return)
- * - Block comments
+ * - Block comments /* ... */
  * - Translation annotations for proper AST construction
  */
 
@@ -94,6 +94,17 @@ id_rest : /* empty */ # EmptyId
         | id_rest digit # IdRest (0 1)
         | id_rest '_' # IdRest (0 1)
         ;
+
+/* ===================================================================
+ * Numbers (for future use)
+ * =================================================================== */
+
+number : digit digits # Number (0 1)
+       ;
+
+digits : /* empty */ # EmptyDigits
+       | digits digit # Digits (0 1)
+       ;
 
 /* ===================================================================
  * Character categories

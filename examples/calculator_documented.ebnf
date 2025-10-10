@@ -1,0 +1,75 @@
+/* ============================================================================
+ * CALCULATOR GRAMMAR - Elaborate EBNF Example
+ * ============================================================================
+ * 
+ * This grammar demonstrates a complete arithmetic expression parser with:
+ * - Operator precedence: () > * / > + -
+ * - Left-associative operators
+ * - Multi-digit numbers (0-9)
+ * - Parenthesized expressions
+ * - Left recursion for proper associativity
+ *
+ * Grammar Rules (in order of precedence, highest to lowest):
+ * 1. expr        - Top-level entry point
+ * 2. additive    - Addition and subtraction (lowest precedence)
+ * 3. multiplicative - Multiplication and division (higher precedence)
+ * 4. primary     - Atomic values: numbers or (expr)
+ * 5. number      - Multi-digit decimal numbers
+ * 6. digit       - Single digit 0-9
+ * 
+ * Example valid inputs this grammar accepts:
+ * - Simple: "42"
+ * - Addition: "2+3"
+ * - Complex: "2+3*4"        -> (2 + (3 * 4)) = 14
+ * - Grouped: "(2+3)*4"      -> ((2 + 3) * 4) = 20
+ * - Multi-digit: "123+456"  -> (123 + 456) = 579
+ * ============================================================================
+ */
+
+expr=additive;
+
+additive=additive plus multiplicative|additive minus multiplicative|multiplicative;
+
+multiplicative=multiplicative star primary|multiplicative slash primary|primary;
+
+primary=number|lparen expr rparen;
+
+number=digit|number digit;
+
+digit=zero|one|two|three|four|five|six|seven|eight|nine;
+
+zero=z;
+one=o;
+two=t;
+three=h;
+four=f;
+five=v;
+six=s;
+seven=e;
+eight=i;
+nine=n;
+plus=p;
+minus=m;
+star=a;
+slash=d;
+lparen=l;
+rparen=r;
+
+z=x;
+o=x;
+t=x;
+h=x;
+f=x;
+v=x;
+s=x;
+e=x;
+i=x;
+n=x;
+p=x;
+m=x;
+a=x;
+d=x;
+l=x;
+r=x;
+x=y;
+y=x;

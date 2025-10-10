@@ -1,0 +1,75 @@
+{
+  "parse_tree":   {
+    "type": "ANODE",
+    "name": "Rule",
+    "cost": 1,
+    "children": [
+            {
+        "type": "ANODE",
+        "name": "Id",
+        "cost": 1,
+        "children": [
+                    {
+            "type": "ANODE",
+            "name": "Id",
+            "cost": 1,
+            "children": [
+                            {
+                "type": "ANODE",
+                "name": "Id",
+                "cost": 1,
+                "children": [
+                                    {
+                    "type": "ANODE",
+                    "name": "Id",
+                    "cost": 1,
+                    "children": [
+                                            {
+                        "type": "NIL",
+                        "value": null
+                      }
+                    ]
+                  },
+                                    {
+                    "type": "NIL",
+                    "value": null
+                  }
+                ]
+              },
+                            {
+                "type": "NIL",
+                "value": null
+              }
+            ]
+          },
+                    {
+            "type": "NIL",
+            "value": null
+          }
+        ]
+      },
+            {
+        "type": "ANODE",
+        "name": "Id",
+        "cost": 1,
+        "children": [
+                    {
+            "type": "ANODE",
+            "name": "Id",
+            "cost": 1,
+            "children": [
+                            {
+                "type": "NIL",
+                "value": null
+              }
+            ]
+          },
+                    {
+            "type": "NIL",
+            "value": null
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+PLUS = 43
+STAR = 42
+TERM
+
+expr : PLUS # E
+     ;

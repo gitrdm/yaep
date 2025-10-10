@@ -1,0 +1,10 @@
+TERM
+
+rule : id '=' id ';' # Rule (0 2)
+     ;
+
+id : letter # Id (0)
+   | id letter # Id (0 1)
+   ;
+
+letter : 'a' | 'b' | 'c' | 'd' | 'e' | 'i' | 'l' | 'r' | 'u' ;

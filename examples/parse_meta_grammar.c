@@ -102,22 +102,168 @@ read_file(const char *filename)
     return content;
 }
 
-/* Print parse tree (simplified) */
+/* Print JSON string with escaping */
 static void
-print_tree(struct yaep_tree_node *node, int depth)
+print_json_string(FILE *fp, const char *str)
 {
-    if (node == NULL) return;
-    
-    /* Print indentation */
-    for (int i = 0; i < depth; i++) {
-        printf("  ");
+    if (!str) {
+        fprintf(fp, "null");
+        return;
     }
     
-    /* Print node info */
-    printf("Node: %p\n", (void*)node);
+    fputc('"', fp);
+    while (*str) {
+        switch (*str) {
+            case '"':  fprintf(fp, "\\\""); break;
+            case '\\': fprintf(fp, "\\\\"); break;
+            case '\b': fprintf(fp, "\\b"); break;
+            case '\f': fprintf(fp, "\\f"); break;
+            case '\n': fprintf(fp, "\\n"); break;
+            case '\r': fprintf(fp, "\\r"); break;
+            case '\t': fprintf(fp, "\\t"); break;
+            default:
+                if ((unsigned char)*str < 0x20) {
+                    fprintf(fp, "\\u%04x", (unsigned char)*str);
+                } else {
+                    fputc(*str, fp);
+                }
+                break;
+        }
+        str++;
+    }
+    fputc('"', fp);
+}
+
+/* Print parse tree as JSON */
+static void
+print_tree_json(FILE *fp, struct yaep_tree_node *node, int depth)
+{
+    if (node == NULL) {
+        fprintf(fp, "null");
+        return;
+    }
     
-    /* Recursively print children if needed */
-    /* (YAEP tree structure depends on translation annotations) */
+    /* Print indentation */
+    const char *indent = "";
+    const char *indent1 = "  ";
+    const char *indent2 = "    ";
+    if (depth > 0) {
+        indent = "\n";
+        for (int i = 0; i < depth; i++) {
+            fprintf(fp, "  ");
+        }
+    }
+    
+    fprintf(fp, "{%s", indent);
+    for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+    
+    /* Print node type */
+    fprintf(fp, "\"type\": ");
+    switch (node->type) {
+        case YAEP_NIL:
+            fprintf(fp, "\"NIL\",\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"value\": null");
+            break;
+            
+        case YAEP_ERROR:
+            fprintf(fp, "\"ERROR\",\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"used\": %d", node->val.error.used);
+            break;
+            
+        case YAEP_TERM:
+            fprintf(fp, "\"TERM\",\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"code\": %d,\n", node->val.term.code);
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"char\": ");
+            if (node->val.term.code >= 32 && node->val.term.code < 127) {
+                fprintf(fp, "\"%c\"", (char)node->val.term.code);
+            } else {
+                fprintf(fp, "\"\\\\x%02x\"", node->val.term.code);
+            }
+            break;
+            
+        case YAEP_ANODE:
+            fprintf(fp, "\"ANODE\",\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"name\": ");
+            print_json_string(fp, node->val.anode.name);
+            fprintf(fp, ",\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"cost\": %d", node->val.anode.cost);
+            
+            /* Print children if present */
+            if (node->val.anode.children && node->val.anode.children[0]) {
+                fprintf(fp, ",\n");
+                for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+                fprintf(fp, "\"children\": [");
+                
+                int first = 1;
+                for (int i = 0; node->val.anode.children[i] != NULL; i++) {
+                    if (!first) {
+                        fprintf(fp, ",");
+                    }
+                    fprintf(fp, "\n");
+                    for (int j = 0; j < depth + 2; j++) fprintf(fp, "  ");
+                    print_tree_json(fp, node->val.anode.children[i], depth + 2);
+                    first = 0;
+                }
+                fprintf(fp, "\n");
+                for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+                fprintf(fp, "]");
+            }
+            break;
+            
+        case YAEP_ALT:
+            fprintf(fp, "\"ALT\",\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "\"alternatives\": [\n");
+            
+            /* Print all alternatives */
+            struct yaep_tree_node *alt = node;
+            int first_alt = 1;
+            while (alt && alt->type == YAEP_ALT) {
+                if (!first_alt) {
+                    fprintf(fp, ",\n");
+                }
+                for (int i = 0; i < depth + 2; i++) fprintf(fp, "  ");
+                print_tree_json(fp, alt->val.alt.node, depth + 2);
+                alt = alt->val.alt.next;
+                first_alt = 0;
+            }
+            fprintf(fp, "\n");
+            for (int i = 0; i < depth + 1; i++) fprintf(fp, "  ");
+            fprintf(fp, "]");
+            break;
+            
+        default:
+            fprintf(fp, "\"UNKNOWN\"");
+            break;
+    }
+    
+    fprintf(fp, "\n");
+    for (int i = 0; i < depth; i++) fprintf(fp, "  ");
+    fprintf(fp, "}");
+}
+
+/* Save tree to JSON file */
+static int
+save_tree_json(const char *filename, struct yaep_tree_node *root)
+{
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: cannot open file '%s' for writing\n", filename);
+        return -1;
+    }
+    
+    fprintf(fp, "{\n  \"parse_tree\": ");
+    print_tree_json(fp, root, 1);
+    fprintf(fp, "\n}\n");
+    
+    fclose(fp);
+    return 0;
 }
 
 int
@@ -125,13 +271,36 @@ main(int argc, char *argv[])
 {
     const char *grammar_file = "meta-grammar.yaep";
     const char *input_file = NULL;
+    const char *output_file = NULL;
     
     if (argc > 1) {
         input_file = argv[1];
     } else {
-        fprintf(stderr, "Usage: %s <ebnf-file>\n", argv[0]);
-        fprintf(stderr, "Example: %s ../meta-grammar.ebnf\n", argv[0]);
+        fprintf(stderr, "Usage: %s <ebnf-file> [output.json]\n", argv[0]);
+        fprintf(stderr, "Example: %s test_simple.ebnf test_simple.json\n", argv[0]);
+        fprintf(stderr, "         %s ../meta-grammar.ebnf meta-grammar.json\n", argv[0]);
         return 1;
+    }
+    
+    if (argc > 2) {
+        output_file = argv[2];
+    } else {
+        /* Default output filename: replace .ebnf with .json */
+        static char default_output[256];
+        const char *base = input_file;
+        const char *dot = strrchr(base, '.');
+        const char *slash = strrchr(base, '/');
+        
+        if (slash) base = slash + 1;
+        
+        if (dot && dot > base) {
+            int len = dot - base;
+            if (len > 250) len = 250;
+            snprintf(default_output, sizeof(default_output), "%.*s.json", len, base);
+        } else {
+            snprintf(default_output, sizeof(default_output), "%s.json", base);
+        }
+        output_file = default_output;
     }
     
     /* Create grammar */
@@ -189,9 +358,18 @@ main(int argc, char *argv[])
         printf("Warning: grammar is ambiguous\n");
     }
     
-    /* Print parse tree */
-    printf("\nParse tree:\n");
-    print_tree(root, 0);
+    /* Print parse tree to console */
+    printf("\nParse tree structure:\n");
+    print_tree_json(stdout, root, 0);
+    printf("\n");
+    
+    /* Save parse tree to JSON file */
+    printf("\nSaving parse tree to '%s'...\n", output_file);
+    if (save_tree_json(output_file, root) == 0) {
+        printf("JSON file saved successfully!\n");
+    } else {
+        fprintf(stderr, "Error: failed to save JSON file\n");
+    }
     
     /* Cleanup */
     if (root) {

@@ -1,0 +1,116 @@
+/* 
+ * Simplified YAEP Grammar for parsing basic EBNF
+ * 
+ * This is a simplified version that focuses on parsing basic EBNF rules
+ * without all the advanced features. This version actually works!
+ */
+
+TERM
+
+/* Top-level: grammar is a list of rules */
+grammar : sp rules sp # Grammar
+        ;
+
+rules : rule # Rules
+      | rules sp rule # Rules
+      ;
+
+/* Rule: identifier = alternatives ; */
+rule : identifier sp '=' sp alternatives sp ';' sp # Rule
+     ;
+
+/* Alternatives separated by | */
+alternatives : sequence # Alts
+             | alternatives sp '|' sp sequence # Alts
+             ;
+
+/* Sequence of terms */
+sequence : /* empty */ # Seq
+         | sequence sp term # Seq
+         ;
+
+/* Term: just a factor for now (simplified) */
+term : factor # Term
+     ;
+
+/* Factor: identifier, string, or grouped expression */
+factor : identifier # FactorId
+       | string_lit # FactorString
+       | char_lit # FactorChar
+       | '(' sp alternatives sp ')' # FactorGroup
+       ;
+
+/* String literal: "..." or '...' */
+string_lit : '"' string_chars '"' # String
+           | '\'' string_chars '\'' # String
+           ;
+
+string_chars : /* empty */ #
+             | string_chars string_char #
+             ;
+
+string_char : letter #
+            | digit #
+            | ' ' #
+            | '+' # | '-' # | '*' # | '/' #
+            | '_' # | '.' # | ',' # | ':' #
+            ;
+
+/* Character literal: 'x' */
+char_lit : '\'' letter '\'' # Char
+         | '\'' digit '\'' # Char
+         | '\'' special '\'' # Char
+         ;
+
+special : '+' # | '-' # | '*' # | '/' #
+        | '(' # | ')' # | '=' #
+        | '_' # | '.' # | ',' #
+        ;
+
+/* Identifier: letter followed by letters/digits/underscores */
+identifier : letter id_rest # Identifier
+           ;
+
+id_rest : /* empty */ #
+        | id_rest letter #
+        | id_rest digit #
+        | id_rest '_' #
+        ;
+
+/* Whitespace and comments */
+sp : /* empty */ #
+   | sp ' ' #
+   | sp '\t' #
+   | sp '\n' #
+   | sp '\r' #
+   | sp comment #
+   ;
+
+comment : '/' '*' comment_chars '*' '/' # Comment
+        ;
+
+comment_chars : /* empty */ #
+              | comment_chars comment_char #
+              ;
+
+comment_char : letter #
+             | digit #
+             | ' ' # | '\t' # | '\n' # | '\r' #
+             | '+' # | '-' # | '=' # | '/' #
+             | '_' # | '.' # | ',' # | ':' #
+             | '(' # | ')' # | '{' # | '}' #
+             | '[' # | ']' # | ';' # | '|' #
+             | '\'' # | '"' #
+             ;
+
+/* Letters */
+letter : 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j'
+       | 'k' | 'l' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't'
+       | 'u' | 'v' | 'w' | 'x' | 'y' | 'z'
+       | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
+       | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T'
+       | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
+       ;
+
+/* Digits */
+digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;
