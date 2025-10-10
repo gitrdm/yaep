@@ -79,3 +79,6 @@ build/
 .coverage
 .coverage.*
 htmlcov/
+_test50_stdout.txt
+_warnings_now.txt
+meta-grammar.ebnf
