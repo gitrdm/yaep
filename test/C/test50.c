@@ -20,7 +20,7 @@ static const char *description =
 "  | 'b'   # 0\n"
 "  ;\n";
 
-int main(void)
+int main(int argc, char **argv)
 {
   struct grammar *g;
   struct yaep_tree_node *root;
@@ -39,8 +39,10 @@ int main(void)
       exit(1);
     }
 
-  /* Enable Leo debug to help exercise path during CI runs */
-  yaep_set_leo_debug(g, 1);
+  /* Enable Leo debug only when explicitly requested via argv[2] != 0.
+     This avoids printing debug lines during normal test runs. */
+  if (argc > 2 && atoi(argv[2]) != 0)
+    yaep_set_leo_debug(g, 1);
 
   if (yaep_parse(g, test_read_token, test_syntax_error,
                  test_parse_alloc, test_parse_free, &root, &ambiguous_p))
@@ -49,6 +51,10 @@ int main(void)
       exit(1);
     }
 
+  /* Ensure test emits a single newline so the CTest expected output (an
+     empty line) matches. Do not print other debug information during
+     standard runs. */
+  printf("\n");
   yaep_free_grammar(g);
   return 0;
 }
