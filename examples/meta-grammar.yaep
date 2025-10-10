@@ -1,0 +1,350 @@
+/* 
+ * YAEP Grammar for parsing EBNF meta-grammar
+ * 
+ * This grammar parses the EBNF meta-grammar format defined in meta-grammar.ebnf
+ * It converts the EBNF notation into YAEP's YACC-like syntax.
+ * 
+ * Key features:
+ * - Scannerless character-level parsing
+ * - Handles whitespace and comments explicitly
+ * - Supports Unicode identifiers and string literals
+ * - Character classes and escape sequences
+ */
+
+/* Terminal declarations */
+TERM
+
+/* ===================================================================
+ * Top-level: grammar consists of optional directives and rules
+ * =================================================================== */
+
+grammar : sp grammar_items #
+        ;
+
+grammar_items : /* empty */ #
+              | grammar_items sp directive sp #
+              | grammar_items sp rule sp #
+              ;
+
+/* ===================================================================
+ * Directives: @directive_name ( arg ) ;
+ * =================================================================== */
+
+directive : '@' sp identifier sp directive_args sp ';' # Directive
+          ;
+
+directive_args : /* empty */ #
+               | '(' sp argument sp ')' #
+               ;
+
+argument : identifier # ArgIdent
+         | string_lit # ArgString
+         | number # ArgNumber
+         ;
+
+/* ===================================================================
+ * Rules: identifier [annotation] = expression ;
+ * =================================================================== */
+
+rule : identifier sp annotation_opt sp '=' sp expression sp ';' # Rule
+     ;
+
+annotation_opt : /* empty */ #
+               | annotation #
+               ;
+
+annotation : '[' sp attributes sp ']' # Annotation
+           ;
+
+attributes : attribute # 
+           | attributes sp ',' sp attribute #
+           ;
+
+attribute : identifier sp attr_value_opt # Attribute
+          ;
+
+attr_value_opt : /* empty */ #
+               | '=' sp attr_value #
+               ;
+
+attr_value : identifier # AttrIdent
+           | string_lit # AttrString
+           | number # AttrNumber
+           ;
+
+/* ===================================================================
+ * Expressions: alternation, sequence, term, factor
+ * =================================================================== */
+
+expression : sequence # Expr
+           | expression sp '|' sp sequence # ExprAlt
+           ;
+
+sequence : /* empty */ # EmptySeq
+         | sequence sp term # Sequence
+         ;
+
+term : factor quantifier_opt annotation_opt # Term
+     ;
+
+quantifier_opt : /* empty */ #
+               | quantifier #
+               ;
+
+quantifier : '?' # QuantZeroOne
+           | '*' # QuantZeroMany
+           | '+' # QuantOneMany
+           | range_quant # 
+           ;
+
+range_quant : '{' sp number sp range_tail sp '}' # RangeQuant
+            ;
+
+range_tail : /* empty */ # RangeExact
+           | ',' sp # RangeMin
+           | ',' sp number # RangeMinMax
+           ;
+
+factor : identifier # FactorIdent
+       | string_lit # FactorString
+       | char_class # FactorCharClass
+       | '(' sp expression sp ')' # FactorGroup
+       | '&' sp factor # FactorLookahead
+       | '~' sp factor # FactorNegation
+       | '.' # FactorAnyChar
+       ;
+
+/* ===================================================================
+ * Character classes: [^? items]
+ * =================================================================== */
+
+char_class : '[' sp negation_opt class_items sp ']' # CharClass
+           ;
+
+negation_opt : /* empty */ # 
+             | '^' sp #
+             ;
+
+class_items : class_item #
+            | class_items sp class_item #
+            ;
+
+class_item : char_range # ClassRange
+           | unicode_category # ClassUnicat
+           | escape_seq # ClassEscape
+           | single_class_char # ClassChar
+           ;
+
+char_range : single_class_char sp '-' sp single_class_char # CharRange
+           ;
+
+single_class_char : any_char_except_bracket # 
+                  | escape_seq #
+                  ;
+
+unicode_category : '\\' unicode_cat_prefix sp '{' sp identifier sp '}' # UnicodeCat
+                 ;
+
+unicode_cat_prefix : 'p' # UnicatPositive
+                   | 'P' # UnicatNegative
+                   ;
+
+/* ===================================================================
+ * String literals and escape sequences
+ * =================================================================== */
+
+string_lit : single_quoted # StringSingle
+           | double_quoted # StringDouble
+           ;
+
+single_quoted : '\'' sq_chars '\'' # 
+              ;
+
+double_quoted : '"' dq_chars '"' #
+              ;
+
+sq_chars : /* empty */ #
+         | sq_chars sq_char #
+         ;
+
+dq_chars : /* empty */ #
+         | dq_chars dq_char #
+         ;
+
+sq_char : escape_seq #
+        | any_char_except_squote #
+        ;
+
+dq_char : escape_seq #
+        | any_char_except_dquote #
+        ;
+
+/* ===================================================================
+ * Escape sequences
+ * =================================================================== */
+
+escape_seq : '\\' escape_type # Escape
+           ;
+
+escape_type : simple_esc #
+            | hex_esc #
+            | uni_esc #
+            | uni_long_esc #
+            | oct_esc #
+            | named_esc #
+            ;
+
+simple_esc : 'n' # EscNewline
+           | 'r' # EscCarriageReturn
+           | 't' # EscTab
+           | 'b' # EscBackspace
+           | 'f' # EscFormFeed
+           | '\\' # EscBackslash
+           | '\'' # EscSingleQuote
+           | '"' # EscDoubleQuote
+           ;
+
+hex_esc : 'x' hex_digit hex_digit # HexEscape
+        ;
+
+uni_esc : 'u' hex_digit hex_digit hex_digit hex_digit # UnicodeEscape
+        ;
+
+uni_long_esc : 'U' hex_digit hex_digit hex_digit hex_digit hex_digit hex_digit hex_digit hex_digit # UnicodeLongEscape
+             ;
+
+oct_esc : oct_digit oct_digit oct_opt # OctalEscape
+        ;
+
+oct_opt : /* empty */ #
+        | oct_digit #
+        ;
+
+named_esc : 'N' sp '{' sp name_chars sp '}' # NamedEscape
+          ;
+
+name_chars : name_char #
+           | name_chars name_char #
+           ;
+
+name_char : letter #
+          | digit #
+          | '_' #
+          | '-' #
+          | ' ' #
+          ;
+
+/* ===================================================================
+ * Identifiers and numbers
+ * =================================================================== */
+
+identifier : id_start id_continues # Identifier
+           ;
+
+id_start : letter # 
+         | '_' #
+         ;
+
+id_continues : /* empty */ #
+             | id_continues id_continue #
+             ;
+
+id_continue : letter #
+            | digit #
+            | '_' #
+            ;
+
+number : digit digits # Number
+       ;
+
+digits : /* empty */ #
+       | digits digit #
+       ;
+
+/* ===================================================================
+ * Basic character categories
+ * =================================================================== */
+
+letter : ascii_letter #
+       | unicode_letter #
+       ;
+
+ascii_letter : 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j'
+             | 'k' | 'l' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't'
+             | 'u' | 'v' | 'w' | 'x' | 'y' | 'z'
+             | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
+             | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T'
+             | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
+             ;
+
+/* Placeholder for Unicode letter support - extend as needed */
+unicode_letter : /* Add Unicode letter ranges here */ #
+               ;
+
+digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;
+
+hex_digit : digit
+          | 'a' | 'b' | 'c' | 'd' | 'e' | 'f'
+          | 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
+          ;
+
+oct_digit : '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' ;
+
+/* ===================================================================
+ * Whitespace and comments (explicit in scannerless mode)
+ * =================================================================== */
+
+sp : /* empty */ #
+   | sp ws #
+   | sp line_comment #
+   | sp block_comment #
+   ;
+
+ws : ' ' # | '\t' # | '\r' # | '\n' # ;
+
+line_comment : '#' line_comment_chars line_comment_end # LineComment
+             ;
+
+line_comment_chars : /* empty */ #
+                   | line_comment_chars any_char_except_newline #
+                   ;
+
+line_comment_end : '\n' # | eof # ;
+
+block_comment : '/' '*' block_comment_chars '*' '/' # BlockComment
+              ;
+
+block_comment_chars : /* empty */ #
+                    | block_comment_chars block_comment_char #
+                    ;
+
+block_comment_char : any_char_except_star #
+                   | '*' any_char_except_slash #
+                   ;
+
+/* ===================================================================
+ * Character predicates (placeholders for implementation)
+ * These would need to be implemented as YAEP predicates or explicit
+ * character enumerations
+ * =================================================================== */
+
+any_char_except_bracket : /* any char except ']' and '-' */ #
+                        ;
+
+any_char_except_squote : /* any char except '\'' '\n' '\r' */ #
+                       ;
+
+any_char_except_dquote : /* any char except '"' '\n' '\r' */ #
+                       ;
+
+any_char_except_newline : /* any char except '\n' */ #
+                        ;
+
+any_char_except_star : /* any char except '*' */ #
+                     ;
+
+any_char_except_slash : /* any char except '/' */ #
+                      ;
+
+eof : /* end of file marker */ #
+    ;
