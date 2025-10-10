@@ -1,0 +1,182 @@
+singleClassChar = escapeSeq | anyCharExcept(']', '-') ;
+unicodeCategory = "\\p" "{" identifier "}"
+escapeSeq = "\\" ( simpleEsc | hexEsc | uniEsc | uniLongEsc | octEsc | namedEsc ) ;
+simpleEsc = "n" | "r" | "t" | "b" | "f" | "\\" | "'" | '"' ;
+## Meta-grammar for EBNF (scannerless, YAEP-ready)
+##
+## This is a scannerless, character-level EBNF meta-grammar intended for use
+## with a scannerless YAEP instance (or any scannerless Earley parser). It
+## explicitly consumes characters (codepoints) and treats whitespace/comments
+## as grammar-level productions so the parser can honor grammar-directed
+## whitespace/normalization behavior when needed.
+##
+## Implementation notes:
+## - This grammar assumes UTF-8 input; character-level productions refer to
+##   Unicode codepoints. YAEP instances may require custom predicates or
+##   support functions to match Unicode letter categories; placeholders are
+##   provided where necessary.
+## - `sp` represents zero-or-more whitespace/comments and should be placed
+##   between tokens to make the grammar permissive of spacing.
+## - Error reporting should use the parser's position info (line/column)
+##   returned by YAEP for tokens/characters.
+
+#####################################################################
+# Helpers: whitespace and comments (scannerless: explicit consumption)
+#####################################################################
+
+# sp : optional spacing (spaces, tabs, newlines) and comments
+sp = { ws | lineComment | blockComment } ;
+
+ws =  " " | "\t" | "\r" | "\n" ;
+
+lineComment = "#" { anyCharExcept('\n') } ("\n" | <eof>) ;
+
+blockComment = "/*" { blockCommentChar } "*/" ;
+blockCommentChar = anyCharExcept('*') | "*" anyCharExcept('/') ;
+
+#####################################################################
+# Top-level
+#####################################################################
+
+# allow spacing around top-level items
+grammar = sp { ( directive | rule ) sp } . ;
+
+#####################################################################
+# Directives
+#####################################################################
+
+directive = sp "@" sp identifier sp [ "(" sp argument sp ")" ] sp ";" sp . ;
+argument  = identifier | stringLit | number .
+
+#####################################################################
+# Rules, annotations
+#####################################################################
+
+rule = sp identifier sp [ annotation ] sp "=" sp expression sp ";" sp .
+
+annotation = sp "[" sp attribute { sp "," sp attribute } sp "]" sp .
+attribute  = sp identifier sp [ sp "=" sp attrValue ] sp .
+attrValue  = identifier | stringLit | number .
+
+#####################################################################
+# Expressions: alternation, sequence, term, factor
+#####################################################################
+
+expression = sp sequence { sp "|" sp sequence } sp .
+sequence   = sp term { sp term } .
+
+# term: factor with optional quantifier and/or annotation
+term       = sp factor [ sp quantifier ] [ sp annotation ] .
+
+# quantifier forms: ?, *, +, {m}, {m,}, {m,n}
+quantifier = "?" | "*" | "+" | rangeQuant .
+rangeQuant = "{" sp number sp [ "," sp [ number ] sp ] "}" .
+
+# Factor forms: grouping, lookahead/negation predicates, terminals,
+# identifiers, char classes
+factor = sp ( identifier | stringLit | charClass | "(" sp expression sp ")"
+             | "&" sp factor   # positive lookahead
+             | "~" sp factor ) .  # negative lookahead
+
+#####################################################################
+# Character classes (scannerless internals)
+#####################################################################
+
+# charClass: [ ^? items ] where items are ranges, categories, escapes or single chars
+charClass = sp "[" sp [ "^" sp ] charClassItem { sp charClassItem } sp "]" sp .
+
+charClassItem = charRange | unicodeCategory | escapeSeq | singleClassChar .
+
+charRange = singleClassChar sp "-" sp singleClassChar .
+
+# singleClassChar: an escape or any single codepoint except ']' and (optionally) '-'
+singleClassChar = escapeSeq | anyCharExcept(']', '-') .
+
+unicodeCategory = "\\" ( "p" | "P" ) sp "{" sp identifier sp "}" .
+
+#####################################################################
+# Strings and escape sequences (character-level)
+#####################################################################
+
+stringLit = sp ( singleQuoted | doubleQuoted ) sp .
+
+singleQuoted = "'" { sqChar } "'" .
+doubleQuoted = '"' { dqChar } '"' .
+
+sqChar = escapeSeq | anyCharExcept('\'', '\n', '\r') .
+dqChar = escapeSeq | anyCharExcept('"', '\n', '\r') .
+
+# Escape sequences supported (explicit handling at character-level)
+escapeSeq = "\\" ( simpleEsc | hexEsc | uniEsc | uniLongEsc | octEsc | namedEsc ) .
+simpleEsc = "n" | "r" | "t" | "b" | "f" | "\\" | "'" | '"' .
+hexEsc = "x" hexDigit hexDigit .
+uniEsc = "u" hexDigit hexDigit hexDigit hexDigit .
+uniLongEsc = "U" hexDigit hexDigit hexDigit hexDigit hexDigit hexDigit hexDigit hexDigit .
+octEsc = octDigit octDigit [ octDigit ] .
+namedEsc = "N" sp "{" sp nameChar { nameChar } sp "}" .
+
+#####################################################################
+# Identifiers, numbers, and helper character classes (explicit)
+#####################################################################
+
+# identifier: start with letter or underscore, continue with letter/digit/_
+identifier = idStart { idContinue } .
+idStart = letter | "_" .
+idContinue = letter | digit | "_" .
+
+number = digit { digit } .
+
+letter = asciiLetter | unicodeLetterEsc | anyUnicodeLetter ;
+asciiLetter = 'A'..'Z' | 'a'..'z' .
+
+# unicodeLetterEsc matches explicit escaped Unicode codepoints inside identifiers
+unicodeLetterEsc = escapeSeq .
+
+# anyUnicodeLetter: placeholder for matching any Unicode letter codepoint.
+# Implementation note: YAEP scannerless may need a predicate function to match
+# Unicode categories (e.g., codepoint -> isLetter). Replace this production
+# with the appropriate YAEP predicate or hand-coded predicate call.
+anyUnicodeLetter = /* predicate: unicode category L */ anyChar ;
+
+digit = '0'..'9' .
+hexDigit = digit | 'a'..'f' | 'A'..'F' .
+octDigit = '0'..'7' .
+
+nameChar = letter | digit | '_' | '-' | ' ' .
+
+#####################################################################
+# Low-level helpers
+#####################################################################
+
+# anyChar matches any single codepoint (in YAEP feed as a character token)
+anyChar = /* match single codepoint */ .
+
+# anyCharExcept(list): match any single codepoint not in given set.
+# Represented here as a parameterized helper; in YAEP implement as predicate or
+# explicit choice set.
+anyCharExcept(chars) = /* helper - implement via predicate or explicit set */ .
+
+#####################################################################
+# Comments, notes and integration hints for YAEP scannerless usage
+#####################################################################
+
+# Integration hints
+# - YAEP scannerless mode will consume characters as specified by productions
+#   above. For Unicode category checks (letter, digit, general categories) you
+#   will likely need to provide predicate functions or expand productions to
+#   explicit Unicode ranges supported by YAEP. The placeholders `anyUnicodeLetter`
+#   and `anyCharExcept` are markers where an implementation must provide the
+#   actual matching logic.
+# - `sp` is intentionally liberal: it allows the meta-grammar parser to accept
+#   arbitrary spacing and comments anywhere. If you need the meta-grammar to
+#   honor a user-specified `@whitespace` directive during parsing of the same
+#   file (rare), you can modify the grammar to re-interpret `sp` after
+#   parsing directives (two-pass parse) or embed conditional predicates.
+# - For performance, consider custom YAEP predicates for Unicode category
+#   membership and for matching `anyCharExcept(...)` sets; these predicates can
+#   be implemented in the YAEP host language (C) and registered for use in the
+#   grammar to avoid exploding the grammar with explicit ranges.
+
+#####################################################################
+# End of scannerless meta-grammar
+#####################################################################
