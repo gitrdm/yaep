@@ -424,6 +424,13 @@ target_link_libraries( test49 yaep_static )
 add_test( NAME yaep-test49 COMMAND test49 1 2 )
 file( READ ${TEST_DATA_DIR}/test49.out TEST_OUTPUT )
 rescape( TEST_OUTPUT "${TEST_OUTPUT}" )
+
+# Simple Leo exercise test (right-recursive grammar)
+add_executable( test50 test50.c )
+target_link_libraries( test50 yaep_static )
+add_test( NAME yaep-test50 COMMAND test50 1 0 )
+file( READ ${TEST_DATA_DIR}/test06.out TEST_OUTPUT )
+set_tests_properties( yaep-test50 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}$" )
 set_tests_properties( yaep-test49 PROPERTIES PASS_REGULAR_EXPRESSION "^${TEST_OUTPUT}" )
 
 set( _yaep_c_test_targets
