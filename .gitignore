@@ -32,10 +32,7 @@ cmake_install.cmake
 test/*.out
 fuzz/build/
 fuzz/build_debug/
-fuzz/corpus/
 fuzz/results/
-fuzz/telemetry.csv
-fuzz/*
 crash-*
 leak-*
 slow-unit-*
@@ -81,3 +78,4 @@ build/
 htmlcov/
 _test50_stdout.txt
 _warnings_now.txt
+fuzz/run_one_noasan

@@ -1,0 +1,4 @@
+%token NUMBER
+%%
+expr : NUMBER
+     ;

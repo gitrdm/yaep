@@ -1,0 +1,5 @@
+%token ID
+%%
+list : list ',' ID
+     | ID
+     ;

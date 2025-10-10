@@ -1,0 +1,7 @@
+%token NUM
+%%
+expr : expr '+' term
+     | term
+     ;
+term : NUM
+     ;
