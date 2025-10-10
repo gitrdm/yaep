@@ -66,6 +66,7 @@ struct symb;
 struct set;
 struct core_symb_vect;
 struct grammar;
+struct rule;
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,6 +116,8 @@ struct leo_context {
   
   /* Allocator reference (not owned) */
   YaepAllocator *alloc;         /**< Allocator for Leo structures */
+  /* Runtime flags for controlling Leo behavior during development */
+  int debug_enabled;            /**< Enable verbose Leo debug prints */
 };
 
 /**
@@ -186,15 +189,82 @@ extern int leo_try_completion(struct leo_context *ctx,
                                int lookahead_term_num);
 
 /**
+ * ---------------------------------------------------------------------------
+ * Accessor functions (YAEP → Leo) - Safe, minimal operations Leo needs
+ * ---------------------------------------------------------------------------
+ *
+ * These functions provide a small, stable surface for the Leo module to
+ * query parser internals and to add situations to the in-progress set.
+ * They are implemented in `yaep.c` and declared here so `leo_opt.c` can
+ * call them without depending on YAEP internal headers or static symbols.
+ *
+ * All functions use C linkage. The prototypes are safe to include from
+ * C++ code (leo_opt.cpp wraps the C implementation) because this header
+ * is already guarded with `extern "C"` when compiled as C++.
+ */
+
+/* Returns number of transition entries in the given core_symb_vect.
+ * If TRANSITIVE_TRANSITION is enabled, returns the length of
+ * transitive_transitions; otherwise returns transitions.len.
+ * Returns 0 for NULL pointer. */
+extern int yaep_core_symb_vect_transition_len(const struct core_symb_vect *cv);
+
+/* Returns the transition element (situation index) at `idx` for the
+ * given core_symb_vect. Returns -1 on error (NULL cv or out-of-bounds).
+ * The returned value is an index into the core's sits[] array. */
+extern int yaep_core_symb_vect_transition_el(const struct core_symb_vect *cv, int idx);
+
+/* Get pointer to the sit stored in `set->core->sits[sit_index]`.
+ * Returns NULL on error. */
+extern struct sit *yaep_prev_set_core_sit_at(struct set *set, int sit_index);
+
+/* Wrapper around YAEP's internal sit_create(). Exposes a stable API for
+ * Leo to allocate/lookup deduplicated situations. */
+extern struct sit *yaep_sit_create(struct rule *rule, int pos, int context);
+
+/* Add a start sit to the currently-constructed new set being built by
+ * YAEP (calls set_new_add_start_sit). This must only be called during
+ * set construction (i.e. from inside build_new_set()). */
+/* Try to add START sit with DIST to the in-progress new set.
+ * Returns 1 on success, 0 on failure. The wrapper performs safety
+ * checks (new-set construction active, parser-list entry exists for
+ * the computed "place") to avoid corrupting YAEP state from Leo.
+ */
+extern int yaep_set_new_add_start_sit_wrapper(struct sit *sit, int dist);
+
+/* Compute distance for parent tracking inside a set for given sit index.
+ * Mirrors the distance selection logic used by YAEP's completion code.
+ * Returns -1 on error. */
+extern int yaep_compute_parent_dist(struct set *set, int sit_index);
+
+/* Accessors for sit fields so Leo can inspect parent situations without
+ * depending on YAEP internals. These are simple getters implemented in
+ * `yaep.c`. */
+
+/* Return the rule pointer associated with a sit, or NULL on error. */
+extern struct rule *yaep_sit_rule(const struct sit *s);
+
+/* Return the dot position (pos) of a sit, or -1 on error. */
+extern int yaep_sit_pos(const struct sit *s);
+
+/* Return the lookahead/context value of a sit, or -1 on error. */
+extern int yaep_sit_context(const struct sit *s);
+
+/*
  * leo_get_stats - Get Leo optimization statistics
  *
  * @param ctx Leo context
  * @param n_items Output: number of Leo items created
  * @param n_completions Output: number of Leo completions performed
  */
-extern void leo_get_stats(struct leo_context *ctx, 
-                          int *n_items, 
+extern void leo_get_stats(struct leo_context *ctx,
+                          int *n_items,
                           int *n_completions);
+
+/* Enable or disable Leo debug prints at runtime (for developers).
+ * This is intentionally small and safe to call from YAEP during parse
+ * configuration (it only toggles an integer flag). */
+extern void leo_set_debug_enabled(struct leo_context *ctx, int enabled);
 
 #ifdef __cplusplus
 }

@@ -299,6 +299,9 @@ extern int yaep_parse (struct grammar *grammar,
 /* The following function frees memory allocated for the grammar. */
 extern void yaep_free_grammar (struct grammar *grammar);
 
+/* Development helper: toggle Leo debug prints (safe wrapper) */
+extern void yaep_set_leo_debug(struct grammar *g, int enabled);
+
 /* The following function frees memory allocated for the parse tree.
    It must not be called until after yaep_free_grammar() has been called.
    ROOT must be the root of the parse tree as returned by yaep_parse().

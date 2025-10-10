@@ -62,6 +62,13 @@
 #include "yaep_macros.h"
 #include <execinfo.h>
 
+/* Forward declaration for wrapper implemented later in this TU. */
+void yaep_set_leo_debug(struct grammar *g, int enabled);
+
+/* Small wrapper to toggle Leo debug from external code.
+ * Implementation is placed later in the file after `struct grammar`
+ * is defined to avoid "invalid use of undefined type" errors. */
+
 /* Cast helpers for C vs C++ compilation.
    In C++, use static_cast to avoid -Wold-style-cast.
    In C, use traditional C casts. */
@@ -437,9 +444,9 @@ struct grammar
    *  1    - Static lookaheads (FIRST/FOLLOW sets, computed once)
    *  >= 2 - Dynamic lookaheads (context-sensitive, computed during parse)
    *
-   * Higher levels provide better disambiguation but cost more time.
-   * Level 1 recommended for most grammars.
-   */
+  *
+  * Level 1 recommended for most grammars.
+  */
   int lookahead_level;
   
   /** Number of tokens to successfully shift to finish error recovery
@@ -2974,6 +2981,10 @@ set_new_start (void)
   new_dists = NULL;
 }
 
+/* ...accessor wrappers moved below after set_new_add_start_sit() to avoid
+   incomplete-type and ordering issues. */
+
+
 /* Add start SIT with distance DIST at the end of the situation array
    of the set being formed. */
 #if MAKE_INLINE
@@ -2993,6 +3004,8 @@ set_new_add_start_sit (struct sit *sit, int dist)
   new_dists[new_n_start_sits] = dist;
   new_n_start_sits++;
 }
+
+/* ...accessor wrappers moved later (after core_symb_vect definition) */
 
 /**
  * set_add_new_nonstart_sit - Add nonstart situation to current set being built
@@ -3865,6 +3878,112 @@ core_symb_vect_init (void)
 #endif
   n_reduce_vects = n_reduce_vect_len = 0;
 }
+
+/* ----------------------------------------------------------------------
+ * YAEP accessor wrappers for Leo optimization module
+ * Implemented here so leo_opt.c can call into YAEP without directly
+ * accessing internal static structures. Keep these thin and safe.
+ * ---------------------------------------------------------------------- */
+
+int
+yaep_core_symb_vect_transition_len (const struct core_symb_vect *cv)
+{
+#ifdef TRANSITIVE_TRANSITION
+  if (!cv) return 0;
+  return cv->transitive_transitions.len;
+#else
+  if (!cv) return 0;
+  return cv->transitions.len;
+#endif
+}
+
+int
+yaep_core_symb_vect_transition_el (const struct core_symb_vect *cv, int idx)
+{
+  if (!cv) return -1;
+#ifdef TRANSITIVE_TRANSITION
+  if (idx < 0 || idx >= cv->transitive_transitions.len) return -1;
+  return cv->transitive_transitions.els[idx];
+#else
+  if (idx < 0 || idx >= cv->transitions.len) return -1;
+  return cv->transitions.els[idx];
+#endif
+}
+
+struct sit *
+yaep_prev_set_core_sit_at (struct set *set, int sit_index)
+{
+  if (!set || !set->core) return NULL;
+  if (sit_index < 0 || sit_index >= set->core->n_sits) return NULL;
+  return set->core->sits[sit_index];
+}
+
+struct sit *
+yaep_sit_create (struct rule *rule, int pos, int context)
+{
+  return sit_create (rule, pos, context);
+}
+
+int
+yaep_set_new_add_start_sit_wrapper (struct sit *sit, int dist)
+{
+  /* Safety: only allow adding start sits when a new set is being built. */
+  if (!new_set_ready_p)
+    return 0;
+  /* Dist must be positive (relative/absolute semantics handled by caller). */
+  if (dist <= 0)
+    return 0;
+  set_new_add_start_sit (sit, dist);
+  return 1;
+}
+
+int
+yaep_compute_parent_dist (struct set *set, int sit_index)
+{
+  if (!set || !set->core) return -1;
+  if (sit_index < 0 || sit_index >= set->core->n_sits) return -1;
+  if (sit_index >= set->core->n_all_dists)
+#ifdef TRANSITIVE_TRANSITION
+    return 0; /* default/unknown */
+#else
+    return 0;
+#endif
+  if (sit_index < set->core->n_start_sits)
+    return set->dists[sit_index];
+  return set->dists[set->core->parent_indexes[sit_index]];
+}
+
+/* ----------------------------------------------------------------------
+ * Sit field accessors for Leo module
+ * These are thin getters that expose the needed sit fields without
+ * exporting internal structures to other translation units. They must
+ * have external linkage so leo_opt.c / leo_opt.cpp can call them.
+ * ---------------------------------------------------------------------- */
+
+struct rule *
+yaep_sit_rule (const struct sit *s)
+{
+  if (!s)
+    return NULL;
+  return s->rule;
+}
+
+int
+yaep_sit_pos (const struct sit *s)
+{
+  if (!s)
+    return -1;
+  return s->pos;
+}
+
+int
+yaep_sit_context (const struct sit *s)
+{
+  if (!s)
+    return -1;
+  return s->context;
+}
+
 
 #ifdef USE_CORE_SYMB_HASH_TABLE
 
@@ -5988,8 +6107,8 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 	  
 	  /* Find all items in origin set waiting for this nonterminal (B)
 	   * These are items of form: A → α . B γ */
-	  prev_core_symb_vect = core_symb_vect_find (prev_set_core,
-						     new_sit->rule->lhs);
+      prev_core_symb_vect = core_symb_vect_find (prev_set_core,
+                             new_sit->rule->lhs);
 	  if (prev_core_symb_vect == NULL)
 	    {
 	      /* No items waiting for this nonterminal in origin set
@@ -5998,16 +6117,31 @@ build_new_set (struct set *set, struct core_symb_vect *core_symb_vect,
 	      assert (new_sit->rule->lhs == grammar->axiom);
 	      continue;
 	    }
+
+      /* Give Leo optimization module a chance to handle this completion.
+       * If leo_try_completion returns non-zero, it handled advancing
+       * waiting items and we should skip the standard completion loop. */
+      if (leo_try_completion(&grammar->leo_ctx,
+                             new_sit,
+                             prev_set,
+                             place,
+                             pl_curr,
+                             prev_core_symb_vect,
+                             lookahead_term_num))
+        continue;
 	  
 	  /* Get transition vector for waiting items (items with B after dot) */
 #ifdef TRANSITIVE_TRANSITION
-	  curr_el = prev_core_symb_vect->transitive_transitions.els;
-	  bound = curr_el + prev_core_symb_vect->transitive_transitions.len;
+  curr_el = prev_core_symb_vect->transitive_transitions.els;
+  bound = curr_el + prev_core_symb_vect->transitive_transitions.len;
 #else
-	  curr_el = prev_core_symb_vect->transitions.els;
-	  bound = curr_el + prev_core_symb_vect->transitions.len;
+  curr_el = prev_core_symb_vect->transitions.els;
+  bound = curr_el + prev_core_symb_vect->transitions.len;
 #endif
-	  assert (curr_el != NULL);
+  /* Defensive: if there are no waiting items the transition array may be
+   * NULL (len == 0). In that case there's nothing to advance; skip. */
+  if (curr_el == NULL)
+    continue;
 	  prev_sits = prev_set_core->sits;
 	  
 	  /* ADVANCE WAITING ITEMS: For each item waiting for B, advance its dot
@@ -8489,6 +8623,19 @@ yaep_free_grammar (struct grammar *g)
       yaep_alloc_del (allocator);
     }
   grammar = NULL;
+}
+
+/* Now that `struct grammar` is defined above, implement the small
+ * wrapper that toggles Leo debug. This avoids referencing `struct
+ * grammar` before its complete definition. */
+void
+yaep_set_leo_debug(struct grammar *g, int enabled)
+{
+  if (!g)
+    return;
+  if (!g->leo_ctx.initialized)
+    return;
+  leo_set_debug_enabled(&g->leo_ctx, enabled);
 }
 
 static void
