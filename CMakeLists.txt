@@ -23,7 +23,11 @@
 
 cmake_minimum_required(VERSION 3.15)
 
-project(yaep LANGUAGES C CXX)
+project(yaep 
+    VERSION 2.0.0
+    LANGUAGES C CXX
+    DESCRIPTION "Yet Another Earley Parser - High-performance parser library"
+)
 enable_testing()
 
 set(CMAKE_C_STANDARD 17)

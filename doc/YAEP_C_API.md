@@ -1,8 +1,5 @@
 # YAEP (Yet Another Earley Parser) - C Interface
 
-**Author:** Vladimir Makarov, <vmakarov@gcc.gnu.org>  
-**Date:** October 10, 2015
-
 This document describes YAEP (Yet Another Earley Parser) written in C/C++.
 
 ---
@@ -449,3 +446,9 @@ Frees all memory allocated for the parser. This function should be called the la
 * `yaep.h` - Complete API header file
 * Test files in `test/C/` for usage examples
 * `Internals.txt` - Internal implementation details
+
+---
+
+## Original Author
+
+This parser was originally created by **Vladimir Makarov** (<vmakarov@gcc.gnu.org>) in October 2015.
