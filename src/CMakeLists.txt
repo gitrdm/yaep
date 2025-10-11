@@ -68,7 +68,7 @@ set_target_properties( yaep_static PROPERTIES OUTPUT_NAME ${YAEP_LIB_STATIC} )
 
 add_library( yaep_shared SHARED ${YAEP_LIB_SOURCES} )
 set_target_properties( yaep_shared PROPERTIES OUTPUT_NAME ${YAEP_LIB} )
-set_target_properties( yaep_shared PROPERTIES VERSION 1.0.0 SOVERSION 1 )
+set_target_properties( yaep_shared PROPERTIES VERSION 2.0.0 SOVERSION 2 )
 
 # C++
 set( YAEPXX_LIB "${PROJECT_NAME}++" )
@@ -91,7 +91,7 @@ set_target_properties( yaep++_static PROPERTIES OUTPUT_NAME ${YAEPXX_LIB_STATIC}
 
 add_library( yaep++_shared SHARED ${YAEPXX_LIB_SOURCES} )
 set_target_properties( yaep++_shared PROPERTIES OUTPUT_NAME ${YAEPXX_LIB} )
-set_target_properties( yaep++_shared PROPERTIES VERSION 1.0.0 SOVERSION 1 )
+set_target_properties( yaep++_shared PROPERTIES VERSION 2.0.0 SOVERSION 2 )
 
 # Install
 set( YAEP_INCLUDE

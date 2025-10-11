@@ -5,16 +5,8 @@
 # Build directories
 /build*
 
-# Autotools build artifacts
-Makefile
-Makefile.in
-configure
-config.log
-config.status
-autom4te.cache/
-install-sh
-
 # CMake build artifacts
+Makefile
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -79,3 +71,6 @@ htmlcov/
 _test50_stdout.txt
 _warnings_now.txt
 fuzz/run_one_noasan
+
+# Doxygen generated documentation
+doc/doxygen/
