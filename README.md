@@ -92,14 +92,13 @@ static void parse (void)
   * For more details, please see the documentation in directory ``src/``,
     or the YAEP examples in files ``test*.c`` in directories ``test/C`` or ``test/C++``.
 
-# Installing:
+# Building and Installing:
   * ``mkdir build``
   * ``cd build``
-  * ``<srcdir>/configure --srcdir=<srcdir> --prefix=<prefix for install dirs>``
-    or ``cmake -DCMAKE_BUILD_TYPE=Release`` (make sure you have CMake installed)
-  * ``make``
-  * ``cmake --build build --target check`` (optional, builds all test helpers and runs the CTest suite)
-  * ``make install``
+  * ``cmake .. -DCMAKE_BUILD_TYPE=Release``
+  * ``cmake --build .``
+  * ``ctest`` (optional, runs the test suite)
+  * ``cmake --install . --prefix <install_prefix>``
 
 # Speed comparison of YACC, MARPA, YAEP, and GCC parsers:
 
